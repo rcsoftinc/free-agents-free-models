@@ -36,6 +36,8 @@ OPENCODE_AUTH="${OPENCODE_AUTH:-$HOME/.local/share/opencode/auth.json}"
 HERMES_AUTH="${HERMES_AUTH:-$HOME/.hermes/auth.json}"
 HERMES_CONFIG="${HERMES_CONFIG:-$HOME/.hermes/config.yaml}"
 KILO_DB="${KILO_DB:-$HOME/.local/share/kilo/kilo.db}"
+KILO_CONFIG="${KILO_CONFIG:-$HOME/.config/kilo/kilo.jsonc}"
+HERMES_ENV="${HERMES_ENV:-$HOME/.hermes/.env}"
 
 # Models that are reachable but pathological (hang instead of erroring, so they
 # burn a full attempt timeout on every try). Kept out of the registry entirely.
@@ -51,6 +53,13 @@ have() { command -v "$1" >/dev/null 2>&1; }
 
 have jq   || die "jq is required"
 have curl || die "curl is required"
+
+# Wallet namespace: the API host the credential actually talks to, so two agents
+# naming the same vendor differently still land in one bucket.
+host_of() { # $1=base_url $2=fallback
+  local h; h="$(printf '%s' "${1:-}" | sed -E 's|^https?://||; s|/.*$||')"
+  printf '%s' "${h:-$2}"
+}
 
 fp() { # stable 12-char fingerprint; never prints the input
   local v="${1:-}"
@@ -69,40 +78,42 @@ jwt_subject() {
 }
 
 # ---------------------------------------------------------------- identities --
-# Each line: agent<TAB>provider<TAB>identity_fp<TAB>source<TAB>extra_json
+# Each line (\x1f-separated):
+#   agent | local_provider | wallet_ns | identity_fp | source | extra_json
+#
+# local_provider is what the CLI calls it in `models --verbose` - the JOIN key.
+# wallet_ns is what the credential actually talks to (an API host when known) -
+# the BUCKET-ID namespace. They differ whenever a CLI names a provider after its
+# protocol rather than its vendor: kilo calls OpenRouter "openai". Keeping them
+# apart is what lets the same key in two agents collapse to one bucket even when
+# each agent labels it differently.
 
 identities_opencode() {
   have opencode || return 0
   [[ -f "$OPENCODE_AUTH" ]] || return 0
   local provider key
-  while IFS=$'\t' read -r provider key; do
+  while IFS=$'\x1f' read -r provider key; do
     [[ -z "$provider" ]] && continue
-    printf 'opencode\t%s\t%s\t%s\t{}\n' \
-      "$provider" "$(fp "$key")" "opencode:auth.json"
+    printf 'opencode\x1f%s\x1f%s\x1f%s\x1f%s\x1f{}\n' \
+      "$provider" "$provider" "$(fp "$key")" "opencode:auth.json"
   done < <(jq -r 'to_entries[]
                   | [.key, (.value.key // .value.apiKey // .value.access // "")]
-                  | @tsv' "$OPENCODE_AUTH" 2>/dev/null)
+                  | join("\u001f")' "$OPENCODE_AUTH" 2>/dev/null)
 }
 
 identities_hermes() {
   have hermes || return 0
   [[ -f "$HERMES_AUTH" ]] || return 0
-  local provider tok subj ident base limits
-  while IFS=$'\t' read -r provider tok base; do
-    [[ -z "$provider" ]] && continue
+  local provider tok base subj ident
+  while IFS=$'\x1f' read -r provider tok base; do
     # OAuth access tokens rotate hourly - identify by the subject they carry.
     subj="$(jwt_subject "$tok" || true)"
     ident="$(fp "${subj:-$tok}")"
-    limits="$(jwt_limits "$tok")"
-    printf 'hermes\t%s\t%s\t%s\t%s\n' \
-      "$provider" "$ident" "hermes:auth.json" \
-      "$(jq -cn --arg b "$base" --argjson l "$limits" '{base_url:$b, limits:$l}')"
-  done < <(jq -r '.credential_pool // {} | to_entries[]
-                  | . as $e | ($e.value[0] // {})
-                  | [$e.key,
-                     (.access_token // .api_key // ""),
-                     (.inference_base_url // "")]
-                  | @tsv' "$HERMES_AUTH" 2>/dev/null)
+    printf 'hermes\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\n' \
+      "$provider" "$provider" "$ident" "hermes:auth.json" \
+      "$(jq -cn --arg b "$base" --argjson l "$(jwt_limits "$tok")" \
+          '{base_url:$b, limits:$l}')"
+  done < <(hermes_endpoints)
 }
 
 # Free-tier providers often publish their own limits inside the token.
@@ -121,14 +132,33 @@ jwt_limits() {
 identities_kilo() {
   have kilo || return 0
   local key=""
-  # kilo keeps credentials in sqlite; an empty store means the gateway is
-  # serving this machine unauthenticated, which is still a distinct wallet.
+  # kilo keeps its own gateway credential in sqlite; an empty store means the
+  # gateway is serving this machine unauthenticated, which is still a distinct
+  # wallet from any account-backed one.
   if [[ -f "$KILO_DB" ]] && have sqlite3; then
     key="$(sqlite3 "$KILO_DB" \
       "SELECT COALESCE(access_token,'') FROM account LIMIT 1;" 2>/dev/null || true)"
   fi
-  printf 'kilo\tkilo\t%s\t%s\t{}\n' "$(fp "$key")" \
+  printf 'kilo\x1fkilo\x1fkilo\x1f%s\x1f%s\x1f{}\n' "$(fp "$key")" \
     "$([[ -n "$key" ]] && echo 'kilo:kilo.db' || echo 'kilo:unauthenticated')"
+
+  # Extra OpenAI-compatible providers configured in kilo.jsonc (e.g. OpenRouter).
+  # The provider NAME is local config ("openai"); the wallet is the base URL's
+  # host plus the key, so the same key in another agent still collapses to one
+  # bucket regardless of what each agent calls the provider.
+  [[ -f "$KILO_CONFIG" ]] || return 0
+  jq -e . "$KILO_CONFIG" >/dev/null 2>&1 || {
+    log "warning: $KILO_CONFIG is not plain JSON (comments?) - skipping its providers"
+    return 0
+  }
+  local name pkey base
+  while IFS=$'\x1f' read -r name pkey base; do
+    [[ -z "$name" || -z "$pkey" ]] && continue
+    printf 'kilo\x1f%s\x1f%s\x1f%s\x1f%s\x1f{}\n' \
+      "$name" "$(host_of "$base" "$name")" "$(fp "$pkey")" "kilo:kilo.jsonc[$name]"
+  done < <(jq -r '.provider // {} | to_entries[]
+                  | [.key, (.value.options.apiKey // ""), (.value.options.baseURL // "")]
+                  | join("\u001f")' "$KILO_CONFIG" 2>/dev/null)
 }
 
 collect_identities() {
@@ -166,24 +196,57 @@ models_from_verbose() { # $1=cli  -> provider<TAB>model_arg<TAB>upstream<TAB>fre
     done
 }
 
-# hermes/nous: ask the inference API what this credential can actually see.
-models_hermes() { # -> provider<TAB>model_arg<TAB>upstream<TAB>free
+# hermes reaches several gateways. Emit (provider, token, base_url) triples from
+# BOTH sources: OAuth entries carry their own token; env-var-backed entries carry
+# only a base_url and point at a key in ~/.hermes/.env.
+hermes_endpoints() { # -> provider<TAB>token<TAB>base_url
   [[ -f "$HERMES_AUTH" ]] || return 0
+  local provider tok base envvar val
+  # NOTE: IFS=$'\t' would COLLAPSE consecutive tabs (tab is IFS whitespace), so a
+  # row with an empty token silently shifts base_url into tok. Use a
+  # non-whitespace separator wherever a field may legitimately be empty.
+  while IFS=$'\x1f' read -r provider tok base; do
+    [[ -z "$provider" || -z "$base" ]] && continue
+    if [[ -z "$tok" && -f "$HERMES_ENV" ]]; then
+      envvar="$(printf '%s' "$provider" | tr '[:lower:]' '[:upper:]')_API_KEY"
+      val="$(grep -oP "(?<=^${envvar}=).*" "$HERMES_ENV" 2>/dev/null | head -1)"
+      val="${val%\"}"; val="${val#\"}"; val="${val%\'}"; val="${val#\'}"
+      tok="$val"
+    fi
+    [[ -z "$tok" ]] && continue
+    printf '%s\x1f%s\x1f%s\n' "$provider" "$tok" "$base"
+  done < <(jq -r '.credential_pool // {} | to_entries[]
+                  | . as $e | ($e.value[0] // {})
+                  | [$e.key, (.access_token // .api_key // ""),
+                     (.inference_base_url // .base_url // "")]
+                  | join("\u001f")' "$HERMES_AUTH" 2>/dev/null)
+}
+
+# Ask each gateway what THIS credential can actually see, and use whichever free
+# signal that gateway publishes:
+#   isFree            authoritative when present (kilo gateway)
+#   pricing == 0      OpenAI-style catalogues
+#   ":free" suffix    naming convention; last resort (nous prices nothing)
+# Pricing alone is not enough - the kilo gateway reports "-1" for models whose
+# price is dynamic, which would read as non-zero and hide genuinely free models.
+models_hermes() { # -> provider<TAB>model_arg<TAB>upstream<TAB>free
+  have hermes || return 0
   local provider tok base out
-  while IFS=$'\t' read -r provider tok base; do
-    [[ -z "$provider" || -z "$tok" || -z "$base" ]] && continue
+  while IFS=$'\x1f' read -r provider tok base; do
     out="${TEMP_DIR}/hermes.${provider}.models"
     curl -sS --max-time 45 -H "Authorization: Bearer ${tok}" \
       "${base%/}/models" -o "$out" 2>/dev/null || continue
-    jq -e '.data' "$out" >/dev/null 2>&1 || continue
-    # Free tier: only ":free" models are actually served on a $0 balance.
-    jq -r --arg p "$provider" '.data[].id
-           | select(test(":free$"))
-           | [$p, ., ., "true"] | @tsv' "$out" 2>/dev/null
-  done < <(jq -r '.credential_pool // {} | to_entries[]
-                  | . as $e | ($e.value[0] // {})
-                  | [$e.key, (.access_token // ""), (.inference_base_url // "")]
-                  | @tsv' "$HERMES_AUTH" 2>/dev/null)
+    jq -e '.data | type == "array"' "$out" >/dev/null 2>&1 || continue
+    jq -r --arg p "$provider" '.data[]
+           | . as $m
+           | (if ($m.isFree != null) then $m.isFree
+              elif ($m.pricing.prompt != null and $m.pricing.completion != null
+                    and ($m.pricing.prompt|tonumber?) == 0
+                    and ($m.pricing.completion|tonumber?) == 0) then true
+              else ($m.id | test(":free$")) end) as $free
+           | select($free)
+           | [$p, $m.id, $m.id, "true"] | @tsv' "$out" 2>/dev/null
+  done < <(hermes_endpoints)
 }
 
 # ------------------------------------------------------------------- probing --
@@ -252,9 +315,9 @@ probe_one() { # $1=agent $2=model_arg -> "state<TAB>ms"
 cmd_identify() {
   local rows; rows="$(collect_identities)"
   [[ -z "$rows" ]] && die "no agents or credentials found"
-  printf '%s\n' "$rows" | while IFS=$'\t' read -r agent provider ident source extra; do
-    printf '%-9s %-12s bucket=%-24s source=%s\n' \
-      "$agent" "$provider" "${provider}:${ident}" "$source"
+  printf '%s\n' "$rows" | while IFS=$'\x1f' read -r agent lp wallet ident source extra; do
+    printf '%-9s %-12s bucket=%-30s source=%s\n' \
+      "$agent" "$lp" "${wallet}:${ident}" "$source"
   done
 }
 
@@ -285,26 +348,28 @@ cmd_discover() {
   jq -Rn \
     --slurpfile prev "$( [[ -f "$REGISTRY" ]] && echo "$REGISTRY" || echo /dev/null )" \
     --rawfile ids "$idfile" --rawfile models "$modfile" '
-    def tsv($s): $s | split("\n") | map(select(length>0) | split("\t"));
+    def tsv($s): $s | split("\n") | map(select(length>0) | split("\u001f"));
 
-    (tsv($ids)  | map({agent:.[0], provider:.[1], ident:.[2], source:.[3],
-                       extra:(.[4] // "{}" | fromjson)})) as $ids
-  | (tsv($models)| map({agent:.[0], provider:.[1], model_arg:.[2],
-                        upstream:.[3], free:(.[4]=="true")})) as $models
+    (tsv($ids)  | map({agent:.[0], provider:.[1], wallet:.[2], ident:.[3],
+                       source:.[4], extra:(.[5] // "{}" | fromjson)})) as $ids
+  | ($models | split("\n") | map(select(length>0) | split("\t"))
+      | map({agent:.[0], provider:.[1], model_arg:.[2],
+             upstream:.[3], free:(.[4]=="true")})) as $models
   | ($ids | map({key:(.agent+"|"+.provider), value:.}) | from_entries) as $byap
   | ($prev[0].buckets // {}) as $old
 
   | ($models | map(select($byap[.agent+"|"+.provider] == null))) as $phantom
   | ($models | map(select($byap[.agent+"|"+.provider] != null))) as $real
 
-  | ($real | group_by($byap[.agent+"|"+.provider].ident + "|" + .provider)
+  | ($real | group_by($byap[.agent+"|"+.provider] | .wallet + ":" + .ident)
       | map(
           ($byap[.[0].agent+"|"+.[0].provider]) as $id
-        | (.[0].provider + ":" + $id.ident) as $bid
+        | ($id.wallet + ":" + $id.ident) as $bid
         | { key: $bid,
             value: {
               id: $bid,
-              provider: .[0].provider,
+              provider: $id.wallet,
+              local_providers: ([.[].provider] | unique),
               credential_fp: $id.ident,
               credential_sources: ([.[] | $byap[.agent+"|"+.provider].source] | unique),
               reachable_via: ([.[].agent] | unique),

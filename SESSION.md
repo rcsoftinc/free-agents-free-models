@@ -61,8 +61,33 @@ underneath — the primitive no layer has today.
 Wrong — that came from the catalog, and the catalog was incomplete. Nous is hermes's
 active provider and a real independent bucket.
 
-**Done this session:** `git init` + baseline commit (89 files; `.env` and `.backups/`
-gitignored). D2 fixed in all 3 call sites, all pass `bash -n`.
+**Built this session — `bin/buckets.sh` (step 2), working:**
+`identify` / `discover` / `probe [--all|--bucket ID]` / `show`.
+State: `~/.local/state/free-agents/buckets.json` (global; per-project run state comes later).
+Live: **4 buckets, 58 free models, 0 phantom, all 4 health=ok.**
+
+- Bucket id = `provider:credential_fp`, **derived from the credential, not the agent** —
+  so shared keys collapse to one lane automatically and are flagged as SHARED WALLET.
+- Identity is stable, not secret-derived: OAuth uses the JWT `sub` claim, because hermes's
+  nous token rotates hourly and would otherwise mint a new bucket every hour.
+- Health precedence implemented: `rate_limited`/`no_credits`/`auth_error` condemn the
+  **bucket**; `timeout`/`dead` demote the **model only**; `local_network` is recorded
+  **nowhere**. Proven in practice — the opencode wallet had 2 of 4 models hang for 90s each
+  and still came out `health=ok` on the third. Naive logic would have discarded that lane.
+- **D1 resolved by construction**: models enumerated per held credential, never from
+  third-party metadata. Verified each CLI advertises only its authenticated providers.
+- **Bug found + fixed: stdin drain.** `opencode run`/`kilo run`/`hermes` read stdin and
+  swallowed the probe loop's input, so only one bucket was ever probed. All calls now use
+  `</dev/null`. **`runner.sh` and `dispatch.sh` still need auditing for the same defect.**
+- Blocklist: `opencode/mimo-v2.5-free` (hangs). `opencode/hy3-free` and
+  `opencode/muse-spark-1.2-contributor-free` also hang — add them.
+
+**Also done:** `git init` + baseline commit (89 files; `.env` and `.backups/` gitignored).
+D2 fixed in all 3 call sites. 3 commits total.
+
+**Correction:** `.env`'s `FREEMODEL_API_KEY` **IS** opencode's OpenRouter key (same
+fingerprint `267745bc…`) — an earlier claim that it matched nothing came from a broken
+fingerprint loop. The bootstrap bridge works.
 
 ### Done in earlier sessions
 - Read entire repo; wrote `docs/ANALYSIS.md`.
@@ -75,10 +100,19 @@ gitignored). D2 fixed in all 3 call sites, all pass `bash -n`.
 1. Read `docs/ALIGNMENT.md`.
 2. Run verification items §6 (**V3 first** — do kilo/hermes read `AGENTS.md`? It's the
    one that could change the design).
-3. Continue the build order §5. Steps 1 (git) and 1.5 (D2) are DONE. Next is
-   **step 2: the bucket registry, built from probed reachability** (absorbs D1), then
-   step 3 (`local_network` class + D3 content-based classification), then step 4
-   (B1 `--workdir`/`cd` + per-project state).
+3. Continue the build order §5. **Steps 1 (git), 1.5 (D2) and 2 (bucket registry) are
+   DONE** — see `docs/ALIGNMENT.md` §9. Next is **step 3**: fold `classify()` from
+   `bin/buckets.sh` into the single dispatch engine and make the M1 bucket breaker act on
+   the `health` field the registry now maintains. Then step 4 (B1 `--workdir`/`cd` +
+   per-project state).
+
+**USER IS ABOUT TO ADD API KEYS TO ALL AGENTS.** After they do, run:
+```
+bin/buckets.sh identify && bin/buckets.sh discover && bin/buckets.sh probe
+```
+Watch for `** SHARED WALLET **` in `show`. If a key is reused across agents they collapse
+into one bucket — one lane, never parallel. Distinct keys = genuinely new lanes. The
+registry detects this automatically; no config needed.
 
 ---
 

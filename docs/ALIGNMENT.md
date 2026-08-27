@@ -434,9 +434,10 @@ have thrown away 3 working models and an entire independent lane over one bad en
 breaker (M1) must fire only on **bucket-attributable** signals — 429 / auth / billing — and
 never on a single model's hang, which demotes **that model only**.
 
-Also: `.env`'s `FREEMODEL_API_KEY` (fp `267745bc…`) **matches nothing** in opencode's
-`auth.json` (`c48fc67f…`, `28644a4b…`). It is stale or unused — the bootstrap bridge
-described in M3 is not actually in effect on this machine.
+Also: `.env`'s `FREEMODEL_API_KEY` (fp `267745bc…`) **is** opencode's OpenRouter key —
+identical fingerprint. The M3 bootstrap bridge **is** in effect for opencode. (An earlier
+draft of this file claimed the opposite; that came from a broken fingerprint loop, and the
+authoritative values are the ones `bin/buckets.sh identify` now prints.)
 
 > **New defect — D2 (blocking): `runner.sh`'s hermes invocation is wrong.**
 > `runner.sh:426` runs `hermes chat -m "$model" -z "$prompt"` → **exit 2, usage error**.
@@ -533,3 +534,103 @@ claims, and not composed of the same models it names.
   worked**; every hermes attempt Layer B ever made was scored as a model failure. Hermes
   ranking history must be reset, not trusted.
 - **Repo is now under git** (`git init`, baseline commit, `.env` and `.backups/` ignored).
+
+
+---
+
+## 9. BUILT — step 2: the bucket registry (`bin/buckets.sh`)
+
+```
+bin/buckets.sh identify           credential identities, no network
+bin/buckets.sh discover [--probe] build registry from real credentials + model lists
+bin/buckets.sh probe [--all] [--bucket ID]   prove reachability
+bin/buckets.sh show               summary
+```
+
+State: `~/.local/state/free-agents/buckets.json` (override `FREE_AGENTS_STATE`).
+Global on purpose — what's learned about a wallet is true for every project (M4).
+
+### Identity is stable, not the secret
+
+```
+api key  -> sha256(key)[:12]
+oauth    -> sha256(subject-claim)[:12]
+none     -> "anon"
+```
+
+Hermes's nous token is OAuth and **rotates hourly**. Fingerprinting the raw token would
+mint a brand-new bucket every hour and destroy all accumulated health history, so the
+identity is the JWT's `sub` claim instead. Same wallet, same id, across rotations.
+
+### Why this answers your independence rule mechanically
+
+Bucket id is `provider:credential_fp` — **derived from the credential, never the agent.**
+So when you add API keys to everything next, the collapse case handles itself: put your
+OpenRouter key into hermes and both agents produce bucket id `openrouter:267745bca564`,
+`reachable_via` becomes `["opencode","hermes"]`, and `show` prints
+
+```
+** SHARED WALLET: opencode + hermes hit the same credential - ONE lane, never run them in parallel **
+```
+
+No configuration, no manual bookkeeping. Give hermes a *different* key and it becomes a
+genuinely separate bucket and a genuinely extra lane. **That is the difference your rule
+depends on, and it is now detected rather than assumed.**
+
+### Live output
+
+```
+buckets=4  free_models=58  phantom=0
+
+opencode:14a1a2f827d5     health=?   opencode   4 free
+openrouter:267745bca564   health=ok  opencode  24 free
+nous:6b7db10dba77         health=ok  hermes     6 free
+                          limits: rpm=50 tpm=500000 rph=2100 tph=6000000 paid=false
+kilo:anon                 health=ok  kilo      24 free
+```
+
+58 free models across 4 wallets — more than the old catalog's 52, because that one applied
+a 200k-context filter and simultaneously carried 7 phantom routes.
+
+### D1 is fixed by construction
+
+The registry enumerates models **per credential the agent actually holds**, never from
+third-party metadata. Verified: `opencode models --verbose` advertises only `openrouter`
+(356) and `opencode` (61) — exactly its two authenticated providers — and kilo only `kilo`
+(301). The old catalog's phantom `hermes/openrouter` rows came from reading models.dev
+instead of asking the CLI. `phantom_routes` is retained in the schema as a tripwire for
+the day a CLI advertises something it cannot reach.
+
+### Health rules, and the case that proves them
+
+`probe` records the health precedence argued for in §8:
+
+| Signal | Effect |
+|---|---|
+| `ok` | bucket healthy, failure counter reset |
+| `rate_limited` / `no_credits` / `auth_error` | **bucket-attributable** → bucket state + counter (feeds the M1 breaker) |
+| `timeout` / `dead` | **model only** — bucket keeps its prior state |
+| `local_network` | **recorded nowhere** (M2) |
+
+The opencode wallet exercised this for real: `opencode/hy3-free` hung for 90 s, the model
+was marked `timeout`, and the bucket stayed uncondemned. Under a naive scheduler that one
+hang would have written off an entire independent lane. Liveness now walks up to
+`LIVENESS_TRIES` (3) models before judging a wallet, and stops early on a bucket-level
+refusal because a limited wallet fails identically on every model.
+
+### Two bugs found and fixed while building it
+
+- **stdin drain.** `opencode run` / `kilo run` / `hermes` all read stdin, so the first
+  probe swallowed the rest of the read-loop's input and only one bucket was ever probed.
+  All invocations now use `</dev/null`. **This affects every agent call in the project** —
+  `runner.sh` and `dispatch.sh` should be audited for the same defect before they run
+  probes or loops over agent calls.
+- **Blocklist.** `opencode/mimo-v2.5-free` and `opencode/hy3-free` hang rather than
+  erroring, burning a full timeout per attempt. `mimo` is blocklisted by default
+  (`BUCKETS_BLOCKLIST`); `hy3-free` is a candidate for the same.
+
+### Next
+
+Step 3: fold `classify()` (already written here, with `local_network` and the hermes
+content rules for D3) into the single dispatch engine, and make the M1 breaker act on the
+`health` field this registry now maintains.

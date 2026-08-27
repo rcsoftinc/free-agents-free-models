@@ -1,0 +1,17 @@
+{
+  "$schema": "./config.schema-note: all durations; hours unless suffixed _minutes/_seconds",
+  "staleHours": 24,
+  "balanceCacheMinutes": 60,
+  "runTimeoutSeconds": 900,
+  "maxAttemptsPerRun": 8,
+  "autoRefreshOnStale": true,
+  "retryAfter": {
+    "rate_limited_minutes": 30,
+    "no_credits_hours": 24,
+    "dead_hours": 72,
+    "timeout_minutes": 10
+  },
+  "openrouterKeyApiUrl": "https://openrouter.ai/api/v1/auth/key",
+  "authJsonPath": "~/.local/share/opencode/auth.json",
+  "lastResortModel": ""
+}

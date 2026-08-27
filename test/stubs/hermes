@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# Stub agent (opencode/kilo/hermes) for offline, deterministic testing.
+# Behavior is controlled by env vars:
+#   <AGENT>_STUB_MODE  : success | ratelimit | error   (default: success)
+#   GOOD_MODEL         : if set and equals the -m model_id, force success
+#   STUB_LOG           : if set, append invocations to this file
+# Reproduces the real-world bug: on a credit/rate-limit error the upstream
+# `opencode run` exits 0 while printing an error message to stdout.
+
+AGENT="$(basename "$0")"
+
+# Parse -m <model_id>
+MODEL_ID=""
+prev=""
+for a in "$@"; do
+  if [[ "$prev" == "-m" ]]; then MODEL_ID="$a"; fi
+  prev="$a"
+done
+
+MODE="${AGENT}_STUB_MODE"
+MODE="${!MODE:-success}"
+
+if [[ -n "${STUB_LOG:-}" ]]; then
+  echo "${AGENT} ${MODEL_ID} mode=${MODE}" >> "${STUB_LOG}"
+fi
+
+# Append a one-line trace (agent|model_id|epoch) used by distribution tests to
+# observe which agent/provider each task used and in what order.
+if [[ -n "${STUB_TRACE:-}" ]]; then
+  echo "${AGENT}|${MODEL_ID}|$(date +%s)" >> "${STUB_TRACE}"
+fi
+
+# GOOD_MODEL override: force success for a specific model
+if [[ -n "${GOOD_MODEL:-}" && "$MODEL_ID" == "$GOOD_MODEL" ]]; then
+  MODE="success"
+fi
+
+case "$MODE" in
+  ratelimit)
+    # Exact OpenRouter credit/in-flight message; exits 0 (the bug we reproduce)
+    printf 'Error: This request would exceed your available credits given your in-flight requests. Retry after in-flight requests settle, or add credits.'
+    exit 0
+    ;;
+  error)
+    printf 'generic failure: something went wrong'
+    exit 1
+    ;;
+  hang)
+    # Simulate a combo that never returns (e.g. network stall). The runner's
+    # ATTEMPT_TIMEOUT should kill it and move on.
+    sleep 60
+    printf 'should never be seen'
+    exit 0
+    ;;
+  plan)
+    # A valid orchestrator plan JSON for testing orchestrator.sh.
+    printf '{"project_name":"x","summary":"s","tech_stack":["node"],"phases":[{"name":"p","description":"d","tasks":[{"id":"task-001","role":"researcher","task_type":"analysis","description":"a","files":[],"priority":"high","dependencies":[]}]}]}'
+    exit 0
+    ;;
+  slow)
+    # Like success but sleeps first, so parallel tasks overlap long enough for
+    # agent-distribution assertions.
+    sleep 1
+    printf '{"ok":true,"agent":"%s","model":"%s","summary":"stub slow success"}' "$AGENT" "$MODEL_ID"
+    exit 0
+    ;;
+  success|*)
+    printf '{"ok":true,"agent":"%s","model":"%s","summary":"stub success"}' "$AGENT" "$MODEL_ID"
+    exit 0
+    ;;
+esac

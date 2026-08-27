@@ -256,12 +256,20 @@ models_hermes() { # -> provider<TAB>model_arg<TAB>upstream<TAB>free
 # loop input (a read-loop over probes would run exactly once).
 # NOTE: exit codes are unreliable (hermes returns 0 on HTTP 404 and on billing
 # refusal), so callers MUST classify on content, not on rc alone.
-invoke() { # $1=agent $2=model_arg $3=prompt
-  local agent="$1" model="$2" prompt="$3" rc=0 out=""
+invoke() { # $1=agent $2=model_arg $3=prompt $4=provider(optional)
+  local agent="$1" model="$2" prompt="$3" provider="${4:-}" rc=0 out=""
   case "$agent" in
     opencode) out="$(timeout "$PROBE_TIMEOUT" opencode run -m "$model" "$prompt" </dev/null 2>&1)" || rc=$? ;;
     kilo)     out="$(timeout "$PROBE_TIMEOUT" kilo run -m "$model" --auto "$prompt" </dev/null 2>&1)" || rc=$? ;;
-    hermes)   out="$(timeout "$PROBE_TIMEOUT" hermes -m "$model" -z "$prompt" </dev/null 2>&1)" || rc=$? ;;
+    hermes)
+      # hermes resolves a bare -m against its ACTIVE provider only, so a model
+      # from any other configured gateway 404s unless --provider names it.
+      if [[ -n "$provider" ]]; then
+        out="$(timeout "$PROBE_TIMEOUT" hermes --provider "$provider" -m "$model" -z "$prompt" </dev/null 2>&1)" || rc=$?
+      else
+        out="$(timeout "$PROBE_TIMEOUT" hermes -m "$model" -z "$prompt" </dev/null 2>&1)" || rc=$?
+      fi
+      ;;
     *) return 3 ;;
   esac
   printf '%s' "$out"
@@ -302,10 +310,10 @@ classify() { # $1=rc $2=output
   echo dead
 }
 
-probe_one() { # $1=agent $2=model_arg -> "state<TAB>ms"
-  local agent="$1" model="$2" out rc=0 t0 t1
+probe_one() { # $1=agent $2=model_arg $3=provider -> "state<TAB>ms"
+  local agent="$1" model="$2" provider="${3:-}" out rc=0 t0 t1
   t0=$(date +%s%3N)
-  out="$(invoke "$agent" "$model" "$PROBE_PROMPT")" || rc=$?
+  out="$(invoke "$agent" "$model" "$PROBE_PROMPT" "$provider")" || rc=$?
   t1=$(date +%s%3N)
   printf '%s\t%s\n' "$(classify "$rc" "$out")" "$((t1 - t0))"
 }
@@ -380,7 +388,8 @@ cmd_discover() {
               models: ([ .[] | . as $m | {
                   upstream: $m.upstream,
                   free: $m.free,
-                  routes: [{agent:$m.agent, model_arg:$m.model_arg}],
+                  routes: [{agent:$m.agent, model_arg:$m.model_arg,
+                            provider:$m.provider}],
                   probe: (($old[$bid].models // []
                            | map(select(.upstream == $m.upstream)) | .[0].probe)
                           // {state:"unprobed", at:null, ms:null})
@@ -438,11 +447,12 @@ candidates() { # $1=bucket_id
   jq -r --arg b "$1" '.buckets[$b] as $bk
     | $bk.models[] | select(.free)
     | . as $m
-    | ($m.routes[] | select(.agent == $bk.preferred_agent) | .model_arg) as $arg
+    | ($m.routes[] | select(.agent == $bk.preferred_agent)) as $r
     | [ (if $m.probe.state == "ok" then 0
          elif $m.probe.state == "unprobed" then 1
          elif $m.probe.state == "timeout" then 3
-         else 2 end), $arg ] | @tsv' "$REGISTRY" | sort -n | cut -f2
+         else 2 end), $r.model_arg, ($r.provider // "") ] | @tsv' "$REGISTRY" \
+    | sort -n | cut -f2,3
 }
 
 cmd_probe() {
@@ -463,11 +473,11 @@ cmd_probe() {
   for bid in $bids; do
     agent="$(jq -r --arg b "$bid" '.buckets[$b].preferred_agent' "$REGISTRY")"
     tried=0
-    while IFS= read -r model; do
+    while IFS=$'\t' read -r model provider; do
       [[ -z "$model" ]] && continue
       if [[ $all -eq 0 && $tried -ge $LIVENESS_TRIES ]]; then break; fi
       tried=$((tried+1))
-      IFS=$'\t' read -r state ms < <(probe_one "$agent" "$model")
+      IFS=$'\t' read -r state ms < <(probe_one "$agent" "$model" "$provider")
       log "$(printf '%-26s %-8s %-46s %-14s %sms' "$bid" "$agent" "$model" "$state" "$ms")"
       record_probe "$bid" "$model" "$state" "$ms"
       if [[ "$state" == "ok" ]]; then

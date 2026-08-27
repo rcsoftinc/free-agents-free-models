@@ -634,3 +634,93 @@ refusal because a limited wallet fails identically on every model.
 Step 3: fold `classify()` (already written here, with `local_network` and the hermes
 content rules for D3) into the single dispatch engine, and make the M1 breaker act on the
 `health` field this registry now maintains.
+
+
+---
+
+## 10. After adding keys — 6 buckets, and what the additions actually bought
+
+You added: OpenRouter to kilo, freemodel to opencode, kilo-gateway to hermes.
+Re-ran `identify / discover / probe`. **All credentials are distinct — no shared wallets,
+so these are genuine new lanes.**
+
+| Bucket | Credential | Agent | Free models | Health |
+|---|---|---|---:|---|
+| `kilo:anon` | kilo gateway, unauthenticated | kilo | 24 | ok |
+| `openrouter.ai:845a3f96` | `sk-or-v1-…` in kilo.jsonc | kilo | 21 | ok |
+| `kilocode:fac9bae9` | `KILOCODE_API_KEY` (JWT) in `~/.hermes/.env` | hermes | 20 | ok |
+| `nous:6b7db10d` | hermes OAuth, free tier | hermes | 6 | ok |
+| `opencode:14a1a2f8` | opencode account | opencode | 4 | ok |
+| `freemodel:40d72418` | `fe_oa_…` in opencode auth.json | opencode | **0** | — |
+
+**75 free models across 5 usable wallets, 0 phantom** — up from 58 across 4.
+Parallel width is now **5**, and `opencode` no longer reaches OpenRouter at all (adding
+`freemodel` replaced that entry in its `auth.json`; the OpenRouter key now lives in kilo).
+
+### Two things worth your attention
+
+**1. `freemodel` exposes 10 PAID models, not free ones.** Despite the name, its catalogue
+is Claude Opus 4.6/4.7/4.8, Sonnet 4.6, GPT-5.3/5.4/5.5 — advertised at real prices
+(`cost.input: 2.5, cost.output: 15`). Zero models priced at 0, so the registry lists the
+bucket with **0 free models and will never schedule to it**. That is the safe default and
+I have left it there rather than guessing.
+
+If that gateway actually serves those models free on your plan, the metadata does not say
+so, and **nothing but a bill will tell us**. Decide explicitly: leave it excluded, or mark
+it free via an override and accept the risk. I would leave it excluded — a wrong guess here
+is the only failure mode in this whole design that costs money rather than time.
+
+**2. `.env`'s `FREEMODEL_API_KEY` no longer matches anything in use.** It was opencode's
+OpenRouter key; opencode's `freemodel` key is different (`40d72418…`). The file is now stale.
+
+### Three defects this round surfaced
+
+- **D4 — `IFS=$'\t'` collapses empty fields.** Tab is IFS *whitespace*, so consecutive tabs
+  coalesce and a record with an empty middle field silently shifts its columns. This made
+  hermes's `kilocode` wallet vanish (its pool entry has no token, only a base_url, so the
+  URL slid into the token field). Every record that can carry an empty field now uses
+  `\x1f`. **Worth auditing `runner.sh` and `dispatch.sh` for the same pattern.**
+- **D5 — provider name ≠ wallet.** `kilo` calls OpenRouter `"openai"`, so joining models to
+  credentials on the provider string alone produced 21 phantom routes. The registry now
+  keeps the CLI's **local provider name** (the join key) separate from the **wallet
+  namespace** (the API host). This is what lets the same key in two agents collapse to one
+  bucket even when each agent labels it differently — the exact case your rule needs.
+- **D6 — a route is (agent, model, provider), not (agent, model).** `hermes -m X` resolves
+  only against its *active* provider, so every kilocode model returned HTTP 404 and was
+  classified `dead`. With `--provider kilocode` the same model answers `OK`. Routes now
+  carry the provider. **Without this the entire 20-model kilocode wallet would have been
+  written off as broken.**
+
+D6 is the same class of bug as D2 (the hermes `chat` misinvocation): **a wrong call shape
+looks exactly like a dead model.** That is why probing must be able to distinguish "this
+credential cannot serve this model" from "we asked incorrectly" — and why nothing should be
+written to a learning store on a signal we cannot attribute.
+
+### Flakiness observed, and why the health model absorbs it
+
+`opencode/nemotron-3.5-lightning-free` answered `OK` in 48 s on one run and hung past 90 s
+on the next. Its bucket stayed `ok` because liveness moved to `nemotron-3-ultra-free`.
+Per-model state degrades; the wallet does not. Three opencode models now hang
+(`mimo-v2.5-free`, `hy3-free`, `muse-spark-1.2-contributor-free`) and a fourth is
+intermittent — that bucket is real but weak, and the rankings will learn to deprioritise it
+without any manual list.
+
+### `bin/kilo-add-openrouter.sh`
+
+Your script, reworked. It had three bugs, one destructive:
+
+1. **Scope.** `.provider // {} | .openai = …` rebinds `.` to `.provider`, so the inner
+   `.provider.openai.models` read `.provider.provider.openai.models` — always null.
+   Existing models, whitelist and blacklist were silently discarded, not merged.
+2. **It dropped the apiKey.** The rewritten `options` had `baseURL` and `timeout` but no
+   `apiKey`. Running it on your current config would have **wiped the key you just added.**
+3. **`whitelist: ["*"]` + "assume all are free" spends money.** `"*"` exposes OpenRouter's
+   whole catalogue through that provider, paid models included, while downstream we treat
+   everything there as free. It now writes an explicit whitelist of the free ids, which
+   makes that assumption true by construction. `--all` opts back into `"*"`, with a warning.
+
+Also: free detection by zero pricing rather than a `test("free")` substring match (which
+matches `freeform`), response validation, a timestamped backup, `chmod 600`, no-echo key
+prompt, and the key reused from the config so re-runs need no argument.
+
+Verified: 21 free models registered, apiKey preserved, whitelist scoped to those 21.

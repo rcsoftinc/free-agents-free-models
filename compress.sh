@@ -98,7 +98,7 @@ EOF
       compressed=$(kilo run -m "${model_id}" --auto "${prompt}" 2>&1) || exit_code=$?
       ;;
     hermes)
-      compressed=$(hermes chat -m "${model_id}" -z "${prompt}" 2>&1) || exit_code=$?
+      compressed=$(hermes -m "${model_id}" -z "${prompt}" 2>&1) || exit_code=$?
       ;;
   esac
   

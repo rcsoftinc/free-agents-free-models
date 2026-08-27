@@ -425,7 +425,7 @@ invoke_agent() {
       out=$(timeout "${ATTEMPT_TIMEOUT}" kilo run -m "${model_id}" --auto "${prompt}" 2>&1) || rc=$?
       ;;
     hermes)
-      out=$(timeout "${ATTEMPT_TIMEOUT}" hermes chat -m "${model_id}" -z "${prompt}" 2>&1) || rc=$?
+      out=$(timeout "${ATTEMPT_TIMEOUT}" hermes -m "${model_id}" -z "${prompt}" 2>&1) || rc=$?
       ;;
     *)
       echo "Error: Unknown agent: ${agent}"

@@ -163,7 +163,7 @@ EOF
       kilo run -m "${model_id}" --auto "${prompt}" 2>/dev/null
       ;;
     hermes)
-      hermes chat -m "${model_id}" -z "${prompt}" 2>/dev/null
+      hermes -m "${model_id}" -z "${prompt}" 2>/dev/null
       ;;
     *)
       echo "Error: Unknown agent: ${agent}"

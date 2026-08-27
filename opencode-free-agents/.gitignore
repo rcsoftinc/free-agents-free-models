@@ -1,0 +1,8 @@
+﻿.env
+.env.local
+data/balance-cache.json
+data/.discovered.*.tsv
+data/.filtered.*.tsv
+data/.models.jsonl.*.tmp
+*.tmp
+*.lock

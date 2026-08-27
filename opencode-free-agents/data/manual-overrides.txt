@@ -1,0 +1,9 @@
+# manual-overrides.txt
+# --------------------
+# Models you declare usable even when metadata does not mark them free,
+# or models missing from `opencode models` output entirely.
+# One model id per line ("provider/model"). Lines starting with # are ignored.
+#
+# Examples (uncomment and edit as needed):
+# freemodel/ox-alpha-unlimited
+# openrouter/some/hidden-model

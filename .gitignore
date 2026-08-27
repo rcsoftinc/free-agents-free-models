@@ -1,0 +1,17 @@
+# secrets
+.env
+*.key
+
+# per-project run state (regenerated)
+.orch/
+.dispatch-results/
+.orchestrator/.backups/
+.orchestrator/*.lock
+.orchestrator/.agent_state.json
+
+# logs & test output
+*.log
+test/test.log
+
+# test debris
+JWT_AUTH_GUIDE.md

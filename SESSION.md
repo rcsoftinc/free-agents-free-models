@@ -25,19 +25,44 @@ network drops, resumes unfinished work. Objective: maximize free.
 delete **B's duplicate engine and global state**, and add a **bucket registry**
 underneath — the primitive no layer has today.
 
-### Key findings this session (evidence: `.orchestrator/catalog.json`)
-- **Three agents ≠ three free pools.** Real buckets: `opencode-account` (4 free),
-  `kilo-gateway` (21), `your-openrouter-key` (22, shared by opencode AND hermes).
-- **Hermes adds no independent quota** — all 7 of its free models are openrouter,
-  5 of them duplicates of opencode's. It's a third *runtime*, not a third wallet.
-  No `nous` provider exists in the catalog.
-- **The no-collision key must be `(bucket, upstream_model)`,** not agent+model.
-  Today `runner.sh` schedules agent-first — backwards.
-- **Tokens aren't the scarce resource; requests-per-bucket are.** Optimize for
-  bucket diversity, not token count.
-- **Missing and valuable:** bucket circuit breaker (M1), `local_network` error class
-  so an internet drop doesn't poison rankings for 72h (M2), per-project state (M4),
-  structural (not keyword) parallel gate (M5).
+### Key findings — VERIFIED BY PROBE, not inferred (see `docs/ALIGNMENT.md` §8)
+
+**4 independent buckets, 4 separate credentials, all live.** Parallel width 3–4.
+
+| Bucket | Credential | Agent | Free models |
+|---|---|---|---|
+| openrouter | opencode auth.json key `28644a4b…` | opencode | 20 |
+| kilo | none stored; gateway serves unauthenticated | kilo | 21 |
+| opencode-account | opencode auth.json key `c48fc67f…` | opencode | 4 (3 usable) |
+| nous | ~/.hermes/auth.json OAuth, free tier | hermes | 6 |
+
+- **The rule, settled with the user:** a bucket is ONE lane no matter how many agents reach
+  it. Parallel width = healthy buckets. One agent per bucket; others are failover, never
+  concurrent load. Today the mapping is clean and 1:1.
+- **`opencode` is the only agent spanning two buckets** (own account + OpenRouter key).
+  Different wallets, so concurrent use is legitimate — proving the constraint is
+  per-bucket, not per-agent.
+- Nous publishes real quota in its token: **50 rpm / 2100 rph / 500k tpm / 6M tph**, free tier.
+
+**New blocking defects found this session:**
+- **D1** — `discover.sh` catalogs *advertised* models, not *authenticated routes*. It
+  invented 7 phantom `hermes/openrouter` entries and missed the entire nous bucket
+  (372 advertised / 6 usable). Discovery must prove reachability.
+- **D2 — FIXED.** `hermes chat -m X -z P` was a usage error (rc=2); correct form is
+  `hermes -m X -z P`. Was wrong in `runner.sh:428`, `compress.sh:101`,
+  `orchestrator.sh:166`. **Layer B had never once invoked hermes successfully** — every
+  attempt was scored as a model failure. **Hermes ranking history is poisoned; reset it.**
+- **D3** — hermes exits **0** on HTTP 404 and on billing refusal. Exit codes are not a
+  success signal; classification must be content-based.
+- `opencode/mimo-v2.5-free` reproducibly hangs (>200s, no response) — blocklist it.
+- `.env`'s `FREEMODEL_API_KEY` matches no key in opencode's auth.json — stale/unused.
+
+**Earlier claim CORRECTED:** ANALYSIS/ALIGNMENT §1 said hermes has no `nous` provider.
+Wrong — that came from the catalog, and the catalog was incomplete. Nous is hermes's
+active provider and a real independent bucket.
+
+**Done this session:** `git init` + baseline commit (89 files; `.env` and `.backups/`
+gitignored). D2 fixed in all 3 call sites, all pass `bash -n`.
 
 ### Done in earlier sessions
 - Read entire repo; wrote `docs/ANALYSIS.md`.
@@ -50,8 +75,10 @@ underneath — the primitive no layer has today.
 1. Read `docs/ALIGNMENT.md`.
 2. Run verification items §6 (**V3 first** — do kilo/hermes read `AGENTS.md`? It's the
    one that could change the design).
-3. Then execute the build order §5, starting with **step 1: `git init`** — this tree
-   still has no version control.
+3. Continue the build order §5. Steps 1 (git) and 1.5 (D2) are DONE. Next is
+   **step 2: the bucket registry, built from probed reachability** (absorbs D1), then
+   step 3 (`local_network` class + D3 content-based classification), then step 4
+   (B1 `--workdir`/`cd` + per-project state).
 
 ---
 

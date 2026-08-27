@@ -377,3 +377,159 @@ V3 is the one that could actually move the design. Worth doing first.
 **None of them as-is.** Keep **A's engine**, keep **C's contract**, throw away **B's
 duplicate engine and global state**, and add the **bucket registry** underneath all of it —
 the primitive none of the three layers has, and the one your goal actually depends on.
+
+---
+
+## 8. VERIFIED — real bucket map (probed 2026-08-27, supersedes §1 where they differ)
+
+I probed every route instead of trusting the catalog. **Two of my §1 claims were wrong.**
+Corrections first, then the true map.
+
+### Corrections to §1
+
+**C2 was WRONG. Hermes DOES have a `nous` provider, and it is its real free tier.**
+`~/.hermes/auth.json` → `active_provider: nous`, OAuth device-code, and the token claims
+say plainly:
+
+```
+paid_access: false        rate_limit_source: free_hermes_agent
+rpm: 50    rph: 2100      tpm: 500 000    tph: 6 000 000
+```
+
+That is a genuinely independent bucket with **published quota numbers** — the only bucket
+that tells us its limits up front. `discover.sh` never saw it. My "no nous provider" claim
+came from reading the catalog; the catalog was incomplete.
+
+**The catalog contains phantom routes.** Hermes's `credential_pool` holds **nous only** —
+no OpenRouter credential, and `OPENROUTER_API_KEY` is unset in `~/.hermes/.env`. So the
+**7 `hermes/openrouter` free models in `catalog.json` are unreachable.** `config.yaml`
+documents openrouter as an *optional* fallback the user never configured. Discovery
+listed catalog metadata as if it were a usable route.
+
+> **New defect — D1 (blocking for scheduling): `discover.sh` catalogs advertised models,
+> not authenticated routes.** It both invented 7 phantom hermes routes and missed the
+> entire nous bucket. A scheduler built on this catalog would dispatch into nothing and
+> would never use hermes's actual free tier. **Discovery must prove reachability, not read
+> metadata.**
+
+### The verified map
+
+| Bucket | Credential | Reached via | Probe | Status |
+|---|---|---|---|---|
+| **openrouter** | opencode `auth.json`, key `28644a4b…` | `opencode` | `opencode run -m openrouter/nvidia/nemotron-3.5-lightning:free` → rc=0 `OK` | **live** |
+| **kilo** | none stored (`kilo.db` account/credential tables are **empty**) — gateway serves it unauthenticated | `kilo` | `kilo run -m kilo/nvidia/nemotron-3.5-lightning:free --auto` → rc=0 `OK` | **live** |
+| **nous** | `~/.hermes/auth.json`, OAuth, free tier | `hermes` | `hermes -m stepfun/step-3.7-flash:free -z '…'` → rc=0 `OK` | **live, 6 free models** |
+| **opencode-account** | opencode `auth.json`, key `c48fc67f…` | `opencode` | `opencode run -m opencode/nemotron-3.5-lightning-free` → rc=0 `OK` | **live** |
+
+**Four buckets, four separate credentials, all four confirmed LIVE.** Your independence
+requirement is fully satisfiable — a better position than §1 estimated.
+
+**One model inside bucket A is broken, and the bucket itself is fine.**
+`opencode/mimo-v2.5-free` hung past 200 s on two separate attempts (killed, never answered),
+while `opencode/nemotron-3.5-lightning-free` — *same key, same binary* — answered in seconds.
+
+This is the cleanest possible demonstration of why **per-model and per-bucket health must be
+separate state**: a scheduler that tripped the bucket breaker on that first 200 s hang would
+have thrown away 3 working models and an entire independent lane over one bad endpoint. The
+breaker (M1) must fire only on **bucket-attributable** signals — 429 / auth / billing — and
+never on a single model's hang, which demotes **that model only**.
+
+Also: `.env`'s `FREEMODEL_API_KEY` (fp `267745bc…`) **matches nothing** in opencode's
+`auth.json` (`c48fc67f…`, `28644a4b…`). It is stale or unused — the bootstrap bridge
+described in M3 is not actually in effect on this machine.
+
+> **New defect — D2 (blocking): `runner.sh`'s hermes invocation is wrong.**
+> `runner.sh:426` runs `hermes chat -m "$model" -z "$prompt"` → **exit 2, usage error**.
+> `-z` is a top-level flag, not a `chat` argument. The working form is `hermes -z '<prompt>'`.
+> Layer B has never successfully invoked hermes; every hermes attempt has been scored as a
+> model failure and fed into the rankings. **The learning store is already poisoned** —
+> exactly the M2 failure mode, from a bug rather than a network drop. Rankings must be
+> reset for hermes once the call is fixed.
+
+### What this means for your rule
+
+You said: *if two agent/model routes come from the same API key, don't use both.* Confirmed
+and now enforceable, with the stronger form:
+
+> **A bucket is ONE lane, regardless of how many agents can reach it.**
+> Parallel width = number of **healthy buckets** (today: **3**).
+> Per bucket, pick the **single best-performing agent** and route all its traffic through
+> that one; other agents are failover for that bucket, never concurrent load on it.
+
+Today that assignment is trivial because each live bucket has exactly one working agent:
+
+```
+openrouter → opencode    kilo → kilo    nous → hermes    opencode-acct → opencode
+```
+
+**4 buckets, 4 credentials, zero overlap.** Note `opencode` is the only agent reaching two
+buckets (its own account and your OpenRouter key). Those are different wallets, so running
+both concurrently *is* legitimate — the constraint is per-bucket, not per-agent. That is
+exactly the case an agent-keyed scheduler gets wrong in both directions and a bucket-keyed
+one gets right for free.
+
+Realistic parallel width: **3–4.** The scheduler's job
+is to keep it that way and to notice when it stops being true (e.g. if you later add your
+OpenRouter key to hermes, hermes and opencode collapse into one lane and must not run
+concurrently).
+
+### Effect on the build order
+
+- **D1 goes into step 2** — the bucket registry must be built from *probed* reachability.
+  Discovery emits a route only if a real call succeeded.
+- **D2 goes into step 1.5** — one-line fix, plus reset hermes's poisoned ranking history.
+- **Seed the model blocklist with `opencode/mimo-v2.5-free`** — it hangs rather than
+  erroring, burning a full attempt timeout every time. It belongs in `catalog.json`'s
+  `excluded_models` beside `opencode/big-pickle`.
+- A hang demotes **the model**, never the bucket (above). This is the concrete case that
+  pins down the M1 breaker's trigger conditions.
+
+### 8b. The nous bucket, mapped properly
+
+Discovery reported 7 phantom `hermes/openrouter` models. The truth, read from the live
+inference API (`GET https://inference-api.nousresearch.com/v1/models` with hermes's own token):
+
+- **372 models advertised.**
+- **6 usable**, all suffixed `:free`. Verified `OK` on `stepfun/step-3.7-flash:free`,
+  `tencent/hy3:free`, and the configured default `meituan/longcat-2.0:free`.
+- The other 366 return **"model access is unavailable … subscribe or add credits"** —
+  the account balance is `$0.00`.
+
+```
+meituan/longcat-2.0:free      poolside/laguna-s-2.1:free    stepfun/step-3.7-flash:free
+poolside/laguna-xs-2.1:free   tencent/hy3:free              upstage/solar-pro4:free
+```
+
+Note `poolside/laguna-{s,xs}-2.1:free` also appear on openrouter and kilo — **same model
+name, three different wallets.** Under your rule these are three legitimately parallel
+lanes, which is exactly what a bucket-keyed scheduler permits and an agent-keyed one
+cannot express.
+
+> **New defect — D3 (blocking for error handling): hermes returns exit 0 on hard failures.**
+> Verified: HTTP 404 (unknown model) → **rc=0**. Billing refusal ("model access is
+> unavailable") → **rc=0**. Exit codes from hermes are worthless as success signals;
+> classification must be **content-based**. `runner.sh` already suspects this for opencode
+> (see its `RATE_LIMIT_PATTERNS` comment) but does not apply it to hermes. Add
+> `model access is unavailable` and `not found` to the taxonomy, mapped to `no_credits`
+> and `dead` respectively.
+
+**Revised free-model inventory (reachable routes only):**
+
+| Bucket | Free models | Agent | Was in catalog? |
+|---|---:|---|---|
+| openrouter | 20 | opencode | yes |
+| kilo | 21 | kilo | yes |
+| opencode-account | 4 (**3** usable; `mimo-v2.5-free` hangs) | opencode | yes |
+| nous | **6** | hermes | **no — missed entirely** |
+| ~~hermes/openrouter~~ | ~~7~~ **phantom** | — | yes, wrongly |
+
+Real usable free routes: **50**, across 4 independent wallets — not the 52 the catalog
+claims, and not composed of the same models it names.
+
+### 8c. Fixes already applied
+
+- **D2 fixed.** `hermes chat -m X -z P` → `hermes -m X -z P` in `runner.sh:428`,
+  `compress.sh:101`, `orchestrator.sh:166`. All three pass `bash -n`. This call had **never
+  worked**; every hermes attempt Layer B ever made was scored as a model failure. Hermes
+  ranking history must be reset, not trusted.
+- **Repo is now under git** (`git init`, baseline commit, `.env` and `.backups/` ignored).

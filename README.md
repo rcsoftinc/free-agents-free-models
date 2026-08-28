@@ -17,7 +17,7 @@ derived from the credential, so this is detected rather than assumed.
 ## Install (once per machine)
 
 ```sh
-git clone git@github.com:noonelifecoach/free-agents-free-models.git \
+gh repo clone noonelifecoach/free-agents-free-models \
   ~/.local/share/free-agents-free-models
 ~/.local/share/free-agents-free-models/install.sh     # puts `fa` on PATH
 fa discover && fa probe                               # build the credential registry

@@ -10,8 +10,14 @@ it clearly.
 
 ## 0. Tool
 
+The repo is **private**, so clone with `gh` (which carries your GitHub auth).
+Plain `git clone` over SSH only works if that machine has an SSH key on your
+GitHub account — it does not by default.
+
 ```sh
-git clone git@github.com:noonelifecoach/free-agents-free-models.git ~/.local/share/free-agents-free-models
+gh auth login                                    # once per machine
+gh repo clone noonelifecoach/free-agents-free-models \
+   ~/.local/share/free-agents-free-models
 ~/.local/share/free-agents-free-models/install.sh
 ```
 

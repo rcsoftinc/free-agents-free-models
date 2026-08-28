@@ -28,7 +28,14 @@ KIT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # duplicated copies were exactly the ambiguity (H4) this installer is meant to
 # resolve, and a stale second copy is worse than no copy.
 REPO_DIR="$(cd "${KIT_DIR}/.." && pwd)"
-TARGET="${1:?usage: bash workflow-kit/install.sh /path/to/project}"
+TARGET="${1:?usage: bash workflow-kit/install.sh /path/to/project [--standalone]}"
+shift || true
+# Default: rules + skills only. The engine is installed once per machine and
+# reached as `fa`, so copying bin/ into every project would mean N copies to keep
+# updated for no benefit. --standalone copies it anyway, for a project that must
+# work without the tool installed.
+STANDALONE=0
+[[ "${1:-}" == "--standalone" ]] && STANDALONE=1
 mkdir -p "$TARGET" || exit 3
 cd "$TARGET"
 
@@ -52,13 +59,14 @@ copy skill/SKILL.md .opencode/skills/free-agents-free-models/SKILL.md
 copy scripts/measure.sh scripts/measure.sh
 copy scripts/taskfile-example.json scripts/taskfile-example.json
 
-# The engine. AGENTS.md refers to these by path, so they must land with the rules.
-for f in buckets.sh run.sh plan.sh orch.sh kilo-add-openrouter.sh \
-         lib/common.sh lib/classify.sh; do
-  copy "bin/$f" "bin/$f"
-done
-
-chmod +x scripts/measure.sh bin/*.sh 2>/dev/null
+if [[ $STANDALONE -eq 1 ]]; then
+  for f in fa buckets.sh run.sh plan.sh orch.sh kilo-add-openrouter.sh \
+           lib/common.sh lib/classify.sh; do
+    copy "bin/$f" "bin/$f"
+  done
+  chmod +x bin/fa bin/*.sh 2>/dev/null
+fi
+chmod +x scripts/measure.sh 2>/dev/null
 
 # The registry is GLOBAL state (a wallet's health is true for every project), so
 # it is not copied per project - it is built once, here, if it does not exist.
@@ -79,12 +87,11 @@ cat <<'USAGE'
   3. It fans out only when the work actually splits AND you have >=2 lanes.
      Check yourself with:  bash bin/buckets.sh lanes -v
   4. From a goal:
-       bash bin/plan.sh "what you want built"
-       bash bin/orch.sh run .orch/tasks.json
+       fa go "what you want built"
   5. Task graph by hand:
-       bash bin/orch.sh run scripts/taskfile-example.json
-       bash bin/orch.sh status
-       bash bin/orch.sh resume        # safe after any interruption
-  6. First run on a new machine:
-       bash bin/buckets.sh discover && bash bin/buckets.sh probe
+       fa orch run scripts/taskfile-example.json
+       fa status
+       fa resume                      # safe after any interruption
+  6. Check the machine:
+       fa doctor
 USAGE

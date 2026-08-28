@@ -23,16 +23,19 @@ Orchestrate only when **both** hold:
 1. **The work splits.** You can name **≥2 tasks** that
    - touch **disjoint sets of files**, and
    - do **not** depend on each other's output.
-2. **There is somewhere to run them.** `bin/buckets.sh lanes` reports **≥2**.
+2. **There is somewhere to run them.** `fa lanes` reports **≥2**.
 
 If (1) fails, parallelism has nothing to do — work directly.
 If (2) fails, parallelism has nowhere to go: with one healthy lane, concurrent
 tasks queue behind one credential and simply collide. **Work directly.**
 
 ```sh
-bin/buckets.sh lanes        # -> integer; offline, cheap, safe to call every time
-bin/buckets.sh lanes -v     # which wallets, which agents, how many free models
+fa lanes        # -> integer; offline, cheap, safe to call every time
+fa lanes -v     # which wallets, which agents, how many free models
 ```
+
+(If `fa` is not on PATH this project was installed `--standalone`; use
+`bash bin/buckets.sh lanes` instead.)
 
 A useful check before committing to a split: if you cannot write each task's file
 boundary down, the tasks are not actually independent and you have not found a
@@ -63,9 +66,9 @@ concurrently, and it verifies afterwards that the declared files exist.
 
 ### Phase 2 — Dispatch
 ```sh
-bin/orch.sh run tasks.json          # parallel width = healthy lanes, automatically
-bin/orch.sh status                  # progress, from the journal
-bin/orch.sh resume                  # after any interruption
+fa orch run tasks.json     # parallel width = healthy lanes, automatically
+fa status                  # progress, from the journal
+fa resume                  # after any interruption
 ```
 The runner holds **one lane per credential**, routes around busy and rate-limited
 wallets, and journals every transition. You do not schedule; you specify.

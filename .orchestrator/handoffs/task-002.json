@@ -1,0 +1,9 @@
+{
+  "task_id": "task-002",
+  "role": "researcher",
+  "task_type": "research",
+  "description": "x",
+  "summary": "{\"ok\":true,\"agent\":\"kilo\",\"model\":\"kilo/m2\",\"summary\":\"stub success\"}",
+  "files": [],
+  "created_at": "2026-08-28T04:17:59Z"
+}

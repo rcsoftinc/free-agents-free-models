@@ -925,3 +925,90 @@ second one is worth journaling.
 Step 5: the structural parallel gate in `AGENTS.md` (M5) — fan out only when the work
 splits into ≥2 file-disjoint tasks *and* ≥2 wallets are healthy — so the coordinator
 consults live bucket health before deciding to orchestrate at all.
+
+
+---
+
+## 13. BUILT — step 5: the coordinator gate (`AGENTS.md`)
+
+The routing rules no longer key on wording. `AGENTS.md` was a keyword table —
+*"big project"*, *"architecture"*, *"use agents"* — which is wrong in both
+directions: it misses a genuinely parallel job phrased plainly, and it fans out on
+a one-file change that happened to say "architecture".
+
+**The gate is now structural, and it consults live machine state.** Orchestrate
+only when **both** hold:
+
+1. **The work splits** — ≥2 tasks with **disjoint file sets** and no dependency
+   between them.
+2. **There is somewhere to run them** — `bin/buckets.sh lanes` reports **≥2**.
+
+Clause 2 is the one nobody writes, and it is the one your rule implies. **Lanes are
+credentials, not agents.** Several agents on one API key are one lane; fanning out
+onto them does not go faster, it races a single wallet into its own rate limit. With
+one healthy lane, orchestrating a perfectly splittable job is *strictly worse* than
+doing it directly. And lane count is **live state** — a wallet healthy this morning
+may be cooled down now — so it is checked at the moment of the decision, not assumed.
+
+```sh
+bin/buckets.sh lanes      # -> 5      offline, cheap enough to call every time
+bin/buckets.sh lanes -v   # which wallets, which agent, how many free models
+```
+
+`lanes` reads recorded health only and never touches the network — a gate that
+needed a probe would not get called. The verbose listing shares the *exact* predicate
+as the count, so the two cannot disagree (it labels `freemodel` `unusable`, since it
+has 0 free models, while the count already excluded it).
+
+A practical test the contract now states: **if you cannot write each task's file
+boundary down, you have not found a split — you have found one task.** `files` is
+load-bearing, not documentation: the runner refuses to run overlapping tasks
+concurrently and verifies the declared files exist afterwards.
+
+### The kit now ships the engine
+
+`workflow-kit/install.sh` installs `bin/{buckets,run,orch}.sh` and `bin/lib/`
+alongside the rules that reference them — reading from the repo's single `bin/`
+rather than keeping a second copy, since duplicated copies are exactly the ambiguity
+**H4** is about and a stale duplicate is worse than none.
+
+`scripts/dispatch.sh` is **retired**. `bin/orch.sh` supersedes it: it schedules on
+credentials rather than agents, and it journals for resume.
+
+Verified end to end — a fresh install into an empty directory, driven only through
+its own installed copy:
+
+```
+bash workflow-kit/install.sh /tmp/demo
+cd /tmp/demo && ./bin/orch.sh run tasks.json
+
+  done  config  <- kilo:anon                   kilo/cohere/north-mini-code:free
+  done  notes   <- kilocode:fac9bae9           kilo-auto/free
+  done  readme  <- openrouter.ai:845a3f96      openai/cohere/north-mini-code:free
+  3/3 done, 0 failed        all files correct
+```
+
+Three tasks, three different wallets, no configuration — the thing you described in
+your second message, working.
+
+### Hygiene closed
+
+- **H5** — `JWT_AUTH_GUIDE.md` removed. It was debris an agent wrote into this repo
+  through B1, and it is fitting that it is the last thing to go.
+- **H4** — root `AGENTS.md` resynced from the kit and marked generated in
+  `CLAUDE.md`; duplicate root `scripts/` removed.
+- **H1** — `.orchestrator/.backups/` pruned **489 → 20**, and `promote.sh` now prunes
+  on write. It backed up `rankings.json` on every promotion and never cleaned up.
+
+### Remaining
+
+- **Steps 6–9**: retire `runner.sh`'s private fallback engine, route
+  `orchestrator.sh`'s planner through `run.sh` (**B2** — the one call that most needs
+  fallback is still the only one without it), package as an installable skill with
+  frontmatter (**A3**), and close **H2** (`test_runner.sh` asserts PASS on `rc=124`)
+  and **H3** (`.orchestrator/config.json` read but absent).
+- **Reset hermes's ranking history.** Layer B never once invoked hermes successfully
+  (D2), so every hermes entry in `.orchestrator/rankings.json` is a scored failure
+  that never happened.
+- **Audit `runner.sh`/`dispatch.sh`** for the stdin-drain and `IFS=$'\t'` defects, and
+  for containment — remembering that each agent needs a *different* mechanism.

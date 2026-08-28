@@ -102,12 +102,21 @@ candidates() {
           model:  $r.model_arg,
           provider: ($r.provider // ""),
           bucket_last_used: ($b.health.last_used // 0),
-          score: ( ($m.stats.ok // 0) - 2 * ($m.stats.fail // 0)
+          # Ranking is LEARNED from observed outcomes, per category. A model that
+          # is good at coding is not automatically good at reasoning, and free
+          # models vary wildly between the two. Evidence from THIS category counts
+          # double; overall evidence still counts, so a model with no category
+          # history is not stranded at the bottom forever.
+          score: ( 2 * ( (($m.cat_stats[$cat].ok   // 0))
+                       - 2 * (($m.cat_stats[$cat].fail // 0)) )
+                   +   ( (($m.stats.ok   // 0))
+                       - 2 * (($m.stats.fail // 0)) )
                    + (if $m.probe.state == "ok" then 5 else 0 end) ) }
     ]
     | sort_by(.bucket_last_used, -.score)
     | .[] | [.bucket, .agent, .model, .provider] | @tsv
-  ' --arg pin "$PIN_BUCKET" --arg now "$now" --argjson ex "$ex_json"
+  ' --arg pin "$PIN_BUCKET" --arg now "$now" --argjson ex "$ex_json" \
+    --arg cat "$CATEGORY"
 }
 
 # ------------------------------------------------------------------- leasing --
@@ -173,6 +182,9 @@ invoke() { # $1=agent $2=model $3=provider $4=prompt
 # -------------------------------------------------------------------- record --
 # The single write path into the learning store. Nothing else writes outcomes,
 # and nothing at all is written for local_network.
+# NOTE on what counts as evidence: a bucket-level failure (rate limit, billing)
+# says nothing about whether this model is good at this category, so it must not
+# be scored against the model. Only ok / timeout / dead / provider_error do.
 record() { # $1=bucket $2=model $3=state $4=ms $5=output(optional)
   local bucket="$1" model="$2" state="$3" ms="$4" out="${5:-}" cd_secs until_ts=0 hint
   [[ "$state" == "local_network" ]] && return 0
@@ -194,8 +206,13 @@ record() { # $1=bucket $2=model $3=state $4=ms $5=output(optional)
   | .buckets[$b].models |= map(
       if ([.routes[].model_arg] | index($m)) != null then
         .probe = {state:$s, at:$at, ms:($ms|tonumber)}
-      | .stats = ((.stats // {ok:0, fail:0})
-                  | if $s == "ok" then .ok += 1 else .fail += 1 end)
+      | .stats = (if $fault then (.stats // {ok:0, fail:0})
+                  else (.stats // {ok:0, fail:0})
+                  | if $s == "ok" then .ok += 1 else .fail += 1 end end)
+      | .cat_stats = (if $fault then (.cat_stats // {})
+                      else ((.cat_stats // {})
+                            | .[$cat] = ((.[$cat] // {ok:0, fail:0})
+                                         | if $s == "ok" then .ok += 1 else .fail += 1 end)) end)
       # A model cooldown parks one endpoint; it never touches the wallet.
       | .cooldown_until = (if ($fault|not) and $s != "ok" and ($until|tonumber) > 0
                            then ($until|tonumber) else (.cooldown_until // 0) end)
@@ -216,7 +233,8 @@ record() { # $1=bucket $2=model $3=state $4=ms $5=output(optional)
       else . + {last_used:($now|tonumber)} end)
   ' --arg b "$bucket" --arg m "$model" --arg s "$state" --arg ms "$ms" \
     --arg at "$(iso_now)" --arg now "$(now_epoch)" --arg until "$until_ts" \
-    --arg trip "${BREAKER_TRIP:-2}" --argjson fault "$bucket_fault"
+    --arg trip "${BREAKER_TRIP:-2}" --argjson fault "$bucket_fault" \
+    --arg cat "$CATEGORY"
 }
 
 # ---------------------------------------------------------------------- main --

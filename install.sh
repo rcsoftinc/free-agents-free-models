@@ -3,7 +3,8 @@ set -euo pipefail
 
 # install.sh - install free-agents-free-models ONCE on this machine.
 #
-#   curl -fsSL https://raw.githubusercontent.com/OWNER/REPO/main/install.sh | bash
+#   git clone git@github.com:noonelifecoach/free-agents-free-models.git && ./free-agents-free-models/install.sh
+#   (private repo, so the curl one-liner needs a token - clone over SSH instead)
 # or, from a clone:
 #   ./install.sh
 #

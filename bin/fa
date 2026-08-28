@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# fa - free-agents-free-models: one entry point for everything.
+#
+# The tool is installed ONCE per machine and put on PATH. It is NOT cloned into
+# each project: credentials and learned wallet health are machine-wide, and a
+# per-project copy would mean N registries to rediscover and N copies to update.
+# A project gets only its routing rules and its own run journal.
+#
+#   fa init            drop AGENTS.md + CLAUDE.md here (makes this a free-agents project)
+#   fa lanes [-v]      how many independent credential lanes are healthy
+#   fa discover        rebuild the credential registry (after adding/removing keys)
+#   fa probe [--all]   prove each wallet answers
+#   fa doctor          verify this machine is set up correctly
+#   fa run "task"      one task, with fallback across every lane
+#   fa plan "goal"     goal -> .orch/tasks.json
+#   fa go "goal"       plan, then run it
+#   fa status          progress of the current project
+#   fa resume          continue after any interruption
+#   fa update          git pull the tool
+#   fa where           print install paths
+
+HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+ROOT="$(cd "${HERE}/.." && pwd)"
+STATE="${FREE_AGENTS_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/free-agents}"
+
+usage() { sed -n '6,26p' "$0" >&2; exit 3; }
+cmd="${1:-}"; shift || true
+
+case "$cmd" in
+  init)
+    bash "${ROOT}/workflow-kit/install.sh" "$(pwd)" "$@"
+    ;;
+  lanes)    exec "${HERE}/buckets.sh" lanes "$@" ;;
+  discover) exec "${HERE}/buckets.sh" discover "$@" ;;
+  probe)    exec "${HERE}/buckets.sh" probe "$@" ;;
+  show)     exec "${HERE}/buckets.sh" show "$@" ;;
+  run)      exec "${HERE}/run.sh" -w "$(pwd)" "$@" ;;
+  plan)     exec "${HERE}/plan.sh" -w "$(pwd)" "$@" ;;
+  status)   exec "${HERE}/orch.sh" status "$@" ;;
+  resume)   exec "${HERE}/orch.sh" resume "$@" ;;
+  orch)     exec "${HERE}/orch.sh" "$@" ;;
+
+  go)
+    [[ $# -gt 0 ]] || { echo "fa go: needs a goal" >&2; exit 3; }
+    "${HERE}/plan.sh" -w "$(pwd)" "$1" || exit $?
+    exec "${HERE}/orch.sh" run
+    ;;
+
+  where)
+    printf 'tool:     %s\nstate:    %s\nproject:  %s\n' "$ROOT" "$STATE" "$(pwd)"
+    ;;
+
+  update)
+    git -C "$ROOT" pull --ff-only && echo "updated: $(git -C "$ROOT" log --oneline -1)"
+    ;;
+
+  doctor)
+    rc=0
+    echo "free-agents-free-models doctor"
+    printf '  tool      %s\n' "$ROOT"
+    printf '  state     %s\n' "$STATE"
+    echo
+    echo "dependencies"
+    for c in jq curl flock sqlite3 timeout; do
+      if command -v "$c" >/dev/null; then printf '  ok      %s\n' "$c"
+      else printf '  MISSING %s\n' "$c"; rc=1; fi
+    done
+    echo
+    echo "agents"
+    found=0
+    for a in opencode kilo hermes; do
+      if command -v "$a" >/dev/null; then printf '  ok      %s\n' "$a"; found=$((found+1))
+      else printf '  absent  %s\n' "$a"; fi
+    done
+    [[ $found -eq 0 ]] && { echo "  ERROR: no agent CLI installed - nothing can run"; rc=1; }
+    echo
+    echo "taxonomy self-test"
+    if bash "${HERE}/lib/classify.sh" --self-test >/dev/null 2>&1; then echo "  ok      passes"
+    else echo "  FAILED  bash bin/lib/classify.sh --self-test"; rc=1; fi
+    echo
+    echo "credential registry"
+    if [[ -f "${STATE}/buckets.json" ]]; then
+      n="$("${HERE}/buckets.sh" lanes 2>/dev/null || echo 0)"
+      printf '  ok      %s healthy lane(s)\n' "$n"
+      [[ "$n" -lt 1 ]] && { echo "  ERROR: no usable lane - check keys, then: fa discover && fa probe"; rc=1; }
+      [[ "$n" -eq 1 ]] && echo "  note    only ONE lane: parallel work will not help; direct mode is correct"
+    else
+      echo "  MISSING no registry - run: fa discover && fa probe"; rc=1
+    fi
+    echo
+    [[ $rc -eq 0 ]] && echo "READY" || echo "NOT READY (see above)"
+    exit $rc
+    ;;
+
+  ""|-h|--help|help) usage ;;
+  *) echo "fa: unknown command '$cmd'" >&2; usage ;;
+esac

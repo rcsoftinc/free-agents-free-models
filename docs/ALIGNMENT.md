@@ -724,3 +724,102 @@ matches `freeform`), response validation, a timestamped backup, `chmod 600`, no-
 prompt, and the key reused from the config so re-runs need no argument.
 
 Verified: 21 free models registered, apiKey preserved, whitelist scoped to those 21.
+
+
+---
+
+## 11. BUILT — step 3: the dispatch engine (`bin/run.sh`)
+
+```
+bin/run.sh [-c category] [-w workdir] [-b bucket] [-x exclude] [--dry-run] "prompt"
+bin/lib/classify.sh --self-test        # 19 cases, all passing
+```
+
+One task in, one result out. stdout is the agent's output; a machine-readable footer
+goes to stderr:
+
+```
+---RUN-META--- {"bucket":"openrouter.ai:845a3f96","model":"openai/cohere/north-mini-code:free",
+                "agent":"kilo","provider":"openai","attempts":1,"ms":8343,"state":"ok"}
+```
+
+### Structure — one engine, one taxonomy
+
+```
+bin/lib/common.sh     paths, logging, registry_txn (flock-guarded read-modify-write)
+bin/lib/classify.sh   THE error taxonomy + attribution + cooldown windows
+bin/run.sh            candidate chain, bucket leasing, the breaker, recording
+bin/buckets.sh        now sources both - the prober and the dispatcher cannot drift
+```
+
+That is A1 resolved: `buckets.sh` no longer carries its own copy of `classify()`.
+
+### The three rules it enforces
+
+**1. One lane per bucket.** The lease is `flock`-held on the *bucket*, never on the agent
+or model. Verified: two tasks pinned to `kilo:anon` — the first ran, the second reported
+`lane busy` once and moved on rather than queueing into the same 429.
+
+**2. Lanes are used in parallel, automatically.** Three concurrent tasks, no configuration:
+
+```
+task1 -> nous:6b7db10d          hermes    meituan/longcat-2.0:free      11055ms
+task2 -> opencode:14a1a2f8      opencode  opencode/nemotron-3-ultra     5073ms
+task3 -> kilocode:fac9bae9      hermes    kilo-auto/free                5903ms
+```
+
+Three wallets, contention detected and routed around. Note tasks 1 and 3 both used
+**hermes** — different wallets, same runtime. That is legitimate and an agent-keyed
+scheduler could not express it: **the constraint is per-bucket, not per-agent.**
+
+**3. The breaker (M1).** A bucket-attributable failure increments a counter; at
+`BREAKER_TRIP` (default 2) the whole wallet goes into cooldown and every remaining
+candidate on it is skipped for the rest of the run. Verified by putting two wallets into
+cooldown: the candidate chain fell from **75 to 45** and a task routed to a healthy wallet
+unprompted. This is the fix for "walk 22 models at 120 s each to learn the account is
+limited" — now two attempts.
+
+Cooldown windows: `rate_limited` 30 min · `no_credits` / `auth_error` 24 h ·
+`timeout` 10 min · `dead` 72 h · `local_network` **none, and nothing recorded**.
+
+### B1 is fixed, and it was worse than documented
+
+The analysis said `runner.sh` "never `cd`s to the target project". Fixing the `cd` is
+**not sufficient**. Launched from a temp dir with `cwd` correctly set, kilo still wrote
+its file to `$HOME`:
+
+```
+prompt: "Create hello.txt containing BUCKET"   cwd = /tmp/.../wd
+result: /root/hello.txt                        <-- cd was honoured; the agent ignored it
+```
+
+These CLIs decide their own working directory. Only the explicit flag governs it —
+`opencode --dir`, `kilo --dir`, `hermes --in`. With those passed, the file lands in the
+workdir and nothing leaks. **Any fix to `runner.sh` that only adds a `cd` will look
+correct and still scatter files into the orchestrator's own repo** — which is exactly how
+`JWT_AUTH_GUIDE.md` got here.
+
+### Two bash defects worth remembering
+
+- **`exec {FD}>&- 2>/dev/null` silences the whole script.** `exec` with no command applies
+  its redirections to *the shell*, so that `2>/dev/null` permanently discarded stderr —
+  every log line, the RUN-META footer, and `set -x` output vanished, and the failure
+  presented as "the run does nothing and exits 1". No redirection may be attached to a
+  bare `exec`.
+- **`[[ cond ]] && cmd` as the last line of a sourced file aborts the caller.** When the
+  test is false the line returns 1, and under `set -e` that kills the sourcing script.
+  `buckets.sh` died silently the moment it began sourcing the shared library. Use `if`.
+
+### Taxonomy self-test
+
+19 cases, all passing, including the ones that motivated it: hermes exiting **0** on a
+billing refusal and on HTTP 404; a malformed invocation (D2) that must read as `dead`
+rather than as evidence about a wallet; precedence, so `"429 rate limit on model not
+found"` classifies as `rate_limited` and not `dead`; and the three `local_network` forms
+that must record nothing.
+
+### Next
+
+Step 4: per-project state (`<project>/.orch/`) and the journal-based resume (M6), then the
+structural parallel gate in `AGENTS.md` (M5) so the coordinator consults live bucket health
+before choosing to fan out.

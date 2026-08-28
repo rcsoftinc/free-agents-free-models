@@ -27,8 +27,15 @@ set -euo pipefail
 #
 # Exit: 0 ok | 2 no live bucket | 3 environment/setup error
 
-STATE_DIR="${FREE_AGENTS_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/free-agents}"
-REGISTRY="${STATE_DIR}/buckets.json"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LOG_TAG=buckets
+# One taxonomy, one set of paths - shared with bin/run.sh so a classification
+# can never drift between the prober and the dispatcher.
+# shellcheck source=lib/common.sh
+. "${HERE}/lib/common.sh"
+# shellcheck source=lib/classify.sh
+. "${HERE}/lib/classify.sh"
+
 PROBE_TIMEOUT="${PROBE_TIMEOUT:-90}"
 PROBE_PROMPT='reply with exactly: OK'
 
@@ -46,10 +53,6 @@ BLOCKLIST="${BUCKETS_BLOCKLIST:-$BLOCKLIST_DEFAULT}"
 
 TEMP_DIR="$(mktemp -d)"
 trap 'rm -rf "${TEMP_DIR}"' EXIT
-
-log()  { printf '[buckets] %s\n' "$*" >&2; }
-die()  { printf '[buckets] ERROR: %s\n' "$*" >&2; exit 3; }
-have() { command -v "$1" >/dev/null 2>&1; }
 
 have jq   || die "jq is required"
 have curl || die "curl is required"
@@ -274,40 +277,6 @@ invoke() { # $1=agent $2=model_arg $3=prompt $4=provider(optional)
   esac
   printf '%s' "$out"
   return $rc
-}
-
-# Content-first classification. Returns one of:
-#   ok | rate_limited | no_credits | auth_error | context_overflow |
-#   local_network | timeout | dead
-#
-# local_network is NEVER attributable to a model or bucket and must not be
-# written to any learning store - a failure we caused is not evidence.
-classify() { # $1=rc $2=output
-  local rc="$1" t; t="$(printf '%s' "${2:-}" | tr '[:upper:]' '[:lower:]')"
-
-  if printf '%s' "$t" | grep -qE 'could not resolve host|name or service not known|network is unreachable|no route to host|connection refused|temporary failure in name resolution|ssl connect error|tls handshake'; then
-    echo local_network; return
-  fi
-  if printf '%s' "$t" | grep -qE '429|rate.?limit|too many requests|temporarily rate-limited|try again later|in-flight requests'; then
-    echo rate_limited; return
-  fi
-  if printf '%s' "$t" | grep -qE 'insufficient balance|model access is unavailable|subscribe or add credits|exceed your available credits|quota|billing|payment required|402'; then
-    echo no_credits; return
-  fi
-  if printf '%s' "$t" | grep -qE 'unauthorized|forbidden|invalid api key|authentication|401|403'; then
-    echo auth_error; return
-  fi
-  if printf '%s' "$t" | grep -qE 'context length|too large|maximum context|token limit exceeded'; then
-    echo context_overflow; return
-  fi
-  if printf '%s' "$t" | grep -qE 'not found|does not exist|unknown model|unrecognized arguments|404'; then
-    echo dead; return
-  fi
-  # 124 = timeout(1) killed it; 143 = SIGTERM. A hang is the model's fault, not
-  # the bucket's - it demotes this model only.
-  if [[ "$rc" == "124" || "$rc" == "143" ]]; then echo timeout; return; fi
-  [[ "$rc" == "0" ]] && { echo ok; return; }
-  echo dead
 }
 
 probe_one() { # $1=agent $2=model_arg $3=provider -> "state<TAB>ms"

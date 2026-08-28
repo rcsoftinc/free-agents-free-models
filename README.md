@@ -14,38 +14,56 @@ together does not go faster; it races that one key into its own 429. Two agents 
 *different* keys are two lanes even when running the same model. Bucket ids are
 derived from the credential, so this is detected rather than assumed.
 
-## Install (once per machine)
+## Use it in a project
 
-```sh
-gh repo clone noonelifecoach/free-agents-free-models \
-  ~/.local/share/free-agents-free-models
-~/.local/share/free-agents-free-models/install.sh     # puts `fa` on PATH
-fa discover && fa probe                               # build the credential registry
-fa doctor                                             # verify the machine
-```
-
-The tool is **not** cloned into each project. Credentials and learned wallet
-health are machine-wide, so one install serves everything; a project gets only
-its routing rules and its own run journal.
-
-## Use (in any project)
+Go into your project — empty or existing — and clone the tool into it:
 
 ```sh
 cd ~/projects/thing
-fa init                     # drops AGENTS.md + CLAUDE.md (6 files, ~56K)
-fa go "what you want built" # plan, then run it across every healthy lane
-
-fa lanes -v                 # how many independent lanes are healthy
-fa status                   # progress
-fa resume                   # safe after ANY interruption
-fa doctor                   # is this machine set up correctly
+gh repo clone noonelifecoach/free-agents-free-models .free-agents
+.free-agents/setup.sh
 ```
 
-Then just start any agent (`opencode`, `kilo`, `hermes`, `claude`) from that
-directory — it reads `AGENTS.md` and acts as the coordinator.
+Everything the tool owns lives in **two hidden directories**: `.free-agents/`
+(the clone) and `.orch/` (this project's run state). `setup.sh` adds
+`.free-agents/` to your `.gitignore`, so the tool never becomes part of your repo.
 
-`fa init --standalone` copies the engine into the project too, for a project that
-must work without the tool installed.
+Then **start any agent's TUI** from that directory — `opencode`, `kilo`, `hermes`,
+`claude` — and paste a prompt:
+
+```
+.free-agents/prompts/00-coordinator.md      set the working mode (paste this first)
+.free-agents/prompts/01-plan-only.md        plan, don't build
+.free-agents/prompts/02-build.md            execute the plan
+.free-agents/prompts/03-resume.md           continue after an interruption
+.free-agents/prompts/04-single-task.md      one task, no orchestration
+```
+
+Pasting is deliberate. Agents do not read `AGENTS.md` consistently — tested here,
+kilo picks it up and quotes the gate exactly, hermes ignores it and falls back to
+its own idea of when to parallelise. A pasted prompt works in all of them.
+
+You can also drive it directly, without an agent:
+
+```sh
+.free-agents/bin/fa lanes -v          # how many independent credential lanes
+.free-agents/bin/fa plan "a goal"     # goal -> .orch/tasks.json
+.free-agents/bin/fa orch run          # execute across every healthy lane
+.free-agents/bin/fa status            # progress
+.free-agents/bin/fa resume            # safe after ANY interruption
+```
+
+## Once per machine: credentials
+
+The registry is **machine state, shared by every project**, so cloning per project
+does not mean rediscovering credentials per project.
+
+```sh
+.free-agents/bin/fa discover && .free-agents/bin/fa probe
+.free-agents/bin/fa doctor
+```
+
+Where each agent keeps its keys: `docs/SETUP.md`.
 
 ## Layout
 

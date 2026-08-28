@@ -4,6 +4,13 @@
 > Purpose: reconstruct the complete context of this in-progress OpenCode project
 > so it can be finished as a production-ready personal skill.
 
+> **HISTORICAL — read `docs/ALIGNMENT.md` instead.**
+> This describes the repo as found on 2026-08-27, before the rebuild. Its layout
+> section is now wrong (Layer B was retired to `legacy/`; `bin/` did not exist),
+> and every defect in §6 has since been closed. It is kept because its defect
+> analysis is what the rebuild was aimed at, and because §2–§4 are still the best
+> description of what the original three layers each did.
+
 ---
 
 ## 1. What this repo actually is

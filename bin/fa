@@ -68,11 +68,19 @@ case "$cmd" in
       else printf '  MISSING %s\n' "$c"; rc=1; fi
     done
     echo
-    echo "agents"
+    # Versions are checked because these CLIs have already changed invocation
+    # shape once during this project, and a wrong call shape is indistinguishable
+    # from a dead model - it fails silently as "that model is broken".
+    echo "agents (verified versions in docs/SETUP.md)"
     found=0
-    for a in opencode kilo hermes; do
-      if command -v "$a" >/dev/null; then printf '  ok      %s\n' "$a"; found=$((found+1))
-      else printf '  absent  %s\n' "$a"; fi
+    for a in opencode:1.17.20 kilo:7.5.5 hermes:0.20.5; do
+      name="${a%%:*}"; want="${a##*:}"
+      if command -v "$name" >/dev/null; then
+        got="$("$name" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+        if [[ "$got" == "$want" ]]; then printf '  ok      %-9s %s\n' "$name" "$got"
+        else printf '  differs %-9s %s (verified against %s)\n' "$name" "${got:-unknown}" "$want"; fi
+        found=$((found+1))
+      else printf '  absent  %s\n' "$name"; fi
     done
     [[ $found -eq 0 ]] && { echo "  ERROR: no agent CLI installed - nothing can run"; rc=1; }
     echo

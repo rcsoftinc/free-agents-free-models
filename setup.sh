@@ -22,7 +22,8 @@ cd "$PROJECT"
 say "project: $PROJECT"
 say "tool:    $HERE"
 
-chmod +x "${HERE}"/bin/*.sh "${HERE}/bin/fa" "${HERE}/setup.sh" 2>/dev/null || true
+chmod +x "${HERE}"/bin/*.sh "${HERE}"/bin/lib/*.sh "${HERE}/bin/fa" \
+         "${HERE}/setup.sh" 2>/dev/null || true
 mkdir -p .orch
 [[ -f .orch/tasks.json ]] || echo '{"tasks":[]}' > .orch/tasks.json
 cat > .orch/.gitignore <<'EOF'
@@ -50,17 +51,16 @@ fi
 
 cat <<EOF
 
-Ready. Start any agent from here (opencode / kilo / hermes / claude), then paste:
+Ready.
 
-    .free-agents/prompts/00-coordinator.md
+  1. Start any agent from here:  opencode | kilo | hermes | claude
+  2. Paste this into it:         .free-agents/prompts/coordinator.md
+  3. Then just talk normally - it picks the mode itself.
 
-Other prompts:
-    01-plan-only     plan, don't build
-    02-build         execute the plan
-    03-resume        continue after an interruption
-    04-single-task   one task, no orchestration
+First time in a project, the coordinator will run:
+    .free-agents/bin/fa bootstrap
 
 Or drive it yourself:
     .free-agents/bin/fa lanes -v
-    .free-agents/bin/fa plan "goal"     &&  .free-agents/bin/fa orch run
+    .free-agents/bin/fa plan "goal"  &&  .free-agents/bin/fa orch run
 EOF

@@ -154,17 +154,26 @@ those lines.
 
 ## Layout
 
-| Path | What |
-|---|---|
-| `bin/buckets.sh` | Credential registry: `lanes`, `discover`, `probe`, `show` |
-| `bin/run.sh` | The dispatch engine — fallback chain, bucket lease, circuit breaker |
-| `bin/plan.sh` | Goal → task graph (planning itself has fallback) |
-| `bin/orch.sh` | Task graph per project, journal-based resume |
-| `bin/lib/` | `common.sh` (paths, locking) · `classify.sh` (the error taxonomy) |
-| `skill/SKILL.md` | Packaged skill card |
-| `workflow-kit/` | Installer: routing gate + skills + `bin/` |
-| `legacy/` | Layer B, retired — see `legacy/README.md` |
-| `opencode-free-agents/` | Layer A: installer + provider discovery (its `oc.sh` is superseded) |
+```
+.free-agents/
+├── README.md
+├── setup.sh                  make the parent directory a project
+├── AGENTS.md                 the routing gate the coordinator follows
+├── prompts/coordinator.md    paste this into any agent TUI
+├── bin/
+│   ├── fa                    single entry point
+│   ├── buckets.sh            credential registry: lanes, discover, probe, show
+│   ├── run.sh                dispatch engine: fallback, lease, breaker
+│   ├── plan.sh               goal -> task graph
+│   ├── orch.sh               task graph + journal-based resume
+│   ├── find-free-providers.sh   scan models.dev for new free providers
+│   ├── kilo-add-openrouter.sh   register OpenRouter free models with kilo
+│   └── lib/                  common.sh (paths, locking) - classify.sh (taxonomy)
+├── skills/                   skill cards, linked into the project by `fa bootstrap`
+├── state/                    the credential registry (gitignored, regenerated)
+├── docs/                     SETUP.md - dev/ holds the design history
+└── test/                     stub agent CLIs + harness, for offline testing
+```
 
 ## State
 
@@ -180,14 +189,16 @@ status field for a crash to leave lying.
 ## Tests
 
 ```sh
-bash bin/lib/classify.sh --self-test    # error taxonomy, 19 cases, offline, ~1s
-bash test/run_all.sh                    # 14 suites — NOTE: these cover legacy/
-bin/buckets.sh lanes                    # smoke check: >0 means credentials work
+bin/lib/classify.sh --self-test   # error taxonomy, 28 cases, offline, ~1s
+bin/fa doctor                     # deps, agent CLIs+versions, self-test, lanes
+bin/fa lanes                      # smoke check: >0 means credentials work
+DRY_RUN_LIMIT=0 bin/run.sh --dry-run   # the full candidate chain, spends nothing
 ```
 
-`test/` currently exercises the **retired** Layer B, not `bin/`. The new engine is
-verified by end-to-end runs, not by regression tests. That gap is the main reason
-`legacy/` still exists.
+**`bin/` has no regression suite yet.** The engine is verified by end-to-end runs,
+not by automated tests. `test/` keeps the stub agent CLIs and harness that a suite
+would be built on. The retired Layer B and its 14 suites were removed in the
+cleanup — they tested code that no longer ships; `git log` has them.
 
 ## Docs
 

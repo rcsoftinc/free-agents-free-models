@@ -286,7 +286,12 @@ while [[ $# -gt 0 ]]; do
     -*) die "unknown option: $1" ;;
     *) # a positional after `run` is the task graph to install
        if [[ "$CMD" == "run" ]]; then
-         mkdir -p "$ORCH_DIR"; cp "$1" "$TASKS_FILE"
+         mkdir -p "$ORCH_DIR"
+         # bin/plan.sh writes straight to .orch/tasks.json, so the argument is
+         # frequently the destination itself - copying it over itself fails.
+         if [[ "$(readlink -f "$1")" != "$(readlink -f "$TASKS_FILE")" ]]; then
+           cp "$1" "$TASKS_FILE"
+         fi
        fi; shift ;;
   esac
 done

@@ -39,7 +39,7 @@ run_task() {
   mode_for opencode "$1"; mode_for kilo "$1"; mode_for hermes "$1"
   [[ -n "${2:-}" ]] && export GOOD_MODEL="$2"
   : > "${ORCH_DIR}/runner.log"          # clear so we count only this run
-  bash "${REPO_DIR}/runner.sh" task-002 >/dev/null 2>&1
+  bash "${LEGACY_DIR}/runner.sh" task-002 >/dev/null 2>&1
   echo "$(jq -r '.status' "${ORCH_DIR}/tasks/task-002.json" 2>/dev/null || echo none)"
 }
 

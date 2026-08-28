@@ -19,7 +19,7 @@ jq -n '{
   discovered_at:"x"
 }' > "${ORCH_DIR}/catalog.json"
 
-bash "${REPO_DIR}/rankings.sh" >/dev/null 2>&1
+bash "${LEGACY_DIR}/rankings.sh" >/dev/null 2>&1
 assert_eq "rankings.sh exits 0" "$?" "0"
 assert_json_valid "rankings.json valid" "${ORCH_DIR}/rankings.json"
 

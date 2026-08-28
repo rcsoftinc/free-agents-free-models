@@ -4,7 +4,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ORCH_DIR="${SCRIPT_DIR}/../.orchestrator"
+ORCH_DIR="${SCRIPT_DIR}/../legacy/.orchestrator"
 SNAP_DIR="${ORCH_DIR}/.test_snapshots"
 
 NAME="${1:-baseline}"

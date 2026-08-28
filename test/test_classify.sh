@@ -7,7 +7,7 @@ begin_suite "B classify_result"
 
 classify() {
   local text="$1" code="${2:-0}"
-  CLASSIFY_EXIT_CODE="$code" bash "${REPO_DIR}/runner.sh" --classify <<< "$text"
+  CLASSIFY_EXIT_CODE="$code" bash "${LEGACY_DIR}/runner.sh" --classify <<< "$text"
 }
 
 CREDIT='Error: This request would exceed your available credits given your in-flight requests. Retry after in-flight requests settle, or add credits.'

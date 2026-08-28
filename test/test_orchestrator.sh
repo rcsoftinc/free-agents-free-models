@@ -16,7 +16,7 @@ printf '# Test Project\n' > /tmp/test-project/README.md
 # All stub agents return a valid plan JSON.
 clear_modes; mode_for opencode plan; mode_for kilo plan; mode_for hermes plan
 
-bash "${REPO_DIR}/orchestrator.sh" /tmp/test-project >/dev/null 2>&1
+bash "${LEGACY_DIR}/orchestrator.sh" /tmp/test-project >/dev/null 2>&1
 assert_eq "orchestrator.sh exits 0" "$?" "0"
 assert_json_valid "project.json valid" "${ORCH_DIR}/project.json"
 

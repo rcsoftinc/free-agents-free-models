@@ -48,7 +48,10 @@ HERMES_ENV="${HERMES_ENV:-$HOME/.hermes/.env}"
 
 # Models that are reachable but pathological (hang instead of erroring, so they
 # burn a full attempt timeout on every try). Kept out of the registry entirely.
-BLOCKLIST_DEFAULT="opencode/big-pickle opencode/mimo-v2.5-free"
+# Observed to HANG rather than error, burning a full attempt timeout every time
+# they are tried. A hang is the worst failure mode here because it costs the most
+# and teaches the least, so these are kept out of the registry entirely.
+BLOCKLIST_DEFAULT="opencode/big-pickle opencode/mimo-v2.5-free opencode/hy3-free opencode/muse-spark-1.2-contributor-free"
 BLOCKLIST="${BUCKETS_BLOCKLIST:-$BLOCKLIST_DEFAULT}"
 
 TEMP_DIR="$(mktemp -d)"

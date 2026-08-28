@@ -7,10 +7,10 @@
           "agent": "opencode",
           "model_id": "openrouter/m1",
           "provider": "openrouter",
-          "score": 0.95,
-          "attempts": 0,
-          "successes": 0,
-          "last_used": null
+          "score": 0.97,
+          "attempts": 2,
+          "successes": 2,
+          "last_used": "2026-08-28T04:49:49Z"
         },
         {
           "agent": "kilo",
@@ -19,7 +19,7 @@
           "score": 0.95,
           "attempts": 1,
           "successes": 1,
-          "last_used": "2026-08-28T04:17:59Z"
+          "last_used": "2026-08-28T04:49:47Z"
         }
       ]
     }

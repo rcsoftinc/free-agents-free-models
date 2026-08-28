@@ -89,7 +89,31 @@ fa lanes -v
 `fa discover` reads each CLI's own model list per credential — never third-party
 metadata, which produced 7 unreachable routes and missed an entire wallet.
 
-## 4. What "reproducible" does and does not mean here
+## 4. Per machine vs per project
+
+The split is deliberate, and it is the same one `docker login`, `aws`, and `gh`
+make: you reproduce **capability** per machine and **specification** per project.
+
+| | Lives in | Travels with |
+|---|---|---|
+| The tool | `~/.local/share/free-agents-free-models` | this repo |
+| Credentials | each agent's own config | **nothing — set up per machine** |
+| Learned wallet health | `~/.local/state/free-agents/buckets.json` | nothing (rebuilt by `fa discover && fa probe`) |
+| Routing rules | `AGENTS.md`, `CLAUDE.md`, `.opencode/skills/` | **your project's git** |
+| Task graph | `.orch/tasks.json` | **your project's git** |
+| Run journal | `.orch/journal.ndjson` | nothing (gitignored) |
+
+So a **project** *is* reproducible in the sense that matters: commit the 6 files
+from `fa init` plus `.orch/tasks.json`, and anyone with their own lanes can run
+`fa orch run .orch/tasks.json` and get equivalent work. What they will not get is
+byte-identical output — free models are nondeterministic — or the same wallets.
+
+`.orch/journal.ndjson` is deliberately **not** committed. It records which wallet
+served which task on one machine; that is a property of that machine at that
+moment, not of the project, and committing it would conflict on every run while
+reproducing nothing.
+
+## 5. What "reproducible" does and does not mean here
 
 **Reproducible:** the tool, the install, the routing rules, the error taxonomy
 (`bash bin/lib/classify.sh --self-test`), and the *shape* of a run — which wallet

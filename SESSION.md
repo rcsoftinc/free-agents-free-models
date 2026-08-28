@@ -67,7 +67,32 @@ it. Parallel width = healthy buckets. One agent per bucket; others are failover.
 - Stdin drain: `opencode run`/`kilo run`/`hermes` read stdin and swallowed loop input.
   All calls use `</dev/null`. **Same audit needed in runner.sh/dispatch.sh.**
 
-**Built and working: `bin/run.sh` — THE dispatch engine (step 3).**
+**Built and working: `bin/orch.sh` — per-project runner (step 4).**
+`init` / `run TASKS.json [--max-parallel N] [--dry-run]` / `resume` / `status`.
+State split: `<project>/.orch/{journal.ndjson,tasks.json,results/}` per project;
+`~/.local/state/free-agents/` global (learned wallet health). **A2 resolved** — two
+projects can run at once.
+- **Resume is replay** of an append-only journal, never a mutable status field. Verified:
+  killed mid-run, `status` showed 1/3 done, `resume` dispatched only the outstanding task.
+  Caveat: killing the parent does not kill in-flight children, so resume may find work an
+  orphan finished — harmless because the journal is the truth.
+- **Parallel width = healthy bucket count**, not a constant.
+- Tasks with overlapping declared `files` never run concurrently.
+- `run.sh` exit **5 = no lane available** (distinct from exhaustion) so contention
+  requeues instead of burning retry budget.
+- **VERIFY, DON'T TRUST:** a task's declared `files` must exist afterwards. Proven against
+  a task told to claim success without working: run.sh says ok, orch.sh fails it.
+
+**CONTAINMENT — each agent needs a DIFFERENT mechanism. There is no uniform flag.**
+- `opencode --dir DIR`, `kilo --dir DIR`
+- **hermes honours NEITHER cwd NOR `--in`** — it resolves relative paths against `$HOME`
+  and wrote to `/root` both ways. Contained via
+  `env HOME="$WORKDIR" HERMES_HOME="$HOME/.hermes" hermes ...` (verified clean, auth intact,
+  nothing symlinked into the project).
+- A model can still pick an absolute path anyway (kilo, given `--dir`, wrote `/gamma.txt`).
+  `run.sh` now prepends a working-directory contract to the prompt, which fixed that case.
+
+**Built: `bin/run.sh` — THE dispatch engine (step 3).**
 `run.sh [-c cat] [-w workdir] [-b bucket] [-x exclude] [--dry-run] "prompt"`.
 stdout = agent output; stderr carries `---RUN-META--- {bucket,model,agent,attempts,ms,state}`.
 Layout: `bin/lib/common.sh` (paths, flock'd `registry_txn`), `bin/lib/classify.sh` (THE
@@ -114,10 +139,11 @@ free models registered, whitelist scoped to exactly those.
 1. Read `docs/ALIGNMENT.md`.
 2. Run verification items §6 (**V3 first** — do kilo/hermes read `AGENTS.md`? It's the
    one that could change the design).
-3. Continue the build order §5. **Steps 1, 1.5, 2, 3 are DONE** — see `docs/ALIGNMENT.md`
-   §9 and §11. Next is **step 4**: per-project state `<project>/.orch/` + journal-based
-   resume (M6), then **step 5**: the structural parallel gate in `AGENTS.md` (M5) so the
-   coordinator checks live bucket health before fanning out.
+3. Continue the build order §5. **Steps 1, 1.5, 2, 3, 4 are DONE** — see
+   `docs/ALIGNMENT.md` §9, §11, §12. Next is **step 5**: the structural parallel gate in
+   `AGENTS.md` (M5) — fan out only when work splits into >=2 file-disjoint tasks AND >=2
+   wallets are healthy. Then steps 6-9 (retire runner.sh's engine, route the planner
+   through run.sh for B2, package as one skill, hygiene sweep H1-H5).
 
 Keys have been added and re-discovered (6 buckets, 5 usable). After any further key
 change: `bin/buckets.sh discover && bin/buckets.sh probe`, and watch for

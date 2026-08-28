@@ -173,10 +173,17 @@ invoke() { # $1=agent $2=model $3=provider $4=prompt
 # -------------------------------------------------------------------- record --
 # The single write path into the learning store. Nothing else writes outcomes,
 # and nothing at all is written for local_network.
-record() { # $1=bucket $2=model $3=state $4=ms
-  local bucket="$1" model="$2" state="$3" ms="$4" cd_secs until_ts=0
+record() { # $1=bucket $2=model $3=state $4=ms $5=output(optional)
+  local bucket="$1" model="$2" state="$3" ms="$4" out="${5:-}" cd_secs until_ts=0 hint
   [[ "$state" == "local_network" ]] && return 0
   cd_secs="$(cooldown_for "$state")"
+  # A window the provider stated itself beats our guess in both directions:
+  # retrying sooner burns an attempt, retrying later idles a usable lane.
+  hint="$(retry_after_secs "$out")"
+  if [[ -n "$hint" && "$hint" -gt 0 ]]; then
+    log "  provider asked for $((hint/60))m - using that instead of ${cd_secs}s"
+    cd_secs="$hint"
+  fi
   [[ "$cd_secs" -gt 0 ]] && until_ts=$(( $(now_epoch) + cd_secs ))
 
   local bucket_fault=false
@@ -259,7 +266,7 @@ for row in "${CHAIN[@]}"; do
     continue
   fi
 
-  record "$bucket" "$model" "$state" "$ms"
+  record "$bucket" "$model" "$state" "$ms" "$out"
   lease_release
 
   if [[ "$state" == "ok" ]]; then

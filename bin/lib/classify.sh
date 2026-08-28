@@ -30,6 +30,24 @@ classify() { # $1=rc $2=output -> state
   if printf '%s' "$t" | grep -qE 'could not resolve host|name or service not known|network is unreachable|no route to host|connection refused|temporary failure in name resolution|ssl connect error|tls handshake|connection reset by peer'; then
     echo local_network; return
   fi
+
+  # MODEL-SCOPE FIRST. These messages arrive carrying an HTTP status that belongs
+  # to a different category - "HTTP 401: Model x-preview-f-free is not supported"
+  # is a statement about one MODEL, not about the credential. Matching 401 first
+  # would cool the entire wallet for 24h because one model is unsupported, which
+  # is the single most expensive misclassification available here.
+  if printf '%s' "$t" | grep -qE 'is not supported|not supported|unknown model|no such model|does not exist|model .* not found|invalid model'; then
+    echo dead; return
+  fi
+
+  # Account-wide free-tier exhaustion. This is a WALLET fault and must trip the
+  # breaker: every other model on the same account will fail identically, so
+  # walking them one at a time is pure waste. Note these messages say neither
+  # "429" nor "insufficient balance".
+  if printf '%s' "$t" | grep -qE 'free usage exceeded|usage exceeded|subscribe to|upgrade to continue|free tier.*exceeded|daily limit reached'; then
+    echo no_credits; return
+  fi
+
   if printf '%s' "$t" | grep -qE '429|rate.?limit|too many requests|temporarily rate-limited|try again later|in-flight requests|overloaded'; then
     echo rate_limited; return
   fi
@@ -42,13 +60,37 @@ classify() { # $1=rc $2=output -> state
   if printf '%s' "$t" | grep -qE 'context length|too large|maximum context|token limit exceeded'; then
     echo context_overflow; return
   fi
-  if printf '%s' "$t" | grep -qE 'not found|does not exist|unknown model|unrecognized arguments|404'; then
+
+  # A gateway failing upstream is usually transient and says nothing about the
+  # model's health - parking it for 72h like a genuinely dead model throws away a
+  # working endpoint over a blip. Short cooldown instead.
+  if printf '%s' "$t" | grep -qE 'upstream request failed|provider returned error|upstream error|bad gateway|service unavailable|50[234]'; then
+    echo provider_error; return
+  fi
+
+  if printf '%s' "$t" | grep -qE 'not found|404'; then
     echo dead; return
   fi
   # 124 = timeout(1) killed it, 143 = SIGTERM. A hang is the model's fault.
   if [[ "$rc" == "124" || "$rc" == "143" ]]; then echo timeout; return; fi
   [[ "$rc" == "0" ]] && { echo ok; return; }
   echo dead
+}
+
+# Providers often state their own retry window ("retrying in 3h 53m",
+# "try again in 45 seconds"). An advertised window beats any guess we could make:
+# retrying earlier just burns an attempt, and later wastes the lane.
+retry_after_secs() { # $1=output -> seconds, or empty
+  local t h m sec
+  t="$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]')"
+  h="$(printf '%s' "$t" | grep -oE '(retry|retrying|try again)[^0-9]{0,12}([0-9]+) ?h' | grep -oE '[0-9]+' | head -1)"
+  m="$(printf '%s' "$t" | grep -oE '([0-9]+) ?m(in|inutes?)?\b' | grep -oE '[0-9]+' | head -1)"
+  sec="$(printf '%s' "$t" | grep -oE 'retry-after[^0-9]{0,4}([0-9]+)' | grep -oE '[0-9]+' | head -1)"
+  if [[ -n "$h" || -n "$m" ]]; then
+    printf '%s' "$(( ${h:-0} * 3600 + ${m:-0} * 60 ))"
+  elif [[ -n "$sec" ]]; then
+    printf '%s' "$sec"
+  fi
 }
 
 # Is this state the WALLET's fault? Only these may trip the bucket breaker.
@@ -64,6 +106,7 @@ cooldown_for() { # $1=state -> seconds
     no_credits)       echo "${COOLDOWN_NO_CREDITS:-86400}" ;;    # 24 h
     auth_error)       echo "${COOLDOWN_AUTH_ERROR:-86400}" ;;    # 24 h
     timeout)          echo "${COOLDOWN_TIMEOUT:-600}" ;;         # 10 min
+    provider_error)   echo "${COOLDOWN_PROVIDER_ERROR:-600}" ;;  # 10 min, likely transient
     dead)             echo "${COOLDOWN_DEAD:-259200}" ;;         # 72 h
     context_overflow) echo 0 ;;
     *)                echo 0 ;;
@@ -109,6 +152,29 @@ classify_self_test() {
   _ct 1 "Temporary failure in name resolution"                 local_network    || fails=1
   # precedence: a rate-limit mentioning a model must not read as 'dead'
   _ct 1 "429 rate limit on model not found in pool"            rate_limited     || fails=1
+
+  echo "real messages observed in the wild"
+  # A gateway blip, not a dead model - 72h would discard a working endpoint.
+  _ct 1 "Error from provider (Console): Upstream request failed: [404] Provider returned error" \
+                                                               provider_error   || fails=1
+  # Account-wide free-tier exhaustion. Says neither "429" nor "insufficient
+  # balance", yet every other model on the account will fail the same way.
+  _ct 1 "Free usage exceeded, subscribe to Go [retrying in 3h 53m attempt #1]" \
+                                                               no_credits       || fails=1
+  _ct 1 "Unauthorized: Insufficient balance"                   no_credits       || fails=1
+  # Carries a 401 but is a statement about ONE MODEL. Reading the status first
+  # would cool the whole wallet for 24h because one model is unsupported.
+  _ct 1 "HTTP 401: Model x-preview-f-free is not supported"    dead             || fails=1
+  # ... while a real credential failure must still condemn the wallet.
+  _ct 1 "HTTP 401 Unauthorized: invalid api key"               auth_error       || fails=1
+
+  echo "advertised retry windows"
+  [[ "$(retry_after_secs 'retrying in 3h 53m attempt #1')" == "13980" ]] \
+    && echo "  ok   parsed 3h 53m as 13980s" || { echo "  FAIL 3h53m"; fails=1; }
+  [[ "$(retry_after_secs 'please try again in 45 minutes')" == "2700" ]] \
+    && echo "  ok   parsed 45 minutes"       || { echo "  FAIL 45m"; fails=1; }
+  [[ -z "$(retry_after_secs 'no window mentioned here')" ]] \
+    && echo "  ok   no window -> no hint"    || { echo "  FAIL spurious hint"; fails=1; }
 
   echo "attribution"
   is_bucket_fault rate_limited && echo "  ok   rate_limited blames the wallet"   || { echo "  FAIL"; fails=1; }

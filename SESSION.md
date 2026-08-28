@@ -67,6 +67,15 @@ it. Parallel width = healthy buckets. One agent per bucket; others are failover.
 - Stdin drain: `opencode run`/`kilo run`/`hermes` read stdin and swallowed loop input.
   All calls use `</dev/null`. **Same audit needed in runner.sh/dispatch.sh.**
 
+**Built: the coordinator gate (step 5).** `AGENTS.md` no longer routes on keywords —
+it routes on structure + live state. Orchestrate only when **>=2 file-disjoint,
+independent tasks AND `bin/buckets.sh lanes` >= 2**. Lanes are CREDENTIALS, not agents.
+`bin/buckets.sh lanes [-v]` is an offline read of recorded health (currently **5**).
+`workflow-kit/install.sh` now ships `bin/` with the rules, from the single source at repo
+root. `scripts/dispatch.sh` retired in favour of `bin/orch.sh`.
+**Verified end to end:** fresh install into an empty dir ran a 3-task graph through its own
+installed copy, across 3 different wallets, all files correct.
+
 **Built and working: `bin/orch.sh` — per-project runner (step 4).**
 `init` / `run TASKS.json [--max-parallel N] [--dry-run]` / `resume` / `status`.
 State split: `<project>/.orch/{journal.ndjson,tasks.json,results/}` per project;
@@ -139,11 +148,16 @@ free models registered, whitelist scoped to exactly those.
 1. Read `docs/ALIGNMENT.md`.
 2. Run verification items §6 (**V3 first** — do kilo/hermes read `AGENTS.md`? It's the
    one that could change the design).
-3. Continue the build order §5. **Steps 1, 1.5, 2, 3, 4 are DONE** — see
-   `docs/ALIGNMENT.md` §9, §11, §12. Next is **step 5**: the structural parallel gate in
-   `AGENTS.md` (M5) — fan out only when work splits into >=2 file-disjoint tasks AND >=2
-   wallets are healthy. Then steps 6-9 (retire runner.sh's engine, route the planner
-   through run.sh for B2, package as one skill, hygiene sweep H1-H5).
+3. Continue the build order §5. **Steps 1-5 are DONE** — see `docs/ALIGNMENT.md`
+   §9, §11, §12, §13. **H1, H4, H5 closed.** Remaining: steps 6-9 — retire `runner.sh`'s
+   private fallback engine, route `orchestrator.sh`'s planner through `bin/run.sh` (**B2**,
+   still the only call without fallback), package as an installable skill (**A3**), and
+   close **H2** (`test_runner.sh` asserts PASS on rc=124) and **H3**
+   (`.orchestrator/config.json` read but absent).
+
+   Also outstanding: **reset hermes's ranking history** (D2 means every hermes entry is a
+   failure that never happened), and **audit `runner.sh`/`dispatch.sh`** for the stdin-drain
+   and `IFS=$'\t'` defects and for containment (each agent needs a DIFFERENT mechanism).
 
 Keys have been added and re-discovered (6 buckets, 5 usable). After any further key
 change: `bin/buckets.sh discover && bin/buckets.sh probe`, and watch for

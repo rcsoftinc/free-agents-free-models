@@ -15,3 +15,10 @@ test/test.log
 
 # test debris
 JWT_AUTH_GUIDE.md
+
+# machine-specific parts of the local opencode config (node_modules is 63M).
+# .opencode/skills/ IS tracked - it is the installed skill set.
+.opencode/node_modules/
+.opencode/package.json
+.opencode/package-lock.json
+.opencode/opencode.jsonc

@@ -10,7 +10,7 @@
 #   bin/buckets.sh                credential-bucket registry (lanes, health)
 #   bin/run.sh                    the dispatch engine (fallback, leasing, breaker)
 #   bin/plan.sh                   goal -> task graph (planning WITH fallback)
-#   .opencode/skills/free-agents/SKILL.md   the engine's skill card
+#   .opencode/skills/free-agents-free-models/SKILL.md   the engine's skill card
 #   bin/orch.sh                   per-project task-graph runner + resume
 #   bin/lib/{common,classify}.sh  shared paths and the error taxonomy
 #   bin/kilo-add-openrouter.sh    register OpenRouter free models with kilo
@@ -48,7 +48,7 @@ copy AGENTS.md AGENTS.md
 copy CLAUDE.md CLAUDE.md
 copy skills/agent-coordinator/SKILL.md .opencode/skills/agent-coordinator/SKILL.md
 # The engine's own skill card, so a runtime with a skill loader can find it.
-copy skill/SKILL.md .opencode/skills/free-agents/SKILL.md
+copy skill/SKILL.md .opencode/skills/free-agents-free-models/SKILL.md
 copy scripts/measure.sh scripts/measure.sh
 copy scripts/taskfile-example.json scripts/taskfile-example.json
 

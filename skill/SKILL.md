@@ -1,9 +1,9 @@
 ---
-name: free-agents
+name: free-agents-free-models
 description: Use when running AI coding work across multiple free-model agents (opencode, kilo, hermes) without hitting rate limits - dispatching a single task with automatic fallback, or running a multi-task project in parallel across independent API credentials. Schedules on CREDENTIAL BUCKETS rather than agents, so two agents sharing one API key are correctly treated as one lane. Provides bin/buckets.sh (registry, lane count, health), bin/run.sh (single dispatch with fallback chain and circuit breaker), bin/plan.sh (goal to task graph), bin/orch.sh (task graph with crash-safe resume). Keywords: free models, rate limited, 429, fallback, multi-agent, orchestrate, parallel, opencode, kilo, hermes, openrouter, quota, resume, lanes, buckets.
 ---
 
-# free-agents
+# free-agents-free-models
 
 Run real work on free models across several agent runtimes, without a rate limit
 ever stopping you and without two workers fighting over the same API key.

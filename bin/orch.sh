@@ -167,6 +167,7 @@ cmd_run() {
   jq -e '.tasks | type == "array" and length > 0' "$TASKS_FILE" >/dev/null \
     || die "$TASKS_FILE has no tasks"
 
+  write_orch_gitignore
   local width="${MAX_PARALLEL:-$(healthy_buckets)}"
   [[ "$width" -ge 1 ]] || width=1
   log "project=$PROJECT  parallel=$width (healthy buckets)"
@@ -265,14 +266,29 @@ cmd_status() {
   fi
 }
 
-cmd_init() {
-  mkdir -p "$ORCH_DIR" "$RESULTS"
-  [[ -f "$TASKS_FILE" ]] || echo '{"tasks":[]}' > "$TASKS_FILE"
+# What of .orch/ belongs in the PROJECT's git:
+#   tasks.json      YES - it is the specification, and it is what makes a run
+#                   repeatable on someone else's machine (with their own lanes).
+#   journal.ndjson  NO  - a record of what happened on ONE machine. Committing it
+#                   guarantees conflicts and reproduces nothing: which wallet
+#                   served a task is not a property of the project.
+#   results/        NO  - raw agent transcripts.
+write_orch_gitignore() {
+  mkdir -p "$ORCH_DIR"
+  [[ -f "${ORCH_DIR}/.gitignore" ]] && return 0
   cat > "${ORCH_DIR}/.gitignore" <<'EOF'
-# per-run state; regenerated. The journal is kept - it is the resume record.
+# Commit tasks.json - it is the specification, and it travels between machines.
+# Everything else here is a record of one machine's run.
+journal.ndjson
 results/
 *.lock
 EOF
+}
+
+cmd_init() {
+  mkdir -p "$ORCH_DIR" "$RESULTS"
+  [[ -f "$TASKS_FILE" ]] || echo '{"tasks":[]}' > "$TASKS_FILE"
+  write_orch_gitignore
   echo "initialised $ORCH_DIR"
 }
 

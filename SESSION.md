@@ -67,7 +67,31 @@ it. Parallel width = healthy buckets. One agent per bucket; others are failover.
 - Stdin drain: `opencode run`/`kilo run`/`hermes` read stdin and swallowed loop input.
   All calls use `</dev/null`. **Same audit needed in runner.sh/dispatch.sh.**
 
-**Built and working: `bin/buckets.sh`** — `identify` / `discover` / `probe [--all|--bucket ID]`
+**Built and working: `bin/run.sh` — THE dispatch engine (step 3).**
+`run.sh [-c cat] [-w workdir] [-b bucket] [-x exclude] [--dry-run] "prompt"`.
+stdout = agent output; stderr carries `---RUN-META--- {bucket,model,agent,attempts,ms,state}`.
+Layout: `bin/lib/common.sh` (paths, flock'd `registry_txn`), `bin/lib/classify.sh` (THE
+taxonomy, 19-case self-test: `bash bin/lib/classify.sh --self-test`), `bin/run.sh`.
+`buckets.sh` now sources both — A1 resolved, no duplicate classify.
+
+Verified behaviours:
+- **One lane per bucket** (flock on the BUCKET). 2 tasks pinned to one bucket -> second
+  says `lane busy` and moves on. 3 concurrent unpinned tasks -> 3 different wallets, two
+  of them via the same agent (legitimate: constraint is per-bucket, not per-agent).
+- **Breaker**: 2 bucket-attributable failures -> wallet cooldown, remaining models skipped.
+  Chain fell 75 -> 45 with 2 wallets cooled; task rerouted automatically.
+- **Attribution**: timeout/dead -> model only; `local_network` -> nothing recorded.
+
+**B1 FIXED — and it was worse than ANALYSIS said.** A `cd` is NOT enough: with cwd set
+correctly, kilo still wrote to `$HOME`. Only explicit flags work — `opencode --dir`,
+`kilo --dir`, `hermes --in`. **Any runner.sh fix that only adds `cd` will look right and
+still scatter files into this repo.**
+
+Two bash defects fixed: a redirection on a bare `exec` applies to THE SHELL (silenced all
+stderr); a trailing `[[ ]] && cmd` in a sourced file returns 1 and aborts the caller under
+`set -e`.
+
+**Built: `bin/buckets.sh`** — `identify` / `discover` / `probe [--all|--bucket ID]`
 / `show`. State `~/.local/state/free-agents/buckets.json`.
 Bucket id = `wallet_host:credential_fp`, derived from the CREDENTIAL not the agent, so a
 shared key collapses to one lane automatically and prints `** SHARED WALLET **`.
@@ -90,11 +114,10 @@ free models registered, whitelist scoped to exactly those.
 1. Read `docs/ALIGNMENT.md`.
 2. Run verification items §6 (**V3 first** — do kilo/hermes read `AGENTS.md`? It's the
    one that could change the design).
-3. Continue the build order §5. **Steps 1 (git), 1.5 (D2) and 2 (bucket registry) are
-   DONE** — see `docs/ALIGNMENT.md` §9. Next is **step 3**: fold `classify()` from
-   `bin/buckets.sh` into the single dispatch engine and make the M1 bucket breaker act on
-   the `health` field the registry now maintains. Then step 4 (B1 `--workdir`/`cd` +
-   per-project state).
+3. Continue the build order §5. **Steps 1, 1.5, 2, 3 are DONE** — see `docs/ALIGNMENT.md`
+   §9 and §11. Next is **step 4**: per-project state `<project>/.orch/` + journal-based
+   resume (M6), then **step 5**: the structural parallel gate in `AGENTS.md` (M5) so the
+   coordinator checks live bucket health before fanning out.
 
 Keys have been added and re-discovered (6 buckets, 5 usable). After any further key
 change: `bin/buckets.sh discover && bin/buckets.sh probe`, and watch for

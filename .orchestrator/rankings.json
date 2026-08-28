@@ -97,6 +97,33 @@
       "research": [
         {
           "agent": "opencode",
+          "model_id": "openrouter/openrouter/pareto-code",
+          "provider": "openrouter",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "kilo",
+          "model_id": "kilo/openrouter/auto-beta",
+          "provider": "kilo",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "kilo",
+          "model_id": "kilo/meituan/longcat-2.0-free",
+          "provider": "kilo",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "opencode",
           "model_id": "opencode/muse-spark-1.2-contributor-free",
           "provider": "opencode",
           "score": 0.95,
@@ -142,30 +169,12 @@
         },
         {
           "agent": "kilo",
-          "model_id": "kilo/meituan/longcat-2.0-free",
-          "provider": "kilo",
-          "score": 0.86,
-          "attempts": 1,
-          "successes": 0,
-          "last_used": "2026-08-28T00:08:51Z"
-        },
-        {
-          "agent": "opencode",
-          "model_id": "openrouter/openrouter/pareto-code",
-          "provider": "openrouter",
-          "score": 0.76,
-          "attempts": 1,
-          "successes": 0,
-          "last_used": "2026-08-28T00:09:00Z"
-        },
-        {
-          "agent": "kilo",
-          "model_id": "kilo/openrouter/auto-beta",
+          "model_id": "kilo/openrouter/auto",
           "provider": "kilo",
           "score": 0.76,
           "attempts": 1,
           "successes": 0,
-          "last_used": "2026-08-28T00:07:42Z"
+          "last_used": "2026-08-27T02:59:13Z"
         },
         {
           "agent": "opencode",
@@ -175,15 +184,6 @@
           "attempts": 1,
           "successes": 0,
           "last_used": "2026-08-27T02:59:02Z"
-        },
-        {
-          "agent": "kilo",
-          "model_id": "kilo/openrouter/auto",
-          "provider": "kilo",
-          "score": 0.61,
-          "attempts": 2,
-          "successes": 0,
-          "last_used": "2026-08-28T00:08:57Z"
         }
       ]
     },

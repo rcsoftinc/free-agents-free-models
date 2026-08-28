@@ -1,7 +1,16 @@
 # common.sh - shared paths, logging and registry access.
 # Source, do not execute.
 
-STATE_DIR="${FREE_AGENTS_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/free-agents}"
+# State lives INSIDE this clone by default, so a project is self-contained: delete
+# the folder and nothing of this tool is left on the machine. Set
+# FREE_AGENTS_STATE to share one registry across projects instead (it costs an
+# extra discover+probe per project not to).
+#
+# NOTE: no secrets are stored here. Credentials stay in each agent's own config;
+# the registry keeps only sha256 FINGERPRINTS of them, which is what lets it tell
+# two wallets apart without ever holding a key.
+_FA_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+STATE_DIR="${FREE_AGENTS_STATE:-$(cd "${_FA_LIB_DIR}/../.." && pwd)/state}"
 REGISTRY="${STATE_DIR}/buckets.json"
 REGISTRY_LOCK="${STATE_DIR}/.registry.lock"
 

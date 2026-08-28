@@ -8,6 +8,8 @@ set -euo pipefail
 # per-project copy would mean N registries to rediscover and N copies to update.
 # A project gets only its routing rules and its own run journal.
 #
+#   fa bootstrap       FIRST RUN: build the registry, probe wallets, install skills
+#   fa install-skills  put the skill cards where the agent runtimes look
 #   fa init            drop AGENTS.md + CLAUDE.md here (makes this a free-agents project)
 #   fa lanes [-v]      how many independent credential lanes are healthy
 #   fa discover        rebuild the credential registry (after adding/removing keys)
@@ -23,7 +25,8 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 ROOT="$(cd "${HERE}/.." && pwd)"
-STATE="${FREE_AGENTS_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/free-agents}"
+# Must match lib/common.sh: state lives inside this clone unless overridden.
+STATE="${FREE_AGENTS_STATE:-${ROOT}/state}"
 
 usage() { sed -n '6,26p' "$0" >&2; exit 3; }
 cmd="${1:-}"; shift || true
@@ -32,6 +35,32 @@ case "$cmd" in
   init)
     bash "${ROOT}/workflow-kit/install.sh" "$(pwd)" "$@"
     ;;
+  bootstrap)
+    # One command for an agent to run on first use: build the registry, prove the
+    # wallets answer, put the skills where runtimes look, and report.
+    echo "[fa] discovering credentials this machine's agents already hold..."
+    "${HERE}/buckets.sh" discover || exit $?
+    echo "[fa] probing wallets (proves each one actually answers)..."
+    "${HERE}/buckets.sh" probe || true
+    "${ROOT}/bin/fa" install-skills
+    echo
+    "${HERE}/buckets.sh" show
+    echo
+    n="$("${HERE}/buckets.sh" lanes 2>/dev/null || echo 0)"
+    echo "[fa] $n healthy lane(s)."
+    [[ "$n" -lt 2 ]] && echo "[fa] With fewer than 2 lanes, work directly - splitting cannot help."
+    exit 0
+    ;;
+
+  install-skills)
+    # Put the skill cards + routing rules where the agent runtimes look for them.
+    proj="$(cd "${ROOT}/.." && pwd)"
+    bash "${ROOT}/workflow-kit/install.sh" "$proj" >/dev/null 2>&1 || true
+    echo "[fa] skills installed into ${proj}/.opencode/skills/"
+    ls "${proj}/.opencode/skills" 2>/dev/null | sed 's/^/       /'
+    exit 0
+    ;;
+
   lanes)    exec "${HERE}/buckets.sh" lanes "$@" ;;
   discover) exec "${HERE}/buckets.sh" discover "$@" ;;
   probe)    exec "${HERE}/buckets.sh" probe "$@" ;;

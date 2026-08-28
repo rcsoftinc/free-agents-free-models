@@ -10,7 +10,7 @@ set -euo pipefail
 #
 #   fa bootstrap       FIRST RUN: build the registry, probe wallets, install skills
 #   fa install-skills  put the skill cards where the agent runtimes look
-#   fa init            drop AGENTS.md + CLAUDE.md here (makes this a free-agents project)
+#   fa init            set up the current directory (same as .free-agents/setup.sh)
 #   fa lanes [-v]      how many independent credential lanes are healthy
 #   fa discover        rebuild the credential registry (after adding/removing keys)
 #   fa probe [--all]   prove each wallet answers
@@ -33,7 +33,8 @@ cmd="${1:-}"; shift || true
 
 case "$cmd" in
   init)
-    bash "${ROOT}/workflow-kit/install.sh" "$(pwd)" "$@"
+    # setup.sh owns project setup; keep `fa init` as an alias so either works.
+    exec bash "${ROOT}/setup.sh" "$(pwd)"
     ;;
   bootstrap)
     # One command for an agent to run on first use: build the registry, prove the
@@ -53,11 +54,18 @@ case "$cmd" in
     ;;
 
   install-skills)
-    # Put the skill cards + routing rules where the agent runtimes look for them.
+    # Put the skill cards where the agent runtimes look for them. They are
+    # symlinked, not copied, so editing one here does not leave a stale copy in
+    # the project - the duplicate-copy problem this project already hit once.
     proj="$(cd "${ROOT}/.." && pwd)"
-    bash "${ROOT}/workflow-kit/install.sh" "$proj" >/dev/null 2>&1 || true
-    echo "[fa] skills installed into ${proj}/.opencode/skills/"
-    ls "${proj}/.opencode/skills" 2>/dev/null | sed 's/^/       /'
+    dest="${proj}/.opencode/skills"
+    mkdir -p "$dest"
+    for sk in "${ROOT}"/skills/*/; do
+      [[ -d "$sk" ]] || continue
+      ln -sfn "$sk" "${dest}/$(basename "$sk")"
+    done
+    echo "[fa] skills linked into ${dest}/"
+    ls "$dest" 2>/dev/null | sed 's/^/       /'
     exit 0
     ;;
 

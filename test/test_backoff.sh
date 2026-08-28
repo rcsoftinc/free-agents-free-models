@@ -8,7 +8,7 @@ begin_suite "J backoff on rate-limit"
 
 # Use real (non-zero) backoff constants for the unit tests; the harness exports 0.
 export BACKOFF_BASE=5 BACKOFF_CAP=60 BACKOFF_FACTOR=2
-RUNNER="${REPO_DIR}/runner.sh"
+RUNNER="${LEGACY_DIR}/runner.sh"
 
 # --- Unit: next_backoff via --backoff hook ---
 assert_eq "backoff attempt1 = base (5)"        "$(bash "$RUNNER" --backoff 1)" "5"
@@ -45,7 +45,7 @@ clear_modes; mode_for opencode ratelimit; mode_for kilo ratelimit; mode_for herm
 export GOOD_MODEL="openrouter/m2"
 : > "${ORCH_DIR}/runner.log"
 t0=$(date +%s)
-bash "${REPO_DIR}/runner.sh" task-002 >/dev/null 2>&1
+bash "${LEGACY_DIR}/runner.sh" task-002 >/dev/null 2>&1
 t1=$(date +%s)
 elapsed=$((t1 - t0))
 status=$(jq -r '.status' "${ORCH_DIR}/tasks/task-002.json" 2>/dev/null || echo none)

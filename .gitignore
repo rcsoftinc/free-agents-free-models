@@ -5,9 +5,9 @@
 # per-project run state (regenerated)
 .orch/
 .dispatch-results/
-.orchestrator/.backups/
-.orchestrator/*.lock
-.orchestrator/.agent_state.json
+legacy/.orchestrator/.backups/
+legacy/.orchestrator/*.lock
+legacy/.orchestrator/.agent_state.json
 
 # logs & test output
 *.log

@@ -5,7 +5,10 @@ set -uo pipefail
 
 HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "${HARNESS_DIR}/.." && pwd)"
-ORCH_DIR="${REPO_DIR}/.orchestrator"
+# Layer B was retired to legacy/ (see legacy/README.md). Its suites still run
+# there, so a superseded engine cannot rot silently while it remains on disk.
+LEGACY_DIR="${REPO_DIR}/legacy"
+ORCH_DIR="${LEGACY_DIR}/.orchestrator"
 STUBS_DIR="${HARNESS_DIR}/stubs"
 ROOT_LOG="${HARNESS_DIR}/test.log"
 

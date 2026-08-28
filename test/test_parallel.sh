@@ -30,7 +30,7 @@ write_fixture() {
 write_fixture
 clear_modes; mode_for opencode success; mode_for kilo success; mode_for hermes success
 : > "${ORCH_DIR}/runner.log"
-bash "${REPO_DIR}/runner.sh" --parallel 2 >/dev/null 2>&1
+bash "${LEGACY_DIR}/runner.sh" --parallel 2 >/dev/null 2>&1
 
 for t in task-a task-b task-c; do
   st=$(jq -r --arg id "$t" '.tasks[] | select(.id==$id) | .status' "${ORCH_DIR}/project.json")

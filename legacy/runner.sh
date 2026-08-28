@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# ============================ RETIRED ============================
+# This script is superseded by bin/orch.sh (task execution) and bin/run.sh (dispatch).
+# It is kept only so its test suites keep running. Do not build on it.
+# See legacy/README.md for the replacement map and the known defects
+# that were deliberately NOT fixed here.
+# =================================================================
+
 # runner.sh - Execute tasks from the project plan with parallel execution and error recovery
 # Usage: runner.sh [task_id|--resume|--parallel N]
 

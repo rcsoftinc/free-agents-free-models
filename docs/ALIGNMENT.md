@@ -1012,3 +1012,93 @@ your second message, working.
   that never happened.
 - **Audit `runner.sh`/`dispatch.sh`** for the stdin-drain and `IFS=$'\t'` defects, and
   for containment — remembering that each agent needs a *different* mechanism.
+
+
+---
+
+## 14. BUILT — steps 6–9: Layer B retired, planner fixed, packaged
+
+### Step 6 — Layer B retired to `legacy/`
+
+`runner.sh`, `orchestrator.sh`, `discover.sh`, `rankings.sh`, `promote.sh`,
+`handoff.sh`, `compress.sh`, `resume.sh` and `.orchestrator/` now live in `legacy/`
+behind a banner, with `legacy/README.md` giving the replacement map.
+
+They are **kept, not deleted**, and their 14 suites still run there. A superseded
+engine that stays on disk should not be allowed to rot silently, and those tests
+encode real behaviour (backoff arithmetic, provider distribution, exhaustion,
+dependency resolution) that is worth keeping honest. Nothing outside `legacy/` and
+`test/` depends on any of it. **A1 is now fully resolved: one engine, one state store.**
+
+The README also records the defects deliberately **not** fixed there — no workdir
+containment (B1), the stdin drain, the `IFS=$'\t'` field collapse, and the missing
+`config.json` (H3) — so a future reader knows the code is not merely old but wrong,
+and ports behaviour rather than reviving a script.
+
+### Step 7 — B2: `bin/plan.sh`
+
+The old planner called **one model, once**, with stderr discarded: a single rate
+limit produced invalid JSON and killed the run. The one call that most needed a
+fallback chain was the only one without one.
+
+`bin/plan.sh` goes through `bin/run.sh` like everything else, so it inherits the
+chain, the leasing and the breaker for free. Two things it adds:
+
+- **Validation as a retry signal.** A model that returns prose instead of a plan has
+  *failed*, but the wallet has not — `run.sh` already recorded the call as `ok`, so
+  planning simply retries and lands on a different model. It also extracts the first
+  balanced JSON object, because small free models routinely wrap valid JSON in
+  commentary and discarding those would waste a lane for nothing.
+- **Boundary checking the model cannot be trusted to do.** Any two tasks with no
+  dependency between them that share a file are rejected — the planner is where that
+  error is cheapest to catch.
+
+Verified end to end, plan → orchestrate → working software:
+
+```
+bin/plan.sh "Create a Python CLI notes app: storage module, CLI entrypoint, tests"
+  -> 3 tasks, correct deps (cli and tests both depend on storage), disjoint files
+
+bin/orch.sh run .orch/tasks.json
+  storage-module  <- nous:6b7db10d          stepfun/step-3.7-flash:free
+  cli-entrypoint  <- openrouter.ai:845a3f96 openai/cohere/north-mini-code:free
+  test-file       <- ...
+
+$ python3 cli.py add "First note" "hello world"
+Added note with id: 785af7ae-...
+$ python3 cli.py list
+785af7ae-...: First note (created: 2026-08-28T04:49:06+00:00)
+```
+
+Three files, 361 lines, all parse, and the app runs. Written entirely by free models
+across independent wallets, from one sentence.
+
+### Step 8/9 — packaging (A3) and the last hygiene
+
+- **`skill/SKILL.md`** — frontmatter + description, installed to
+  `.opencode/skills/free-agents/SKILL.md`. `workflow-kit/install.sh` now ships
+  `bin/{buckets,run,plan,orch}.sh`, `bin/lib/`, both skills and the routing rules.
+- **H2** — `test_runner.sh` captured `rc` and never asserted on it, so a run **killed
+  by the timeout** (`rc=124`) still reported PASS whenever an earlier task had been
+  marked done. A killed run demonstrates nothing about the behaviour under test;
+  silently green is worse than red. It now fails explicitly as inconclusive.
+- **H3** — `.orchestrator/config.json` is shipped with its previously-silent defaults
+  made explicit, plus the models observed to hang.
+- The three hanging opencode models (`mimo-v2.5-free`, `hy3-free`,
+  `muse-spark-1.2-contributor-free`) are now in the registry blocklist. A hang is the
+  worst failure mode available: it costs a full timeout and teaches nothing.
+
+### A correction
+
+I twice flagged "hermes's ranking history is poisoned by D2 — reset it." **That was
+wrong.** `legacy/.orchestrator/rankings.json` contains **zero** hermes entries; the
+catalog has 43 hermes models but none were ever promoted, so the failed invocations
+never reached the store. There was nothing to reset. The D2 fix still matters — Layer
+B genuinely never invoked hermes successfully — but the damage I predicted did not
+occur.
+
+### Test suite
+
+Moving Layer B broke two suites: `test/reset.sh` and `test/snapshot.sh` computed
+`.orchestrator` from their own location rather than from the harness, so they missed
+the move. Repointed; all suites pass again.

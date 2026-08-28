@@ -1,0 +1,73 @@
+{
+  "info": {
+    "name": "test-project",
+    "path": "/tmp/test-project"
+  },
+  "description": "",
+  "plan": {
+    "phases": [
+      {
+        "name": "p",
+        "description": "",
+        "tasks": [
+          {
+            "id": "task-a",
+            "role": "researcher",
+            "task_type": "research",
+            "description": "a",
+            "files": [],
+            "priority": "high",
+            "dependencies": []
+          },
+          {
+            "id": "task-b",
+            "role": "researcher",
+            "task_type": "research",
+            "description": "b",
+            "files": [],
+            "priority": "high",
+            "dependencies": []
+          },
+          {
+            "id": "task-c",
+            "role": "researcher",
+            "task_type": "research",
+            "description": "c",
+            "files": [],
+            "priority": "high",
+            "dependencies": []
+          }
+        ]
+      }
+    ]
+  },
+  "tasks": [
+    {
+      "id": "task-a",
+      "status": "done",
+      "result": {
+        "summary": "{\"ok\":true,\"agent\":\"opencode\",\"model\":\"openrouter/m1\",\"summary\":\"stub success\"}"
+      },
+      "updated_at": "2026-08-28T04:49:47Z"
+    },
+    {
+      "id": "task-b",
+      "status": "done",
+      "result": {
+        "summary": "{\"ok\":true,\"agent\":\"kilo\",\"model\":\"kilo/m2\",\"summary\":\"stub success\"}"
+      },
+      "updated_at": "2026-08-28T04:49:47Z"
+    },
+    {
+      "id": "task-c",
+      "status": "done",
+      "result": {
+        "summary": "{\"ok\":true,\"agent\":\"opencode\",\"model\":\"openrouter/m1\",\"summary\":\"stub success\"}"
+      },
+      "updated_at": "2026-08-28T04:49:49Z"
+    }
+  ],
+  "status": "planning",
+  "created_at": "x",
+  "updated_at": "x"
+}

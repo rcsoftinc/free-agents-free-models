@@ -46,7 +46,7 @@ clear_modes; mode_for opencode success; mode_for kilo success; mode_for hermes s
 : > "${TRACE}"
 fresh_state
 write_t1
-bash "${REPO_DIR}/runner.sh" >/dev/null 2>&1
+bash "${LEGACY_DIR}/runner.sh" >/dev/null 2>&1
 agents=$(cut -d'|' -f1 "${TRACE}" | sort -u | wc -l)
 assert_eq "T1 tasks divided across all 3 agents" "${agents}" "3"
 
@@ -77,7 +77,7 @@ export GOOD_MODEL="kilo/m5"
 : > "${TRACE}"
 fresh_state
 write_t2
-bash "${REPO_DIR}/runner.sh" task-002 >/dev/null 2>&1
+bash "${LEGACY_DIR}/runner.sh" task-002 >/dev/null 2>&1
 status=$(jq -r '.status' "${ORCH_DIR}/tasks/task-002.json" 2>/dev/null || echo none)
 assert_eq "T2 task succeeds on last combo" "$status" "done"
 # Verify no two consecutive attempts share a provider.
@@ -96,7 +96,7 @@ clear_modes; mode_for opencode slow; mode_for kilo slow; mode_for hermes slow
 : > "${TRACE}"
 fresh_state
 write_t1
-bash "${REPO_DIR}/runner.sh" --parallel 3 >/dev/null 2>&1
+bash "${LEGACY_DIR}/runner.sh" --parallel 3 >/dev/null 2>&1
 par_agents=$(cut -d'|' -f1 "${TRACE}" | sort -u | wc -l)
 assert_eq "T3 parallel tasks assigned distinct agents" "${par_agents}" "3"
 
@@ -127,7 +127,7 @@ clear_modes; mode_for opencode ratelimit; mode_for kilo ratelimit; mode_for herm
 fresh_state
 write_t4
 : > "${ORCH_DIR}/runner.log"
-bash "${REPO_DIR}/runner.sh" task-002 >/dev/null 2>&1
+bash "${LEGACY_DIR}/runner.sh" task-002 >/dev/null 2>&1
 status=$(jq -r '.status' "${ORCH_DIR}/tasks/task-002.json" 2>/dev/null || echo none)
 attempts=$(grep -c "Attempt " "${ORCH_DIR}/runner.log")
 assert_eq "T4 task fails when all combos rate-limited" "$status" "failed"

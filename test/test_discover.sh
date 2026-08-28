@@ -8,7 +8,7 @@ sandbox_on
 reset_state baseline
 rm -f "${ORCH_DIR}/catalog.json"
 
-out=$(bash "${REPO_DIR}/discover.sh" 2>&1)
+out=$(bash "${LEGACY_DIR}/discover.sh" 2>&1)
 assert_eq "discover exits 0" "$?" "0"
 
 assert_json_valid "catalog.json is valid JSON" "${ORCH_DIR}/catalog.json"

@@ -9,6 +9,8 @@
 #   .opencode/skills/agent-coordinator/SKILL.md   orchestrate playbook
 #   bin/buckets.sh                credential-bucket registry (lanes, health)
 #   bin/run.sh                    the dispatch engine (fallback, leasing, breaker)
+#   bin/plan.sh                   goal -> task graph (planning WITH fallback)
+#   .opencode/skills/free-agents/SKILL.md   the engine's skill card
 #   bin/orch.sh                   per-project task-graph runner + resume
 #   bin/lib/{common,classify}.sh  shared paths and the error taxonomy
 #   bin/kilo-add-openrouter.sh    register OpenRouter free models with kilo
@@ -45,11 +47,13 @@ copy() { # src -> dst (relative to target); src is resolved in the kit, then the
 copy AGENTS.md AGENTS.md
 copy CLAUDE.md CLAUDE.md
 copy skills/agent-coordinator/SKILL.md .opencode/skills/agent-coordinator/SKILL.md
+# The engine's own skill card, so a runtime with a skill loader can find it.
+copy skill/SKILL.md .opencode/skills/free-agents/SKILL.md
 copy scripts/measure.sh scripts/measure.sh
 copy scripts/taskfile-example.json scripts/taskfile-example.json
 
 # The engine. AGENTS.md refers to these by path, so they must land with the rules.
-for f in buckets.sh run.sh orch.sh kilo-add-openrouter.sh \
+for f in buckets.sh run.sh plan.sh orch.sh kilo-add-openrouter.sh \
          lib/common.sh lib/classify.sh; do
   copy "bin/$f" "bin/$f"
 done
@@ -74,10 +78,13 @@ cat <<'USAGE'
      almost everything.
   3. It fans out only when the work actually splits AND you have >=2 lanes.
      Check yourself with:  bash bin/buckets.sh lanes -v
-  4. Task graph by hand:
+  4. From a goal:
+       bash bin/plan.sh "what you want built"
+       bash bin/orch.sh run .orch/tasks.json
+  5. Task graph by hand:
        bash bin/orch.sh run scripts/taskfile-example.json
        bash bin/orch.sh status
        bash bin/orch.sh resume        # safe after any interruption
-  5. First run on a new machine:
+  6. First run on a new machine:
        bash bin/buckets.sh discover && bash bin/buckets.sh probe
 USAGE

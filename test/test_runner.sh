@@ -11,7 +11,7 @@ sandbox_off
 reset_state baseline
 
 log "Starting live run of task-002 (this may take a few minutes)..."
-timeout 220 bash "${REPO_DIR}/runner.sh" task-002 >/dev/null 2>&1
+timeout 220 bash "${LEGACY_DIR}/runner.sh" task-002 >/dev/null 2>&1
 rc=$?
 
 attempts=$(grep -c "Attempt" "${ORCH_DIR}/runner.log" || true)
@@ -20,7 +20,14 @@ rl_seen=$(grep -c "rate_limited" "${ORCH_DIR}/runner.log" || true)
 
 log "live run rc=$rc attempts=$attempts status=$status rate_limited_observed=$rl_seen"
 
-if [[ "$status" == "done" ]]; then
+# H2: rc was previously captured and never asserted, so a run KILLED by the
+# timeout (rc=124) still reported PASS whenever an earlier task had been marked
+# done. A killed run is not a passing run: nothing was demonstrated about the
+# behaviour under test, and silently green is worse than red.
+if [[ $rc -eq 124 ]]; then
+  fail "D live run was killed by the 220s timeout (rc=124) - inconclusive, not a pass"
+elif [[ "$status" == "done" ]]; then
+  assert_true "D live run completed without being killed (rc=$rc)" '[[ $rc -ne 124 ]]'
   pass "D live run succeeded (credits available)"
 else
   assert_true "D live run attempted >3 combos (exhaustive, old cap was 3; got $attempts)" '[[ $attempts -gt 3 ]]'

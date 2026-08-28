@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# ============================ RETIRED ============================
+# This script is superseded by bin/plan.sh (planning) and bin/orch.sh (execution).
+# It is kept only so its test suites keep running. Do not build on it.
+# See legacy/README.md for the replacement map and the known defects
+# that were deliberately NOT fixed here.
+# =================================================================
+
 # orchestrator.sh - Analyze project and create development plan
 # Usage: orchestrator.sh <project_path> [description]
 

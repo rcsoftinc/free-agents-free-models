@@ -33,7 +33,7 @@ jq '.tasks += [{id:"task-002", status:"failed", result:{summary:"boom"}, updated
   && mv "${ORCH_DIR}/project.json.tmp" "${ORCH_DIR}/project.json"
 clear_modes; mode_for opencode success; mode_for kilo success; mode_for hermes success
 : > "${ORCH_DIR}/runner.log"
-bash "${REPO_DIR}/runner.sh" --resume >/dev/null 2>&1
+bash "${LEGACY_DIR}/runner.sh" --resume >/dev/null 2>&1
 status=$(jq -r '.tasks[] | select(.id=="task-002") | .status' "${ORCH_DIR}/project.json")
 assert_eq "G1 --resume retries a failed task to done" "$status" "done"
 assert_contains "G1 resume re-ran the task" "$(cat "${ORCH_DIR}/runner.log")" "Attempt 1/2"
@@ -42,7 +42,7 @@ assert_contains "G1 resume re-ran the task" "$(cat "${ORCH_DIR}/runner.log")" "A
 write_fixture
 clear_modes; mode_for opencode success; mode_for kilo success; mode_for hermes success
 : > "${ORCH_DIR}/runner.log"
-bash "${REPO_DIR}/runner.sh" --resume >/dev/null 2>&1
+bash "${LEGACY_DIR}/runner.sh" --resume >/dev/null 2>&1
 executed=$(grep -c "Attempt " "${ORCH_DIR}/runner.log")
 assert_eq "G2 --resume with no failed tasks executes nothing" "$executed" "0"
 

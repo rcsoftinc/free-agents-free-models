@@ -1,0 +1,9 @@
+{
+  "task_id": "task-a",
+  "role": "researcher",
+  "task_type": "research",
+  "description": "a",
+  "summary": "{\"ok\":true,\"agent\":\"opencode\",\"model\":\"openrouter/m1\",\"summary\":\"stub success\"}",
+  "files": [],
+  "created_at": "2026-08-28T04:49:47Z"
+}

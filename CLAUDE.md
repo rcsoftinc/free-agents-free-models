@@ -12,8 +12,19 @@
   loses nothing. Scroll/copy help: `docs/TMUX-CHEATSHEET.md`.
 
 ## Mode routing
-Read `AGENTS.md` — it is the single source of truth for the mode decision
-(direct vs plan-first vs orchestrate). For orchestrate mode, the
-`agent-coordinator` skill (in `.opencode/skills/agent-coordinator/`, loadable
-directly at that path if your runtime has no skill loader) is the extended
-playbook; if absent, follow the inline steps in AGENTS.md.
+Read `AGENTS.md` for the mode decision. It is **generated** — the source is
+`workflow-kit/AGENTS.md`; edit there and re-run `bash workflow-kit/install.sh .`
+rather than editing the copy.
+
+Default is direct. Orchestrate only when the gate passes: **≥2 tasks with disjoint
+file sets and no interdependency, AND `bin/buckets.sh lanes` ≥ 2.** Lanes are
+credentials, not agents — several agents on one API key are one lane, and running
+them together only races that wallet into its own rate limit.
+
+## The tooling
+```
+bin/buckets.sh   credential-bucket registry   (lanes | discover | probe | show)
+bin/run.sh       the dispatch engine          (one task -> one result, with fallback)
+bin/orch.sh      per-project task graph       (run | status | resume)
+```
+Design, findings and build order: `docs/ALIGNMENT.md` (current source of truth).

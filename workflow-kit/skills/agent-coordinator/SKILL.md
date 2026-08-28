@@ -1,13 +1,32 @@
 # Agent Coordination Workflow
 
-This is the UNIVERSAL coordinator playbook for big projects. AGENTS.md points here
-when a request must be orchestrated. Works for any agent runtime (opencode, kilo,
-hermes, claude) — the coordinator is whatever agent was started. All steps are
-pattern descriptions, not tool calls, so you can map them to your runtime's own
-subagent/orchestration facility.
+The coordinator playbook. `AGENTS.md` points here once its gate has been passed.
+Works for any runtime (opencode, kilo, hermes, claude) — the coordinator is
+whatever agent was started, and the steps are patterns you map onto your own
+subagent facility or onto `bin/orch.sh`.
 
-Load this skill ONLY when the project is genuinely big (see AGENTS.md). For small
-bounded tasks, do the work directly — do not load this.
+Load this skill ONLY after the gate in `AGENTS.md` says orchestrate. For anything
+else, do the work directly — do not load this.
+
+## The gate, restated (do not skip it)
+
+Both must hold:
+
+1. **≥2 tasks with disjoint file sets and no dependency between them.**
+2. **`bin/buckets.sh lanes` reports ≥2.**
+
+The second is the one that gets forgotten. Lanes are *credentials*, not agents:
+three agents sharing one API key are **one** lane, and running them concurrently
+does not go faster — it races the same wallet into the same rate limit. With one
+healthy lane, orchestrating a perfectly-splittable job is strictly worse than
+doing it directly.
+
+Lane count is live state, not a property of the machine. A wallet that was healthy
+this morning may be rate-limited now, so check at the moment you decide.
+
+```sh
+bin/buckets.sh lanes -v
+```
 
 ## Phase 0 — Declare (one message)
 
@@ -33,18 +52,36 @@ Do ALL thinking in this one context. Output:
 Do NOT spawn subagents to do research; research in your own context so the plan
 is coherent. Keep plan ≤10 lines of prose.
 
-## Phase 2 — Assign & dispatch
+## Phase 2 — Dispatch
 
-Each TODO item = ONE executor subagent run. Input contract per subagent:
-- The self-contained spec from the TODO item
-- Explicit file boundary (`touch A..Z only, never modify B`)
-- Explicit verification (tests/lint/build command to run)
-- Explicit output contract: files changed + how to verify + blockers
+Write the task graph, then hand it over. You specify; you do not schedule.
 
-Dispatch: independent items in parallel. Respect dependency order. If your
-runtime supports per-subagent model choice AND a free-model fallback chain
-(e.g. `oc.sh`/`oc.ps1` from the `opencode-free-agents` skill), wire it so a
-rate-limited model never blocks a task.
+```json
+{ "tasks": [
+    { "id": "api", "deps": [], "files": ["src/api.js"], "category": "coding",
+      "prompt": "<self-contained spec: what to build, the interface contract, what NOT to touch>" } ] }
+```
+
+```sh
+bin/orch.sh run tasks.json      # width = healthy lanes; one lane per credential
+bin/orch.sh status              # progress, derived from the journal
+bin/orch.sh resume              # after ANY interruption - safe, replays the journal
+```
+
+What the runner guarantees, so you do not re-implement it:
+
+- **One lane per credential.** Two tasks never share a wallet concurrently.
+- **Routing around trouble.** Busy lanes are skipped; a wallet that returns a
+  rate-limit, billing or auth error is put in cooldown and its remaining models
+  are skipped rather than tried one at a time.
+- **Attribution.** A model that hangs is demoted alone; a network failure of your
+  own is recorded nowhere.
+- **File boundaries.** Tasks with overlapping `files` never run concurrently.
+- **Verification.** A task's declared `files` must exist afterwards or it is marked
+  failed, whatever the agent claimed.
+
+`files` is therefore load-bearing, not documentation. If you cannot write a task's
+file boundary down, it is not an independent task.
 
 ## Phase 3 — Review & integrate
 

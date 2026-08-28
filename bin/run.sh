@@ -227,7 +227,11 @@ mapfile -t CHAIN < <(candidates)
 }
 
 if [[ $DRY_RUN -eq 1 ]]; then
-  printf '%s\n' "${CHAIN[@]}" | head -20 \
+  # DRY_RUN_LIMIT=0 shows the whole chain; the default keeps output readable
+  # without hiding buckets, which once made `lanes` look inconsistent with it.
+  lim="${DRY_RUN_LIMIT:-20}"
+  if [[ "$lim" -eq 0 ]]; then printf '%s\n' "${CHAIN[@]}"
+  else printf '%s\n' "${CHAIN[@]}" | head -n "$lim"; fi \
     | awk -F'\t' '{printf "%-28s %-9s %-46s %s\n", $1,$2,$3,$4}'
   echo "(${#CHAIN[@]} candidates)" >&2
   exit 0

@@ -14,24 +14,37 @@ together does not go faster; it races that one key into its own 429. Two agents 
 *different* keys are two lanes even when running the same model. Bucket ids are
 derived from the credential, so this is detected rather than assumed.
 
-## Quick start
+## Install (once per machine)
 
 ```sh
-bin/buckets.sh discover && bin/buckets.sh probe    # once per machine
-bin/buckets.sh lanes -v                            # how many independent lanes
-
-bin/run.sh -w . "one task"                         # single task, with fallback
-bin/plan.sh -w . "a goal"                          # goal -> .orch/tasks.json
-bin/orch.sh run .orch/tasks.json                   # run it; width = healthy lanes
-bin/orch.sh status                                 # progress
-bin/orch.sh resume                                 # safe after ANY interruption
+git clone <this repo> ~/.local/share/free-agents-free-models
+~/.local/share/free-agents-free-models/install.sh     # puts `fa` on PATH
+fa discover && fa probe                               # build the credential registry
+fa doctor                                             # verify the machine
 ```
 
-Install into another project:
+The tool is **not** cloned into each project. Credentials and learned wallet
+health are machine-wide, so one install serves everything; a project gets only
+its routing rules and its own run journal.
+
+## Use (in any project)
 
 ```sh
-bash workflow-kit/install.sh /path/to/project
+cd ~/projects/thing
+fa init                     # drops AGENTS.md + CLAUDE.md (6 files, ~56K)
+fa go "what you want built" # plan, then run it across every healthy lane
+
+fa lanes -v                 # how many independent lanes are healthy
+fa status                   # progress
+fa resume                   # safe after ANY interruption
+fa doctor                   # is this machine set up correctly
 ```
+
+Then just start any agent (`opencode`, `kilo`, `hermes`, `claude`) from that
+directory — it reads `AGENTS.md` and acts as the coordinator.
+
+`fa init --standalone` copies the engine into the project too, for a project that
+must work without the tool installed.
 
 ## Layout
 

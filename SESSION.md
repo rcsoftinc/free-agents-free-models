@@ -6,166 +6,46 @@
 
 ## Where we are right now
 
-**Phase: SCOPE ANSWERED. Alignment written. Awaiting go-ahead on the build order.
-No project code changed yet.**
+**Phase: BUILD ORDER COMPLETE (steps 1-9). All blocking + architectural + hygiene
+defects closed.** Read `docs/ALIGNMENT.md` — it is the source of truth (supersedes
+`docs/ANALYSIS.md` §7).
 
-Read in this order:
-1. **`docs/ALIGNMENT.md`** ← the current source of truth: the user's goal as a spec,
-   the factual corrections, the target architecture, the build order.
-2. `docs/ANALYSIS.md` — repo inventory + defect list (still valid, except §7 which
-   ALIGNMENT.md supersedes).
+### The system
 
-### The scope question is now ANSWERED
-User stated the goal directly: fresh Debian, three agents installed, cd into any
-folder, whichever agent starts becomes the coordinator, recruits the others as
-parallel builders only when the work benefits, never collides, survives limits and
-network drops, resumes unfinished work. Objective: maximize free.
+```
+bin/buckets.sh   credential-bucket registry   lanes | discover | probe | show
+bin/run.sh       THE dispatch engine          one task -> one result, with fallback
+bin/plan.sh      goal -> task graph           planning WITH fallback (B2 fixed)
+bin/orch.sh      per-project task graph       run | status | resume
+bin/lib/         common.sh (paths, flock) + classify.sh (THE taxonomy, self-test)
+skill/SKILL.md   packaged skill card (A3)
+workflow-kit/    installer: AGENTS.md gate + CLAUDE.md + both skills + bin/
+legacy/          Layer B, retired behind a banner; see legacy/README.md
+```
 
-**Answer to "which layer":** none as-is. Keep **A's engine** + **C's contract**,
-delete **B's duplicate engine and global state**, and add a **bucket registry**
-underneath — the primitive no layer has today.
+**The core rule:** a bucket is one wallet `(provider, credential)` and it is the unit
+of scheduling — NOT the agent. Two agents on one API key are ONE lane. Bucket ids
+derive from the credential, so a shared key collapses automatically.
 
-### Bucket map — VERIFIED BY PROBE (see `docs/ALIGNMENT.md` §8, §10)
+**Current lanes: 5** (`bin/buckets.sh lanes -v`). 75 free models, 0 phantom.
 
-User has added keys: OpenRouter->kilo, freemodel->opencode, kilo-gateway->hermes.
-All credentials distinct; no shared wallets. **75 free models, 6 buckets, 0 phantom.**
+### Verified end to end
+One sentence -> `bin/plan.sh` -> 3-task graph (correct deps, disjoint files) ->
+`bin/orch.sh run` across 3 different wallets -> 361 lines of Python that parse, and
+a CLI that actually runs. Fresh `workflow-kit/install.sh` into an empty dir also runs
+a 3-task graph entirely through its own installed copy.
 
-| Bucket | Agent | Free | Health |
-|---|---|---:|---|
-| `kilo:anon` | kilo | 24 | ok |
-| `openrouter.ai:845a3f96` | kilo | 21 | ok |
-| `kilocode:fac9bae9` | hermes | 20 | ok |
-| `nous:6b7db10d` | hermes | 6 | ok (rpm=50 rph=2100) |
-| `opencode:14a1a2f8` | opencode | 4 | ok (weak: 3 models hang) |
-| `freemodel:40d72418` | opencode | **0 — PAID** | excluded |
+### What remains (nothing blocking)
+- `opencode-free-agents/` (Layer A) still has its own `oc.sh`; the new engine does not
+  use it. Either port its cross-model session-continuity trick into `bin/run.sh` or
+  retire it to `legacy/` too. **This is the last duplicate engine.**
+- `legacy/` can be deleted once its suites are ported to the new engine; there is
+  currently NO test suite for `bin/` beyond `classify.sh --self-test`.
+- `freemodel:40d724…` is excluded (advertises 10 PAID models). User decision if that
+  gateway actually serves them free.
+- S1: `opencode-free-agents/CONTEXT.md` still claims pending Windows PS validation.
 
-**Parallel width is now 5.** opencode no longer reaches OpenRouter (freemodel replaced
-that auth entry); the OpenRouter key lives in kilo.
-
-**OPEN DECISION for the user:** `freemodel` advertises 10 *paid* frontier models
-(Claude Opus 4.6-4.8, GPT-5.3-5.5; cost.input 2.5 / output 15). Registry excludes it and
-will never schedule there. If that gateway really serves them free, only a bill would tell
-us. Recommend leaving it excluded — it is the only money-losing failure mode in the design.
-
-**The rule, settled with the user:** a bucket is ONE lane no matter how many agents reach
-it. Parallel width = healthy buckets. One agent per bucket; others are failover.
-
-**Blocking defects found and FIXED this session:**
-- **D2** — `hermes chat -m X -z P` was a usage error; correct is `hermes -m X -z P`.
-  Fixed in `runner.sh:428`, `compress.sh:101`, `orchestrator.sh:166`. Layer B had NEVER
-  invoked hermes successfully. **Hermes ranking history is poisoned; reset it.**
-- **D4** — `IFS=$'\t'` collapses empty fields (tab is IFS whitespace), silently shifting
-  columns. Hid an entire wallet. **`runner.sh`/`dispatch.sh` need auditing for this.**
-- **D5** — provider name != wallet: kilo calls OpenRouter "openai". Join on local provider
-  name; namespace bucket ids on the API host.
-- **D6** — a route is (agent, model, **provider**). `hermes -m X` resolves only against the
-  ACTIVE provider; kilocode models 404'd and looked `dead`. `--provider` fixes it. Would
-  have written off a 20-model wallet.
-- **D1** — resolved by construction: enumerate models per held credential, never metadata.
-- **D3** — hermes exits 0 on HTTP 404 and on billing refusal; classification must be
-  content-based (implemented in `classify()`).
-- Stdin drain: `opencode run`/`kilo run`/`hermes` read stdin and swallowed loop input.
-  All calls use `</dev/null`. **Same audit needed in runner.sh/dispatch.sh.**
-
-**Built: the coordinator gate (step 5).** `AGENTS.md` no longer routes on keywords —
-it routes on structure + live state. Orchestrate only when **>=2 file-disjoint,
-independent tasks AND `bin/buckets.sh lanes` >= 2**. Lanes are CREDENTIALS, not agents.
-`bin/buckets.sh lanes [-v]` is an offline read of recorded health (currently **5**).
-`workflow-kit/install.sh` now ships `bin/` with the rules, from the single source at repo
-root. `scripts/dispatch.sh` retired in favour of `bin/orch.sh`.
-**Verified end to end:** fresh install into an empty dir ran a 3-task graph through its own
-installed copy, across 3 different wallets, all files correct.
-
-**Built and working: `bin/orch.sh` — per-project runner (step 4).**
-`init` / `run TASKS.json [--max-parallel N] [--dry-run]` / `resume` / `status`.
-State split: `<project>/.orch/{journal.ndjson,tasks.json,results/}` per project;
-`~/.local/state/free-agents/` global (learned wallet health). **A2 resolved** — two
-projects can run at once.
-- **Resume is replay** of an append-only journal, never a mutable status field. Verified:
-  killed mid-run, `status` showed 1/3 done, `resume` dispatched only the outstanding task.
-  Caveat: killing the parent does not kill in-flight children, so resume may find work an
-  orphan finished — harmless because the journal is the truth.
-- **Parallel width = healthy bucket count**, not a constant.
-- Tasks with overlapping declared `files` never run concurrently.
-- `run.sh` exit **5 = no lane available** (distinct from exhaustion) so contention
-  requeues instead of burning retry budget.
-- **VERIFY, DON'T TRUST:** a task's declared `files` must exist afterwards. Proven against
-  a task told to claim success without working: run.sh says ok, orch.sh fails it.
-
-**CONTAINMENT — each agent needs a DIFFERENT mechanism. There is no uniform flag.**
-- `opencode --dir DIR`, `kilo --dir DIR`
-- **hermes honours NEITHER cwd NOR `--in`** — it resolves relative paths against `$HOME`
-  and wrote to `/root` both ways. Contained via
-  `env HOME="$WORKDIR" HERMES_HOME="$HOME/.hermes" hermes ...` (verified clean, auth intact,
-  nothing symlinked into the project).
-- A model can still pick an absolute path anyway (kilo, given `--dir`, wrote `/gamma.txt`).
-  `run.sh` now prepends a working-directory contract to the prompt, which fixed that case.
-
-**Built: `bin/run.sh` — THE dispatch engine (step 3).**
-`run.sh [-c cat] [-w workdir] [-b bucket] [-x exclude] [--dry-run] "prompt"`.
-stdout = agent output; stderr carries `---RUN-META--- {bucket,model,agent,attempts,ms,state}`.
-Layout: `bin/lib/common.sh` (paths, flock'd `registry_txn`), `bin/lib/classify.sh` (THE
-taxonomy, 19-case self-test: `bash bin/lib/classify.sh --self-test`), `bin/run.sh`.
-`buckets.sh` now sources both — A1 resolved, no duplicate classify.
-
-Verified behaviours:
-- **One lane per bucket** (flock on the BUCKET). 2 tasks pinned to one bucket -> second
-  says `lane busy` and moves on. 3 concurrent unpinned tasks -> 3 different wallets, two
-  of them via the same agent (legitimate: constraint is per-bucket, not per-agent).
-- **Breaker**: 2 bucket-attributable failures -> wallet cooldown, remaining models skipped.
-  Chain fell 75 -> 45 with 2 wallets cooled; task rerouted automatically.
-- **Attribution**: timeout/dead -> model only; `local_network` -> nothing recorded.
-
-**B1 FIXED — and it was worse than ANALYSIS said.** A `cd` is NOT enough: with cwd set
-correctly, kilo still wrote to `$HOME`. Only explicit flags work — `opencode --dir`,
-`kilo --dir`, `hermes --in`. **Any runner.sh fix that only adds `cd` will look right and
-still scatter files into this repo.**
-
-Two bash defects fixed: a redirection on a bare `exec` applies to THE SHELL (silenced all
-stderr); a trailing `[[ ]] && cmd` in a sourced file returns 1 and aborts the caller under
-`set -e`.
-
-**Built: `bin/buckets.sh`** — `identify` / `discover` / `probe [--all|--bucket ID]`
-/ `show`. State `~/.local/state/free-agents/buckets.json`.
-Bucket id = `wallet_host:credential_fp`, derived from the CREDENTIAL not the agent, so a
-shared key collapses to one lane automatically and prints `** SHARED WALLET **`.
-OAuth identity uses the JWT `sub` claim (nous tokens rotate hourly).
-Health precedence: `rate_limited`/`no_credits`/`auth_error` -> bucket;
-`timeout`/`dead` -> model only; `local_network` -> recorded nowhere.
-
-**Built: `bin/kilo-add-openrouter.sh`** — user's draft, 3 bugs fixed (jq scope bug dropped
-existing config; it erased the apiKey; `whitelist:["*"]` exposed paid models). Applied: 21
-free models registered, whitelist scoped to exactly those.
-
-### Done in earlier sessions
-- Read entire repo; wrote `docs/ANALYSIS.md`.
-- Fixed tmux: `~/.tmux.conf`, scrollback 200 000, mouse on. `docs/TMUX-CHEATSHEET.md`.
-
----
-
-## Next step when resuming
-
-1. Read `docs/ALIGNMENT.md`.
-2. Run verification items §6 (**V3 first** — do kilo/hermes read `AGENTS.md`? It's the
-   one that could change the design).
-3. Continue the build order §5. **Steps 1-5 are DONE** — see `docs/ALIGNMENT.md`
-   §9, §11, §12, §13. **H1, H4, H5 closed.** Remaining: steps 6-9 — retire `runner.sh`'s
-   private fallback engine, route `orchestrator.sh`'s planner through `bin/run.sh` (**B2**,
-   still the only call without fallback), package as an installable skill (**A3**), and
-   close **H2** (`test_runner.sh` asserts PASS on rc=124) and **H3**
-   (`.orchestrator/config.json` read but absent).
-
-   Also outstanding: **reset hermes's ranking history** (D2 means every hermes entry is a
-   failure that never happened), and **audit `runner.sh`/`dispatch.sh`** for the stdin-drain
-   and `IFS=$'\t'` defects and for containment (each agent needs a DIFFERENT mechanism).
-
-Keys have been added and re-discovered (6 buckets, 5 usable). After any further key
-change: `bin/buckets.sh discover && bin/buckets.sh probe`, and watch for
-`** SHARED WALLET **` in `show`.
-
----
-
-## Top defects to fix (full detail + file:line in `docs/ANALYSIS.md` §6)
+## Defect table — ALL CLOSED (historical; detail in `docs/ANALYSIS.md` §6 and `docs/ALIGNMENT.md`)
 
 | ID | Severity | Summary |
 |---|---|---|

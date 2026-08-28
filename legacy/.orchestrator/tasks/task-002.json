@@ -2,14 +2,10 @@
   "id": "task-002",
   "role": "researcher",
   "task_type": "research",
-  "description": "x",
+  "description": "Research current best practices for JWT auth in Express: recommended libraries (jsonwebtoken, bcryptjs), token storage, expiry, and middleware patterns. Document the chosen approach.",
   "files": [],
-  "dependencies": [],
-  "status": "done",
-  "result": {
-    "summary": "{\"ok\":true,\"agent\":\"kilo\",\"model\":\"kilo/m2\",\"summary\":\"stub success\"}",
-    "exit_code": 0,
-    "model": "kilo kilo/m2 0.94"
-  },
-  "executed_at": "2026-08-28T04:49:46Z"
+  "priority": "high",
+  "dependencies": [
+    "task-001"
+  ]
 }

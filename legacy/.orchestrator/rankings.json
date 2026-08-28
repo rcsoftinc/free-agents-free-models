@@ -1,25 +1,760 @@
 {
-  "generated_at": "x",
+  "generated_at": "2026-08-26T23:40:22Z",
   "rankings": {
     "researcher": {
-      "research": [
+      "analysis": [
         {
           "agent": "opencode",
-          "model_id": "openrouter/m1",
+          "model_id": "openrouter/openrouter/auto",
           "provider": "openrouter",
-          "score": 0.97,
-          "attempts": 2,
-          "successes": 2,
-          "last_used": "2026-08-28T04:49:49Z"
+          "score": 0.96,
+          "attempts": 1,
+          "successes": 1,
+          "last_used": "2026-08-27T02:33:55Z"
+        },
+        {
+          "agent": "opencode",
+          "model_id": "openrouter/openrouter/pareto-code",
+          "provider": "openrouter",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
         },
         {
           "agent": "kilo",
-          "model_id": "kilo/m2",
+          "model_id": "kilo/openrouter/auto",
           "provider": "kilo",
           "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "kilo",
+          "model_id": "kilo/openrouter/auto-beta",
+          "provider": "kilo",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "kilo",
+          "model_id": "kilo/meituan/longcat-2.0-free",
+          "provider": "kilo",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "opencode",
+          "model_id": "opencode/muse-spark-1.2-contributor-free",
+          "provider": "opencode",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "opencode",
+          "model_id": "openrouter/google/lyria-3-clip-preview",
+          "provider": "openrouter",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "opencode",
+          "model_id": "openrouter/google/lyria-3-pro-preview",
+          "provider": "openrouter",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "opencode",
+          "model_id": "openrouter/minimax/minimax-m3:free",
+          "provider": "openrouter",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "opencode",
+          "model_id": "openrouter/thinkingmachines/inkling-small:free",
+          "provider": "openrouter",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        }
+      ],
+      "research": [
+        {
+          "agent": "opencode",
+          "model_id": "openrouter/openrouter/pareto-code",
+          "provider": "openrouter",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "kilo",
+          "model_id": "kilo/meituan/longcat-2.0-free",
+          "provider": "kilo",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "opencode",
+          "model_id": "opencode/muse-spark-1.2-contributor-free",
+          "provider": "opencode",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "opencode",
+          "model_id": "openrouter/google/lyria-3-clip-preview",
+          "provider": "openrouter",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "opencode",
+          "model_id": "openrouter/google/lyria-3-pro-preview",
+          "provider": "openrouter",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "opencode",
+          "model_id": "openrouter/minimax/minimax-m3:free",
+          "provider": "openrouter",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "opencode",
+          "model_id": "openrouter/thinkingmachines/inkling-small:free",
+          "provider": "openrouter",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "kilo",
+          "model_id": "kilo/openrouter/auto-beta",
+          "provider": "kilo",
+          "score": 0.76,
+          "attempts": 1,
+          "successes": 0,
+          "last_used": "2026-08-28T04:50:15Z"
+        },
+        {
+          "agent": "kilo",
+          "model_id": "kilo/openrouter/auto",
+          "provider": "kilo",
+          "score": 0.76,
+          "attempts": 1,
+          "successes": 0,
+          "last_used": "2026-08-27T02:59:13Z"
+        },
+        {
+          "agent": "opencode",
+          "model_id": "openrouter/openrouter/auto",
+          "provider": "openrouter",
+          "score": 0.76,
+          "attempts": 1,
+          "successes": 0,
+          "last_used": "2026-08-27T02:59:02Z"
+        }
+      ]
+    },
+    "coder": {
+      "implementation": [
+        {
+          "agent": "kilo",
+          "model_id": "kilo/openrouter/auto",
+          "provider": "kilo",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "kilo",
+          "model_id": "kilo/openrouter/auto-beta",
+          "provider": "kilo",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "kilo",
+          "model_id": "kilo/meituan/longcat-2.0-free",
+          "provider": "kilo",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "opencode",
+          "model_id": "opencode/muse-spark-1.2-contributor-free",
+          "provider": "opencode",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "opencode",
+          "model_id": "openrouter/google/lyria-3-clip-preview",
+          "provider": "openrouter",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "opencode",
+          "model_id": "openrouter/google/lyria-3-pro-preview",
+          "provider": "openrouter",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "opencode",
+          "model_id": "openrouter/minimax/minimax-m3:free",
+          "provider": "openrouter",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "opencode",
+          "model_id": "openrouter/thinkingmachines/inkling-small:free",
+          "provider": "openrouter",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "opencode",
+          "model_id": "openrouter/openrouter/pareto-code",
+          "provider": "openrouter",
+          "score": 0.86,
+          "attempts": 1,
+          "successes": 0,
+          "last_used": "2026-08-26T23:49:35Z"
+        },
+        {
+          "agent": "opencode",
+          "model_id": "openrouter/openrouter/auto",
+          "provider": "openrouter",
+          "score": 0.77,
+          "attempts": 2,
+          "successes": 1,
+          "last_used": "2026-08-26T23:49:32Z"
+        },
+        {
+          "agent": "kilo",
+          "model_id": "kilo/test-model",
+          "provider": "kilo",
+          "score": 0.7,
           "attempts": 1,
           "successes": 1,
-          "last_used": "2026-08-28T04:49:47Z"
+          "last_used": "2026-08-26T23:49:38Z"
+        }
+      ],
+      "refactoring": [
+        {
+          "agent": "opencode",
+          "model_id": "openrouter/openrouter/auto",
+          "provider": "openrouter",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "opencode",
+          "model_id": "openrouter/openrouter/pareto-code",
+          "provider": "openrouter",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "kilo",
+          "model_id": "kilo/openrouter/auto",
+          "provider": "kilo",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "kilo",
+          "model_id": "kilo/openrouter/auto-beta",
+          "provider": "kilo",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "kilo",
+          "model_id": "kilo/meituan/longcat-2.0-free",
+          "provider": "kilo",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "opencode",
+          "model_id": "opencode/muse-spark-1.2-contributor-free",
+          "provider": "opencode",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "opencode",
+          "model_id": "openrouter/google/lyria-3-clip-preview",
+          "provider": "openrouter",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "opencode",
+          "model_id": "openrouter/google/lyria-3-pro-preview",
+          "provider": "openrouter",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "opencode",
+          "model_id": "openrouter/minimax/minimax-m3:free",
+          "provider": "openrouter",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "opencode",
+          "model_id": "openrouter/thinkingmachines/inkling-small:free",
+          "provider": "openrouter",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        }
+      ]
+    },
+    "debugger": {
+      "bug_fix": [
+        {
+          "agent": "opencode",
+          "model_id": "openrouter/openrouter/auto",
+          "provider": "openrouter",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "opencode",
+          "model_id": "openrouter/openrouter/pareto-code",
+          "provider": "openrouter",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "kilo",
+          "model_id": "kilo/openrouter/auto",
+          "provider": "kilo",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "kilo",
+          "model_id": "kilo/openrouter/auto-beta",
+          "provider": "kilo",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "kilo",
+          "model_id": "kilo/meituan/longcat-2.0-free",
+          "provider": "kilo",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "opencode",
+          "model_id": "opencode/muse-spark-1.2-contributor-free",
+          "provider": "opencode",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "opencode",
+          "model_id": "openrouter/google/lyria-3-clip-preview",
+          "provider": "openrouter",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "opencode",
+          "model_id": "openrouter/google/lyria-3-pro-preview",
+          "provider": "openrouter",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "opencode",
+          "model_id": "openrouter/minimax/minimax-m3:free",
+          "provider": "openrouter",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "opencode",
+          "model_id": "openrouter/thinkingmachines/inkling-small:free",
+          "provider": "openrouter",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        }
+      ]
+    },
+    "reviewer": {
+      "code_review": [
+        {
+          "agent": "opencode",
+          "model_id": "openrouter/openrouter/auto",
+          "provider": "openrouter",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "opencode",
+          "model_id": "openrouter/openrouter/pareto-code",
+          "provider": "openrouter",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "kilo",
+          "model_id": "kilo/openrouter/auto",
+          "provider": "kilo",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "kilo",
+          "model_id": "kilo/openrouter/auto-beta",
+          "provider": "kilo",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "kilo",
+          "model_id": "kilo/meituan/longcat-2.0-free",
+          "provider": "kilo",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "opencode",
+          "model_id": "opencode/muse-spark-1.2-contributor-free",
+          "provider": "opencode",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "opencode",
+          "model_id": "openrouter/google/lyria-3-clip-preview",
+          "provider": "openrouter",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "opencode",
+          "model_id": "openrouter/google/lyria-3-pro-preview",
+          "provider": "openrouter",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "opencode",
+          "model_id": "openrouter/minimax/minimax-m3:free",
+          "provider": "openrouter",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "opencode",
+          "model_id": "openrouter/thinkingmachines/inkling-small:free",
+          "provider": "openrouter",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        }
+      ]
+    },
+    "planner": {
+      "planning": [
+        {
+          "agent": "opencode",
+          "model_id": "openrouter/openrouter/auto",
+          "provider": "openrouter",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "opencode",
+          "model_id": "openrouter/openrouter/pareto-code",
+          "provider": "openrouter",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "kilo",
+          "model_id": "kilo/openrouter/auto",
+          "provider": "kilo",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "kilo",
+          "model_id": "kilo/openrouter/auto-beta",
+          "provider": "kilo",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "kilo",
+          "model_id": "kilo/meituan/longcat-2.0-free",
+          "provider": "kilo",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "opencode",
+          "model_id": "opencode/muse-spark-1.2-contributor-free",
+          "provider": "opencode",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "opencode",
+          "model_id": "openrouter/google/lyria-3-clip-preview",
+          "provider": "openrouter",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "opencode",
+          "model_id": "openrouter/google/lyria-3-pro-preview",
+          "provider": "openrouter",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "opencode",
+          "model_id": "openrouter/minimax/minimax-m3:free",
+          "provider": "openrouter",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "opencode",
+          "model_id": "openrouter/thinkingmachines/inkling-small:free",
+          "provider": "openrouter",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        }
+      ]
+    },
+    "orchestrator": {
+      "orchestration": [
+        {
+          "agent": "opencode",
+          "model_id": "openrouter/openrouter/auto",
+          "provider": "openrouter",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "opencode",
+          "model_id": "openrouter/openrouter/pareto-code",
+          "provider": "openrouter",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "kilo",
+          "model_id": "kilo/openrouter/auto",
+          "provider": "kilo",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "kilo",
+          "model_id": "kilo/openrouter/auto-beta",
+          "provider": "kilo",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "kilo",
+          "model_id": "kilo/meituan/longcat-2.0-free",
+          "provider": "kilo",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "opencode",
+          "model_id": "opencode/muse-spark-1.2-contributor-free",
+          "provider": "opencode",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "opencode",
+          "model_id": "openrouter/google/lyria-3-clip-preview",
+          "provider": "openrouter",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "opencode",
+          "model_id": "openrouter/google/lyria-3-pro-preview",
+          "provider": "openrouter",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "opencode",
+          "model_id": "openrouter/minimax/minimax-m3:free",
+          "provider": "openrouter",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
+        },
+        {
+          "agent": "opencode",
+          "model_id": "openrouter/thinkingmachines/inkling-small:free",
+          "provider": "openrouter",
+          "score": 0.95,
+          "attempts": 0,
+          "successes": 0,
+          "last_used": null
         }
       ]
     }

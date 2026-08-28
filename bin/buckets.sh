@@ -466,6 +466,36 @@ cmd_probe() {
   return 0
 }
 
+# Cheap, offline answer to "how many independent lanes do I have right now?"
+# The coordinator consults this BEFORE deciding to fan out, so it must never
+# touch the network - it reads recorded health only.
+cmd_lanes() {
+  [[ -f "$REGISTRY" ]] || { echo 0; return 0; }
+  local now; now="$(now_epoch)"
+  local n
+  n="$(registry_read '[ .buckets[]
+        | select((.health.cooldown_until // 0) <= ($now|tonumber))
+        | select(.health.state != "no_credits" and .health.state != "auth_error")
+        | select([.models[] | select(.free)
+                  | select((.cooldown_until // 0) <= ($now|tonumber))] | length > 0)
+      ] | length' --arg now "$now")"
+  if [[ "${1:-}" == "-v" ]]; then
+    printf 'healthy lanes: %s\n' "$n"
+    # Same predicate as the count, so the listing can never disagree with it.
+    registry_read '.buckets[]
+      | . as $b
+      | ([$b.models[] | select(.free)
+          | select((.cooldown_until // 0) <= ($now|tonumber))] | length) as $usable
+      | (($b.health.cooldown_until // 0) <= ($now|tonumber)
+         and $b.health.state != "no_credits" and $b.health.state != "auth_error"
+         and $usable > 0) as $live
+      | "  \(if $live then "LANE   " else "unusable" end) \($b.id)  \($b.preferred_agent)  \($usable) free  health=\($b.health.state)"' \
+      --arg now "$now"
+  else
+    printf '%s\n' "$n"
+  fi
+}
+
 cmd_show() {
   [[ -f "$REGISTRY" ]] || die "no registry; run: $0 discover"
   jq -r '
@@ -504,6 +534,7 @@ EOF
 
 case "${1:-}" in
   identify) shift; cmd_identify "$@" ;;
+  lanes)    shift; cmd_lanes "$@" ;;
   discover) shift; cmd_discover "$@" ;;
   probe)    shift; cmd_probe "$@" ;;
   show)     shift; cmd_show "$@" ;;

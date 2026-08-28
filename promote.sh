@@ -34,8 +34,12 @@ if [[ ! -f "${RANKINGS_FILE}" ]]; then
   exit 1
 fi
 
-# Backup rankings
+# Backup rankings, then prune. This runs on EVERY promotion, so without a prune
+# the directory grows without bound - it had reached 489 files (H1).
 cp "${RANKINGS_FILE}" "${BACKUP_DIR}/rankings_$(date +%Y%m%d_%H%M%S).json"
+ls -1t "${BACKUP_DIR}" 2>/dev/null | tail -n +"${KEEP_BACKUPS:-20}" | while read -r _old; do
+  rm -f "${BACKUP_DIR}/${_old}"
+done
 
 echo "Updating: ${ROLE}/${TASK_TYPE} -> ${MODEL_ID} (${RESULT})" >&2
 

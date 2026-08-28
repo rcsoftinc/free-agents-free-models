@@ -1,58 +1,94 @@
 # Agent Workflow — Read This First
 
 Every coding agent (opencode, kilo, hermes, claude) reads this file. It decides
-**how** you work on a request. Follow it exactly.
+**how** you work on a request.
 
-## The golden rule: pick the cheapest tool that does the job
+## Default: work directly
 
-| Trigger in the first user message | Mode | What you do |
-|---|---|---|
-| Small, bounded task (one file, one function, a game, a script, "add X to Y") | **direct** | Work in your own context. Do NOT load skills, do NOT spawn subagents. Just do it. |
-| "big project", "architecture", "full-stack", "multi-module", "design system" | **orchestrate** | See workflow below. |
-| Explicit invocation phrase (any of): `use agents`, `orchestrate`, `coordinate`, `plan this`, `>>coordinator` | **orchestrate** | See workflow below. |
-| "research", "plan", "compare options", "decide between A and B" | **plan-first** | Research in your own context, then present a plan + TODO list for approval before writing code. |
+Read what you need, edit, verify, report. No skills, no subagents, no ceremony.
+**This is the right answer for almost everything**, including tasks that sound big.
 
-> When in doubt: a request that touches 3+ independent components, needs
-> parallelizable work, or risks blowing one context = **orchestrate**.
-> Everything else = **direct**.
+Fanning out is not free: every worker re-reads its own spec, and workers that land
+on the same credential race each other into the same rate limit. Orchestration pays
+only when the work genuinely splits.
 
-## Orchestrate workflow (multi-agent, big projects)
+## The gate: when to orchestrate instead
 
-This is where the `agent-coordinator` skill (if available) OR the steps below
-apply. Both are equivalent; if your runtime has the `skill` tool, load
-`agent-coordinator` for the extended detail. If not, follow these steps.
+Do **not** decide from the wording of the request. "Big project", "architecture" and
+"full-stack" are not evidence, and a plainly-worded request can be perfectly
+parallel. Decide from the structure of the work and the state of the machine.
 
-### Phase 0 — Decide & declare (cheap)
-- One message: state mode = ORCHESTRATE, list the components you foresee,
-  estimated task count. Do NOT write code yet.
-- If the user hasn't approved a plan, outline it in ≤10 lines and ask.
+Orchestrate only when **both** hold:
 
-### Phase 1 — Research & planning (single context)
-- Do all research/architecture in YOUR context first. Produce:
-  - `TODO`-list (todotool): one item per deliverable task, each item **self-contained**
-    (path(s) touched, interface contract, acceptance criteria, what to NOT touch).
-  - A short plan doc in `docs/plan.md` (only if project has no plan yet).
-- Never re-read the whole repo per task. Task items carry their own spec.
+1. **The work splits.** You can name **≥2 tasks** that
+   - touch **disjoint sets of files**, and
+   - do **not** depend on each other's output.
+2. **There is somewhere to run them.** `bin/buckets.sh lanes` reports **≥2**.
 
-### Phase 2 — Assign & dispatch (parallel, isolated)
-- Each TODO item becomes ONE subagent invocation with the **executor role**:
-  - input: the self-contained spec + explicit file boundary
-  - output: implemented files + how to verify + any blockers
-- Run independent tasks in parallel; respect dependency order only when needed.
-- Use free-model fallback per subagent (`oc.sh`/`oc.ps1` skill) if available so a
-  rate-limited model never blocks a task.
+If (1) fails, parallelism has nothing to do — work directly.
+If (2) fails, parallelism has nowhere to go: with one healthy lane, concurrent
+tasks queue behind one credential and simply collide. **Work directly.**
 
-### Phase 3 — Review & integrate (cheap)
-- For each subagent result: run the declared verification (tests/lint/build).
-- Do NOT re-architect the subagent's code; fix only integration gaps.
-- Update the TODO list as tasks complete. Escalate only real blockers.
+```sh
+bin/buckets.sh lanes        # -> integer; offline, cheap, safe to call every time
+bin/buckets.sh lanes -v     # which wallets, which agents, how many free models
+```
 
-### Token discipline (this is a goal too)
-- Keep Phase 0/1 small: plan in ≤10 lines, specs in ≤6 lines each.
-- Isolated subagent contexts = no compaction retries = fewer wasted tokens.
-- Review by diff + test output, not by re-reading everything.
+A useful check before committing to a split: if you cannot write each task's file
+boundary down, the tasks are not actually independent and you have not found a
+split — you have found one task.
 
-## Direct mode (default for small tasks)
+## Orchestrate workflow
 
-Just do the work: read what you need, edit, verify with available tests/lint,
-report done. No skills, no subagents, no ceremony.
+### Phase 0 — Declare (cheap)
+State: mode = ORCHESTRATE, the tasks you foresee with their file boundaries, and
+the lane count you got. Do not write code yet. If the user has not approved a plan,
+outline it in ≤10 lines and ask.
+
+### Phase 1 — Plan in ONE context
+Produce a task graph. Every task is **self-contained**: it carries its own spec and
+never assumes the worker has seen the repo, the conversation, or another task.
+
+```json
+{ "tasks": [
+    { "id": "api",
+      "prompt": "<self-contained spec: what to build, the interface contract, what NOT to touch>",
+      "deps": [],
+      "files": ["src/api.js"],
+      "category": "coding" } ] }
+```
+
+`files` is not documentation — the runner refuses to run overlapping tasks
+concurrently, and it verifies afterwards that the declared files exist.
+
+### Phase 2 — Dispatch
+```sh
+bin/orch.sh run tasks.json          # parallel width = healthy lanes, automatically
+bin/orch.sh status                  # progress, from the journal
+bin/orch.sh resume                  # after any interruption
+```
+The runner holds **one lane per credential**, routes around busy and rate-limited
+wallets, and journals every transition. You do not schedule; you specify.
+
+### Phase 3 — Review and integrate
+Run the declared verification (tests, lint, build). Review by **diff and test
+output**, not by re-reading the repo. Do not re-architect a worker's code — fix
+integration gaps only. Escalate real blockers.
+
+## What actually costs you
+
+The scarce resource is **requests per credential**, not tokens. Free tokens cost
+nothing, so the goal is not to minimise words — it is to keep independent wallets
+busy and never to stack work onto one.
+
+- Keep Phase 0/1 small: plan ≤10 lines, specs ≤6 lines each.
+- Never re-read the whole repo per task; the spec carries what the task needs.
+- A task that fails on every lane is a bad task, not a bad wallet. Rewrite the spec.
+
+## Working on free models
+
+These models are weaker at long agentic loops than frontier models. Tight,
+file-bounded, self-contained specs are not token discipline — they are the
+difference between a task succeeding and failing.
+
+An agent reporting success is **not** evidence the work happened. Check the files.

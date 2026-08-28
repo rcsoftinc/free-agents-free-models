@@ -11,7 +11,7 @@ it clearly.
 ## 0. Tool
 
 ```sh
-git clone git@github.com:OWNER/free-agents-free-models.git ~/.local/share/free-agents-free-models
+git clone git@github.com:noonelifecoach/free-agents-free-models.git ~/.local/share/free-agents-free-models
 ~/.local/share/free-agents-free-models/install.sh
 ```
 

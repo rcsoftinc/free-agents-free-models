@@ -406,6 +406,9 @@ record_probe() { # $1=bucket $2=model_arg $3=state $4=ms
     | .buckets[$b].health |=
         (if $s == "ok" then {state:"ok", consecutive_failures:0, cooldown_until:null}
          # Only bucket-attributable signals may condemn the whole wallet.
+         # Keep this list in sync with is_bucket_fault() in lib/classify.sh -
+         # jq cannot call it, so it is restated here. Anything not listed
+         # (timeout, dead, provider_error) demotes the MODEL only.
          elif ($s == "rate_limited" or $s == "no_credits" or $s == "auth_error")
          then {state:$s, consecutive_failures:((.consecutive_failures//0)+1),
                cooldown_until:null}

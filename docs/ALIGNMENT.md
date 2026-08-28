@@ -823,3 +823,105 @@ that must record nothing.
 Step 4: per-project state (`<project>/.orch/`) and the journal-based resume (M6), then the
 structural parallel gate in `AGENTS.md` (M5) so the coordinator consults live bucket health
 before choosing to fan out.
+
+
+---
+
+## 12. BUILT — step 4: per-project state and resume (`bin/orch.sh`)
+
+```
+bin/orch.sh init                    create .orch/ here
+bin/orch.sh run TASKS.json [--max-parallel N] [--dry-run]
+bin/orch.sh resume                  re-dispatch whatever is unfinished
+bin/orch.sh status                  progress, from the journal
+```
+
+### The state split (A2 / M4 resolved)
+
+```
+<project>/.orch/journal.ndjson   append-only record of every transition
+<project>/.orch/tasks.json       the task graph
+<project>/.orch/results/         per-task stdout/stderr
+~/.local/state/free-agents/      buckets, health, model stats   <- GLOBAL
+```
+
+What is *learned* about a wallet is true everywhere, so it is global. What a *run*
+is doing belongs to the project. Two projects can now be in flight at once, and
+deleting one loses nothing — the old design kept run state in the tool's own
+install directory, which is why only one project could ever run.
+
+### Resume is replay, not bookkeeping
+
+`completed_tasks()` derives from the journal every time; there is no mutable status
+field a crash could leave lying. Verified by killing a run mid-flight:
+
+```
+killed after 1 task    journal: started alpha, started beta, done beta
+status                 1/3 done, pending alpha, pending gamma
+resume                 dispatched gamma only; 3 done, all files correct
+```
+
+Every task started exactly once across both runs. One honest caveat: killing the
+parent does **not** kill in-flight children, so a resume may find work an orphaned
+child completed after the interrupt. That is harmless precisely *because* the journal
+is the source of truth rather than the parent's memory of what it launched.
+
+### Parallel width is derived, not configured
+
+`--max-parallel` defaults to **the number of healthy buckets**. On one healthy wallet
+concurrency buys nothing and only manufactures 429s; on five, a hard-coded 2 wastes
+three lanes. This is the mechanical half of the M5 gate — the coordinator's half comes
+in step 5.
+
+Two further constraints, both enforced rather than trusted:
+- **File boundaries.** Tasks whose declared `files` overlap never run concurrently,
+  however many lanes are free.
+- **`no_lane` requeue.** `run.sh` now exits **5** when every candidate wallet is in use —
+  distinct from exhaustion. Nothing was tried and nothing is broken, so the task is
+  requeued instead of spending its retry budget on a busy moment.
+
+### Containment: hermes needed a different fix entirely
+
+Step 3 established that `cd` does not contain these agents and that explicit flags do.
+That held for opencode and kilo. **It is false for hermes**, which honours neither `cwd`
+nor `--in` — both wrote to `/root`. It resolves relative paths against `$HOME`.
+
+The fix is to move `$HOME` and keep its config where it lives:
+
+```
+env HOME="$WORKDIR" HERMES_HOME="$HOME/.hermes" hermes ...
+```
+
+Verified clean: file lands in the workdir, credentials still work, and nothing is
+symlinked into the user's project. **Each of the three agents needs a different
+containment mechanism** — `opencode --dir`, `kilo --dir`, `hermes` via `HOME`. There is
+no uniform flag, and assuming one is how files end up in the orchestrator's own repo.
+
+### Verify, do not trust
+
+Even with containment, a model can choose an absolute path. Observed: kilo, given
+`--dir`, wrote to `/gamma.txt`. So there are two defences:
+
+1. **A workdir contract in the prompt** — `run.sh` prepends the absolute working
+   directory and instructs relative paths. This alone fixed the `/gamma.txt` case.
+2. **Post-run verification** — a task's declared `files` must exist in the project
+   afterwards. An agent's word is not evidence.
+
+Verified against a task instructed to *claim* success without doing the work:
+
+```
+prompt: "Reply 'Done, I created the file.' Do not actually create any file."
+run.sh:  state=ok, exit 0        <- the engine is satisfied
+orch.sh: unverified liar: declared but absent: never_created.txt
+         FAILED liar             <- the orchestrator is not
+```
+
+This is the single most important property in the file. On free models,
+**"the agent said it worked" and "it worked" are different claims**, and only the
+second one is worth journaling.
+
+### Next
+
+Step 5: the structural parallel gate in `AGENTS.md` (M5) — fan out only when the work
+splits into ≥2 file-disjoint tasks *and* ≥2 wallets are healthy — so the coordinator
+consults live bucket health before deciding to orchestrate at all.

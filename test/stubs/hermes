@@ -47,6 +47,25 @@ done
 MODE="${AGENT}_STUB_MODE"
 MODE="${!MODE:-success}"
 
+# Concurrency instrumentation. When STUB_CONC_DIR is set the stub records, for
+# every invocation, which LANE it ran on and when. The fixture gives each bucket
+# its own models (m<N>-a, m<N>-b), so the lane is the model prefix.
+#
+# The overlap check is done here rather than in the test because only the stub
+# knows the true start and end of a real invocation: mkdir is atomic, so a second
+# concurrent call on the same lane cannot miss the collision.
+if [[ -n "${STUB_CONC_DIR:-}" && -n "$MODEL_ID" ]]; then
+  LANE="${MODEL_ID%%-*}"
+  mkdir -p "$STUB_CONC_DIR"
+  printf 'start %s %s\n' "$LANE" "$(date +%s%N)" >> "$STUB_CONC_DIR/timeline"
+  if ! mkdir "$STUB_CONC_DIR/busy-$LANE" 2>/dev/null; then
+    printf 'OVERLAP on lane %s\n' "$LANE" >> "$STUB_CONC_DIR/violations"
+  fi
+  sleep "${STUB_HOLD:-0.4}"
+  rmdir "$STUB_CONC_DIR/busy-$LANE" 2>/dev/null || true
+  printf 'end %s %s\n' "$LANE" "$(date +%s%N)" >> "$STUB_CONC_DIR/timeline"
+fi
+
 if [[ -n "${STUB_LOG:-}" ]]; then
   echo "${AGENT} ${MODEL_ID} mode=${MODE}" >> "${STUB_LOG}"
 fi

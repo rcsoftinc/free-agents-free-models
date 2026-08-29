@@ -1,9 +1,38 @@
 #!/usr/bin/env bash
 # Stub curl: returns canned OpenRouter models metadata for the models endpoint,
 # nothing otherwise. Lets discover.sh run fully offline & deterministically.
+# Honour -o FILE like the real curl. Without this, callers that redirect to a
+# file (buckets.sh and find-free-providers.sh both do) see an empty download and
+# take their error path, which looks exactly like a network failure.
+OUT=""
+prev=""
 for a in "$@"; do
+  [[ "$prev" == "-o" ]] && OUT="$a"
+  prev="$a"
+done
+emit() { if [[ -n "$OUT" ]]; then cat > "$OUT"; else cat; fi; }
+
+for a in "$@"; do
+  # models.dev catalogue, for find-free-providers.sh. Two providers with free
+  # models (different counts and context sizes, so ranking is observable) and one
+  # with none, which must not appear at all.
+  if [[ "$a" == *"models.dev/api.json"* ]]; then
+    emit <<'JSON'
+{
+  "alpha": { "name": "Alpha Labs", "env": ["ALPHA_API_KEY"], "models": {
+      "a-1": { "cost": {"input": 0, "output": 0}, "limit": {"context": 128000} },
+      "a-2": { "cost": {"input": 0, "output": 0}, "limit": {"context": 32000} },
+      "a-3": { "cost": {"input": 5, "output": 5}, "limit": {"context": 200000} } } },
+  "beta":  { "name": "Beta Systems", "env": ["BETA_API_KEY"], "models": {
+      "b-1": { "cost": {"input": 0, "output": 0}, "limit": {"context": 1000000} } } },
+  "gamma": { "name": "Gamma Only Paid", "env": ["GAMMA_API_KEY"], "models": {
+      "g-1": { "cost": {"input": 2, "output": 2}, "limit": {"context": 8000} } } }
+}
+JSON
+    exit 0
+  fi
   if [[ "$a" == *"openrouter.ai/api/v1/models"* ]]; then
-    cat <<'JSON'
+    emit <<'JSON'
 {"data":[
   {"id":"openai/gpt-4o","context_length":128000,"pricing":{"prompt":"0","completion":"0"}},
   {"id":"anthropic/claude-3.5-sonnet","context_length":200000,"pricing":{"prompt":"1","completion":"1"}}

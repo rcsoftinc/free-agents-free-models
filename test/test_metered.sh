@@ -42,5 +42,17 @@ res="$(FA_ALLOW_METERED=1 timeout 60 "$REPO/bin/run.sh" "task" 2>&1 >/dev/null |
 assert_eq "free wallet is preferred over the metered one" \
           "$(printf '%s' "$res" | jq -r '.bucket')" "b0:fp0"
 
+# --- the -v listing must agree with the count -------------------------------
+# This drifted twice: the count excluded a wallet while the listing still showed
+# it as a usable LANE. They share a predicate now; assert they stay in step.
+n_default="$("$REPO/bin/buckets.sh" lanes)"
+v_default="$("$REPO/bin/buckets.sh" lanes -v | grep -c '^  LANE')"
+assert_eq "lanes -v LANE rows match the count (default)" "$v_default" "$n_default"
+
+n_allowed="$(FA_ALLOW_METERED=1 "$REPO/bin/buckets.sh" lanes)"
+v_allowed="$(FA_ALLOW_METERED=1 "$REPO/bin/buckets.sh" lanes -v | grep -c '^  LANE')"
+assert_eq "lanes -v LANE rows match the count (allowed)" "$v_allowed" "$n_allowed"
+assert_true "allowing metered strictly increases the lane count" '[[ $n_allowed -gt $n_default ]]'
+
 end_suite
 final_report

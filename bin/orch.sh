@@ -230,9 +230,14 @@ cmd_run() {
     if [[ $DRY_RUN -eq 1 ]]; then break; fi
 
     if [[ ${#RUNNING[@]} -eq 0 ]]; then
-      # Nothing runnable: either a dependency cycle, or everything left is
-      # blocked on a file boundary held by a task that already failed.
-      log "deadlock: $remaining task(s) left, none runnable"
+      # Nothing runnable: a dependency cycle, a dependency on a task id that does
+      # not exist, or everything left is waiting on something that failed.
+      # Record it - the journal is the only account of a run, and a stall that
+      # leaves it empty tells a later reader nothing.
+      local blocked; blocked="$(printf '%s' "$todo" | tr '\n' ' ' | sed 's/ *$//')"
+      journal deadlock "-" "blocked=${blocked}" "remaining=${remaining}"
+      log "deadlock: $remaining task(s) left, none runnable: ${blocked}"
+      log "  (dependency cycle, unknown dependency id, or a failed prerequisite)"
       return 1
     fi
 
@@ -284,6 +289,12 @@ cmd_status() {
   jq -r 'select(.event=="done")
          | "  done    \(.task)  <- \(.bucket // "?")  \(.model // "")"' "$JOURNAL" | sort -u
   jq -r 'select(.event=="failed") | "  FAILED  \(.task)"' "$JOURNAL" | sort -u
+  # A deadlocked run leaves tasks that will never become runnable. Listing them
+  # as "pending" reads as "waiting its turn", which is the wrong thing to
+  # believe - nothing is going to move without a change to the graph.
+  jq -r 'select(.event=="deadlock")
+         | "  BLOCKED  \(.blocked // "?")  (cycle, unknown dependency id, or a failed prerequisite)"' \
+     "$JOURNAL" 2>/dev/null | tail -1
   if [[ -f "$TASKS_FILE" ]]; then
     local d; d="$(completed_tasks)"; local f; f="$(failed_tasks)"
     while IFS= read -r id; do

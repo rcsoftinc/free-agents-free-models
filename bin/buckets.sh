@@ -333,9 +333,20 @@ probe_one() { # $1=agent $2=model_arg $3=provider -> "state<TAB>ms"
 cmd_identify() {
   local rows; rows="$(collect_identities)"
   [[ -z "$rows" ]] && die "no agents or credentials found"
+  # Apply the SAME canonical-wallet rule discover uses, so what is printed here
+  # is the bucket id that will actually exist. These drifted apart once already;
+  # a listing that disagrees with the registry is worse than no listing.
+  local canon; canon="$(printf '%s\n' "$rows" \
+    | awk -F'\x1f' '$4 != "anon" { if (length($3) > length(best[$4])) best[$4]=$3 }
+                     END { for (k in best) print k "\x1f" best[k] }')"
   printf '%s\n' "$rows" | while IFS=$'\x1f' read -r agent lp wallet ident source extra; do
+    local w="$wallet"
+    if [[ "$ident" != "anon" ]]; then
+      local c; c="$(printf '%s\n' "$canon" | awk -F'\x1f' -v k="$ident" '$1==k{print $2}')"
+      [[ -n "$c" ]] && w="$c"
+    fi
     printf '%-9s %-12s bucket=%-30s source=%s\n' \
-      "$agent" "$lp" "${wallet}:${ident}" "$source"
+      "$agent" "$lp" "${w}:${ident}" "$source"
   done
 }
 
@@ -378,19 +389,36 @@ cmd_discover() {
       | map({agent:.[0], provider:.[1], model_arg:.[2],
              upstream:.[3], free:(.[4]=="true")})) as $models
   | ($ids | map({key:(.agent+"|"+.provider), value:.}) | from_entries) as $byap
+
+  # CANONICAL WALLET NAME PER FINGERPRINT.
+  # The same credential can be described differently by different agents:
+  # the opencode auth.json calls it "openrouter" (no base URL to derive a host
+  # from), while kilo reports the host "openrouter.ai". Identical fingerprints
+  # would then land in different namespaces and NOT collapse - defeating the one
+  # guarantee this design exists to provide, that a shared key is one lane.
+  # So every fingerprint gets a single canonical name: the most specific one
+  # seen (longest, which is the host form when a host is known).
+  # "anon" is excluded - it means "no credential", and two unauthenticated
+  # gateways are NOT the same wallet.
+  | ($ids | group_by(.ident)
+      | map({ key: .[0].ident,
+              value: (if .[0].ident == "anon" then null
+                      else (map(.wallet) | unique | sort_by(length) | last) end) })
+      | from_entries) as $canon
   | ($prev[0].buckets // {}) as $old
 
   | ($models | map(select($byap[.agent+"|"+.provider] == null))) as $phantom
   | ($models | map(select($byap[.agent+"|"+.provider] != null))) as $real
 
-  | ($real | group_by($byap[.agent+"|"+.provider] | .wallet + ":" + .ident)
+  | ($real | group_by($byap[.agent+"|"+.provider]
+                      | (($canon[.ident] // .wallet) + ":" + .ident))
       | map(
           ($byap[.[0].agent+"|"+.[0].provider]) as $id
-        | ($id.wallet + ":" + $id.ident) as $bid
+        | (($canon[$id.ident] // $id.wallet) + ":" + $id.ident) as $bid
         | { key: $bid,
             value: {
               id: $bid,
-              provider: $id.wallet,
+              provider: ($canon[$id.ident] // $id.wallet),
               local_providers: ([.[].provider] | unique),
               credential_fp: $id.ident,
               credential_sources: ([.[] | $byap[.agent+"|"+.provider].source] | unique),

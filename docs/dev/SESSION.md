@@ -1,85 +1,113 @@
 # SESSION STATE — read this first on resume
 
-**Last updated:** 2026-08-27 (Claude Code / Opus 5 session)
+**Last updated:** 2026-08-29
 
 ---
 
-## Where we are right now
+## Where we are
 
-**Phase: BUILD ORDER COMPLETE (steps 1-9). All blocking + architectural + hygiene
-defects closed.** Read `docs/ALIGNMENT.md` — it is the source of truth (supersedes
-`docs/ANALYSIS.md` §7).
+**Complete and working.** Published privately at
+`github.com/noonelifecoach/free-agents-free-models`. Full suite green:
+**157 assertions, 13 suites, ~70s, offline.**
 
-### The system
+Design and full findings: **`docs/dev/ALIGNMENT.md`** (the source of truth).
+`docs/dev/ANALYSIS.md` is historical. User-facing docs: `README.md`, `docs/SETUP.md`.
+
+## The core idea
+
+**A bucket is one wallet: `(provider, credential)`. It is the unit of rate
+limiting, so it is the unit of scheduling — never the agent.** Two agents sharing
+one API key are ONE lane. Bucket ids derive from the credential, so a shared key
+collapses automatically.
+
+**Give each agent a DIFFERENT free key** — that is what multiplies lanes.
+
+## How it is used
+
+```sh
+cd myproject
+gh repo clone noonelifecoach/free-agents-free-models .free-agents
+.free-agents/setup.sh
+opencode                                    # or kilo / hermes / cursor / copilot
+> paste .free-agents/prompts/coordinator.md # one prompt; it routes on intent
+```
+
+The agent runs `fa bootstrap` itself. Everything lives in `.free-agents/` (tool +
+`state/`) and `.orch/` (run journal). State is per-project by default;
+`FREE_AGENTS_STATE` shares one registry across projects.
+
+## Layout
 
 ```
-bin/buckets.sh   credential-bucket registry   lanes | discover | probe | show
-bin/run.sh       THE dispatch engine          one task -> one result, with fallback
-bin/plan.sh      goal -> task graph           planning WITH fallback (B2 fixed)
-bin/orch.sh      per-project task graph       run | status | resume
-bin/lib/         common.sh (paths, flock) + classify.sh (THE taxonomy, self-test)
-skill/SKILL.md   packaged skill card (A3)
-workflow-kit/    installer: AGENTS.md gate + CLAUDE.md + both skills + bin/
-legacy/          Layer B, retired behind a banner; see legacy/README.md
+bin/fa            entry point: bootstrap doctor lanes run plan go orch status resume
+bin/buckets.sh    credential registry      lanes | discover | probe | show
+bin/run.sh        dispatch engine          fallback chain, bucket lease, breaker
+bin/plan.sh       goal -> task graph       planning itself has fallback
+bin/orch.sh       per-project task graph   run | status | resume (journal replay)
+bin/lib/          common.sh (paths, flock) + classify.sh (taxonomy + self-test)
+prompts/          coordinator.md - the single pasted prompt
+skills/           skill cards, linked into the project by bootstrap
+test/             13 suites, stub agents, fixture registry - fully offline
 ```
 
-**The core rule:** a bucket is one wallet `(provider, credential)` and it is the unit
-of scheduling — NOT the agent. Two agents on one API key are ONE lane. Bucket ids
-derive from the credential, so a shared key collapses automatically.
+## Lanes on this machine
 
-**Current lanes: 5** (`bin/buckets.sh lanes -v`). 75 free models, 0 phantom.
+| Lane | Agent | Free models |
+|---|---|---:|
+| `kilo:anon` | kilo | 24 |
+| `openrouter.ai:845a3f96` | kilo | 21 |
+| `kilocode:fac9bae9` | hermes | 20 |
+| `nous:6b7db10d` | hermes | 6 |
+| `opencode:14a1a2f8` | opencode | 3 |
+| `copilot:*` / `cursor:*` | copilot / cursor | METERED — opt-in, tried last |
+| `freemodel:40d72418` | opencode | 0 — advertises PAID models, excluded |
 
-### Verified end to end
-One sentence -> `bin/plan.sh` -> 3-task graph (correct deps, disjoint files) ->
-`bin/orch.sh run` across 3 different wallets -> 361 lines of Python that parse, and
-a CLI that actually runs. Fresh `workflow-kit/install.sh` into an empty dir also runs
-a 3-task graph entirely through its own installed copy.
+Metered wallets need `FA_ALLOW_METERED=1`. They cannot bill you
+(`overage_permitted: false`) and renew monthly; `fa lanes -v` shows credits left.
 
-### What remains (nothing blocking)
-- `opencode-free-agents/` (Layer A) still has its own `oc.sh`; the new engine does not
-  use it. Either port its cross-model session-continuity trick into `bin/run.sh` or
-  retire it to `legacy/` too. **This is the last duplicate engine.**
-- `legacy/` can be deleted once its suites are ported to the new engine; there is
-  currently NO test suite for `bin/` beyond `classify.sh --self-test`.
-- `freemodel:40d724…` is excluded (advertises 10 PAID models). User decision if that
-  gateway actually serves them free.
-- S1: `opencode-free-agents/CONTEXT.md` still claims pending Windows PS validation.
+## Invariants that must not regress
 
-## Defect table — ALL CLOSED (historical; detail in `docs/ANALYSIS.md` §6 and `docs/ALIGNMENT.md`)
+- **One task per credential at a time.** Two agents on one key do not go faster.
+- **Attribution.** Wallet faults (rate limit / billing / auth) cool the WALLET;
+  a model hang demotes the MODEL only; `local_network` is recorded NOWHERE.
+- **Cooldowns escalate.** A first failure is short (15m) — a single transient 401
+  once benched a healthy 21-model wallet for 24h.
+- **Verify, do not trust.** A task's declared `files` must exist afterwards; an
+  agent reporting success is not evidence.
+- **Containment differs per agent**: `opencode --dir`, `kilo --dir`, hermes via
+  `HOME` (it honours neither `cwd` nor `--in`). There is no uniform flag.
+- **These CLIs exit 0 on hard failures.** Classify on output, never on rc.
 
-| ID | Severity | Summary |
-|---|---|---|
-| **B1** | **blocking** | `runner.sh:417` never `cd`s to the target project — agents write into the orchestrator repo. Evidence: `JWT_AUTH_GUIDE.md` at root. |
-| **B2** | **blocking** | `orchestrator.sh:94` plan generation is a single model, single shot, no fallback → one rate-limit kills the run. |
-| A1 | architectural | Three divergent fallback engines (`oc.sh`, `runner.sh`, `dispatch.sh`) + two unsynced state stores. |
-| A2 | architectural | Orchestrator state is global (`SCRIPT_DIR/.orchestrator`), not per-project. |
-| A3 | architectural | Layer B has no SKILL.md / installer / packaging. |
-| H1 | hygiene | 442 unpruned files in `.orchestrator/.backups/`. |
-| H2 | hygiene | `test_runner.sh` asserts PASS on `rc=124` (a timeout). |
-| H3 | hygiene | `.orchestrator/config.json` read but missing. |
-| H4 | hygiene | Root `scripts/` + `AGENTS.md` + `CLAUDE.md` are duplicate copies of workflow-kit output. |
-| H5 | hygiene | `JWT_AUTH_GUIDE.md` at root is test debris. |
-| S1 | stale | `opencode-free-agents/CONTEXT.md` claims pending Windows PS validation + uncommitted git work. |
-| S2 | stale | **This directory is not a git repo.** No version control at all. |
+## Bugs the test suite found (all fixed)
 
----
+1. **Shared keys did not collapse** — the design's core promise. opencode names
+   the provider `openrouter`, kilo reports host `openrouter.ai`, so identical
+   fingerprints made two buckets from one wallet.
+2. **A transient `auth_error` benched a healthy wallet for 24h.**
+3. **`plan.sh` wrote an empty plan and called it success** (`jq -e` exits 0 on
+   empty input).
+4. **`fa doctor` aborted mid-check** — `grep` exiting 1 under `set -e` skipped the
+   registry check, the one people rely on.
+5. Deadlocked runs left **no journal entry**, and `status` called permanently
+   blocked tasks "pending".
+6. Stub `curl` ignored `-o`, making downloads look like network failures.
+7. `lanes -v` disagreed with `lanes` (twice — display and count now share a
+   predicate).
 
-## Environment facts (verified this session)
+## What is deliberately NOT tested
 
-- CLIs present: `opencode` 1.17.20, `kilo` 7.5.5, `hermes` 0.20.5, `jq`, `curl`,
-  `sqlite3`, `flock`, `timeout`.
-- `.orchestrator/catalog.json`: 559 models, **52 free**.
-- Test suite: **14/14 suites passing** (`bash test/run_all.sh`, results → `test/test.log`).
-- All shell scripts pass `bash -n`.
-- `.env` at root holds a real `FREEMODEL_API_KEY` and is gitignored.
-- Running inside tmux; user cannot see long terminal output → **write long output to
-  files, don't rely on scrollback.**
+- **Real agent behaviour.** Everything runs against stubs; whether a free model
+  can follow a spec is not assertable here.
+- **Live provider failures.** The taxonomy is tested against captured error
+  strings. **Real error text from the user is the only source of truth for this
+  layer** — two of four messages they pasted were misclassified.
 
----
+## Next, if resuming
 
-## User preferences (carry forward)
+Nothing is outstanding. The valuable next step is **pointing it at a real project
+of the user's own** and seeing where it strains — the acceptance run built this
+test suite and surfaced 7 bugs; a messier project will surface different ones.
 
-- Working in **tmux**; long answers must be saved to disk, not just printed.
-- Wants a **personal-use production-ready skill**, not a demo.
-- Reviews analysis before approving work — present findings, then wait.
-
+Observed at real scale: free models produce structurally correct bash with subtle
+defects; the yield went from 1/4 to 4/4 once specs named the exact failure modes.
+**The ceiling is spec quality, not model capability.**

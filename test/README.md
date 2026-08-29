@@ -18,6 +18,8 @@ bash bin/lib/classify.sh --self-test   # the error taxonomy, ~1s
 | `test_resume.sh` | Resume replays the journal, respects dependency order, never re-runs a completed task |
 | `test_verify.sh` | A task that claims success without producing its declared files is failed |
 | `test_metered.sh` | Metered wallets are opt-in, counted only when allowed, and always ranked last |
+| `test_plan.sh` | A goal becomes a valid graph; JSON buried in prose is extracted; a model returning no plan is retried rather than fatal; boundary-violating plans are rejected |
+| `test_discover.sh` | Models are attributed to the credential that pays for them; the SAME key in two agents collapses to one lane; no secret is ever stored |
 | `test_breaker.sh` | A wallet fault cools the whole wallet; a model hang does not; a first cooldown is short; a cooled wallet is skipped; success resets the count |
 
 **Every suite has been mutation-tested** — the corresponding behaviour was
@@ -27,9 +29,9 @@ as part of adding one.
 
 ## Not yet covered
 
-- `bin/plan.sh` — no coverage at all.
-- `bin/buckets.sh discover` — needs fake agent config files to test credential
-  attribution and the shared-wallet collapse.
+- `bin/orch.sh` dependency edge cases: cycles, and a task blocked behind a failed
+  dependency.
+- `fa bootstrap` / `fa doctor` end to end.
 
 ## Writing a new suite
 

@@ -53,8 +53,26 @@ case "$MODE" in
     exit 0
     ;;
   plan)
-    # A valid orchestrator plan JSON for testing orchestrator.sh.
-    printf '{"project_name":"x","summary":"s","tech_stack":["node"],"phases":[{"name":"p","description":"d","tasks":[{"id":"task-001","role":"researcher","task_type":"analysis","description":"a","files":[],"priority":"high","dependencies":[]}]}]}'
+    # A valid task graph in the shape bin/plan.sh expects.
+    printf '{"tasks":[{"id":"one","prompt":"do one","deps":[],"files":["one.txt"],"category":"coding"},{"id":"two","prompt":"do two","deps":["one"],"files":["two.txt"],"category":"coding"}]}'
+    exit 0
+    ;;
+  planprose)
+    # Valid JSON buried in commentary and a fenced block - what small free models
+    # actually return. plan.sh must extract the first balanced object.
+    printf 'Sure! Here is the plan you asked for:\n\n```json\n{"tasks":[{"id":"solo","prompt":"do it","deps":[],"files":["solo.txt"],"category":"coding"}]}\n```\n\nLet me know if you want changes.'
+    exit 0
+    ;;
+  planbad)
+    # No usable JSON at all. This is THIS MODEL failing, not the wallet, so
+    # plan.sh must retry onto another candidate rather than abort the run.
+    printf 'I would start by reviewing the requirements and then writing some code.'
+    exit 0
+    ;;
+  planconflict)
+    # Two tasks with no dependency between them writing the SAME file. plan.sh
+    # must reject this: it is the cheapest place to catch a boundary error.
+    printf '{"tasks":[{"id":"a","prompt":"x","deps":[],"files":["shared.txt"],"category":"coding"},{"id":"b","prompt":"y","deps":[],"files":["shared.txt"],"category":"coding"}]}'
     exit 0
     ;;
   slow)

@@ -98,6 +98,11 @@ extract_json() {
 }
 
 valid_plan() { # $1=file
+  # An EMPTY file must fail here. `jq -e` produces no output on empty input and
+  # exits 0, so without this guard a model that returned pure prose was accepted
+  # and an empty tasks.json was written as a "successful" plan - which then fails
+  # downstream in orch.sh, far from the cause.
+  [[ -s "$1" ]] || return 1
   jq -e '
     (.tasks | type == "array") and (.tasks | length > 0)
     and all(.tasks[]; (.id | type == "string" and length > 0)
@@ -151,7 +156,7 @@ while [[ $try -lt $MAX_TRIES ]]; do
     continue
   fi
 
-  jq '.' "${tmp}.json" > "$OUT"
+  jq '.' "${tmp}.json" > "${OUT}.tmp" && mv "${OUT}.tmp" "$OUT"
   log "wrote $OUT ($(jq '.tasks | length' "$OUT") tasks) via $(sed -n 's/^---RUN-META--- //p' "${tmp}.err" | tail -1 | jq -r '.bucket // "?"')"
   [[ $PRINT -eq 1 ]] && jq '.' "$OUT"
   exit 0

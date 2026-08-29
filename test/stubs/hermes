@@ -17,6 +17,33 @@ for a in "$@"; do
   prev="$a"
 done
 
+# `<agent> models --verbose` - discover parses "id" lines followed by a JSON
+# object. Providers are chosen to match the fabricated auth files the tests use,
+# so credential attribution has something real to join against. Two free models
+# (cost 0) and one paid, to prove the free filter actually filters.
+for a in "$@"; do
+  if [[ "$a" == "models" ]]; then
+    emit() { # $1=provider $2=model $3=input-cost
+      printf '%s/%s\n' "$1" "$2"
+      printf '{\n  "id": "%s",\n  "providerID": "%s",\n  "cost": { "input": %s, "output": %s }\n}\n' \
+        "$2" "$1" "$3" "$3"
+    }
+    case "$AGENT" in
+      opencode)
+        emit opencode  free-a 0
+        emit opencode  paid-a 2.5
+        emit openrouter free-b 0
+        ;;
+      kilo)
+        emit kilo   free-k 0
+        emit openai free-o 0
+        ;;
+      hermes) : ;;   # hermes enumerates through its API, via the curl stub
+    esac
+    exit 0
+  fi
+done
+
 MODE="${AGENT}_STUB_MODE"
 MODE="${!MODE:-success}"
 

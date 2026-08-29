@@ -113,7 +113,11 @@ case "$cmd" in
     for a in opencode:1.17.20 kilo:7.5.5 hermes:0.20.5; do
       name="${a%%:*}"; want="${a##*:}"
       if command -v "$name" >/dev/null; then
-        got="$("$name" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+        # `|| true` is load-bearing: grep exits 1 when an agent reports its
+        # version in an unexpected format, and under `set -e` that aborted
+        # doctor halfway through - silently skipping the registry check, which
+        # is the one people actually rely on.
+        got="$("$name" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
         if [[ "$got" == "$want" ]]; then printf '  ok      %-9s %s\n' "$name" "$got"
         else printf '  differs %-9s %s (verified against %s)\n' "$name" "${got:-unknown}" "$want"; fi
         found=$((found+1))

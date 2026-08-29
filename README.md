@@ -81,6 +81,27 @@ You can also drive it directly, without an agent:
 .free-agents/bin/fa resume            # safe after ANY interruption
 ```
 
+## Metered lanes (copilot, cursor) — opt-in
+
+`copilot` and `cursor-agent` work as lanes, but their free tiers are a **depleting
+monthly allowance**, not an unlimited pool. They are therefore **off by default**,
+and when enabled they are always tried **last** — after every genuinely free lane
+is busy or cold.
+
+```sh
+fa lanes -v                              # shows credits remaining + renewal date
+FA_ALLOW_METERED=1 fa orch run           # opt in for this run
+fa run --allow-metered "task"
+```
+
+They cannot bill you. GitHub reports `overage_permitted: false` — the allowance
+simply stops, and it renews monthly (`fa lanes -v` prints the reset date). Copilot
+also exposes live credit counts, which the registry records at discovery.
+
+Neither exposes a model list — both route through a vendor "Auto" selector — so
+each is a single-model bucket. That is fine: the scheduler addresses wallets, not
+models.
+
 ## Bootstrap (once per project)
 
 ```sh

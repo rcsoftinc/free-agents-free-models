@@ -17,6 +17,7 @@ bash bin/lib/classify.sh --self-test   # the error taxonomy, ~1s
 | `test_requeue.sh` | "All lanes busy" (exit 5) is distinguished from "everything failed" (exit 2) |
 | `test_resume.sh` | Resume replays the journal, respects dependency order, never re-runs a completed task |
 | `test_verify.sh` | A task that claims success without producing its declared files is failed |
+| `test_metered.sh` | Metered wallets are opt-in, counted only when allowed, and always ranked last |
 | `test_breaker.sh` | A wallet fault cools the whole wallet; a model hang does not; a first cooldown is short; a cooled wallet is skipped; success resets the count |
 
 **Every suite has been mutation-tested** — the corresponding behaviour was

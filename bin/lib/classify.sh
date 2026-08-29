@@ -98,19 +98,32 @@ is_bucket_fault() {
   case "$1" in rate_limited|no_credits|auth_error) return 0 ;; *) return 1 ;; esac
 }
 
-# Cooldown seconds per state. Rate limits recover in minutes; a drained balance
-# or a bad key does not, so retrying it costs an attempt slot for nothing.
-cooldown_for() { # $1=state -> seconds
-  case "$1" in
-    rate_limited)     echo "${COOLDOWN_RATE_LIMITED:-1800}" ;;   # 30 min
-    no_credits)       echo "${COOLDOWN_NO_CREDITS:-86400}" ;;    # 24 h
-    auth_error)       echo "${COOLDOWN_AUTH_ERROR:-86400}" ;;    # 24 h
-    timeout)          echo "${COOLDOWN_TIMEOUT:-600}" ;;         # 10 min
-    provider_error)   echo "${COOLDOWN_PROVIDER_ERROR:-600}" ;;  # 10 min, likely transient
-    dead)             echo "${COOLDOWN_DEAD:-259200}" ;;         # 72 h
-    context_overflow) echo 0 ;;
-    *)                echo 0 ;;
+# Cooldown seconds per state, ESCALATING with consecutive failures.
+#
+# A first failure is treated as possibly transient, however severe it looks. This
+# matters: a single 401 blip was observed benching a healthy 21-model wallet for
+# 24h, and the wallet answered fine seconds later. A genuinely bad key or an empty
+# balance re-fails immediately and escalates to the long window on its own, so
+# nothing is lost by starting short - while a blip costs minutes instead of a day.
+#
+# Escalation: attempt 1 -> base, 2 -> base x4, 3+ -> the long window, capped.
+cooldown_for() { # $1=state $2=consecutive_failures(optional, default 1) -> seconds
+  local state="$1" n="${2:-1}" base cap
+  case "$state" in
+    rate_limited)     base="${COOLDOWN_RATE_LIMITED:-900}";   cap="${CAP_RATE_LIMITED:-3600}" ;;   # 15m -> 1h
+    no_credits)       base="${COOLDOWN_NO_CREDITS:-1800}";    cap="${CAP_NO_CREDITS:-86400}" ;;    # 30m -> 24h
+    auth_error)       base="${COOLDOWN_AUTH_ERROR:-900}";     cap="${CAP_AUTH_ERROR:-86400}" ;;    # 15m -> 24h
+    timeout)          base="${COOLDOWN_TIMEOUT:-600}";        cap="${CAP_TIMEOUT:-3600}" ;;
+    provider_error)   base="${COOLDOWN_PROVIDER_ERROR:-600}"; cap="${CAP_PROVIDER_ERROR:-3600}" ;;
+    dead)             base="${COOLDOWN_DEAD:-3600}";          cap="${CAP_DEAD:-259200}" ;;         # 1h -> 72h
+    context_overflow) echo 0; return ;;
+    *)                echo 0; return ;;
   esac
+  [[ "$n" -lt 1 ]] && n=1
+  local secs="$base" i
+  for ((i=1; i<n && i<4; i++)); do secs=$((secs * 4)); done
+  [[ "$secs" -gt "$cap" ]] && secs="$cap"
+  echo "$secs"
 }
 
 # Cheap connectivity check, used to tell "our network died" from "their API died"
@@ -175,6 +188,16 @@ classify_self_test() {
     && echo "  ok   parsed 45 minutes"       || { echo "  FAIL 45m"; fails=1; }
   [[ -z "$(retry_after_secs 'no window mentioned here')" ]] \
     && echo "  ok   no window -> no hint"    || { echo "  FAIL spurious hint"; fails=1; }
+
+  echo "cooldown escalation (a first failure must not bench a wallet for a day)"
+  [[ "$(cooldown_for auth_error 1)" -le 1800 ]] \
+    && echo "  ok   first auth_error <= 30min" || { echo "  FAIL first auth_error too long"; fails=1; }
+  [[ "$(cooldown_for auth_error 4)" -ge 3600 ]] \
+    && echo "  ok   repeated auth_error escalates" || { echo "  FAIL no escalation"; fails=1; }
+  [[ "$(cooldown_for no_credits 1)" -lt "$(cooldown_for no_credits 3)" ]] \
+    && echo "  ok   no_credits escalates with repeats" || { echo "  FAIL"; fails=1; }
+  [[ "$(cooldown_for local_network 9)" == "0" ]] \
+    && echo "  ok   local_network never cools, however many times" || { echo "  FAIL"; fails=1; }
 
   echo "attribution"
   is_bucket_fault rate_limited && echo "  ok   rate_limited blames the wallet"   || { echo "  FAIL"; fails=1; }

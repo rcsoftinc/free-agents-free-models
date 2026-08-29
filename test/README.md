@@ -1,22 +1,52 @@
 # test/
 
-What is here: stub `opencode`, `kilo`, `hermes` and `curl` binaries, plus
-`harness.sh` (assertions, stub sandboxing, counters).
+Offline regression suite for `bin/`. No network, no real credentials: every suite
+builds its own throwaway registry (`fixture_registry`) and runs against the stub
+agent CLIs in `stubs/`.
 
-What is **not** here: a suite for `bin/`. The engine is currently verified by
-end-to-end runs, not by regression tests. That is the biggest known gap in the
-project.
+```sh
+bash test/run_all.sh          # everything
+bash test/test_lease.sh       # one suite
+bash bin/lib/classify.sh --self-test   # the error taxonomy, ~1s
+```
 
-The 14 suites that used to live here tested the retired Layer B — they guarded
-code that no longer ships, so they were removed rather than left to imply
-coverage that did not exist. They are in `git log` if any behaviour is worth
-porting.
+| Suite | Proves |
+|---|---|
+| `test_lease.sh` | One task per credential at a time; unpinned tasks take different wallets |
+| `test_ranking.sh` | Ranking is per-category and changes candidate order; wallet faults are not scored against a model |
+| `test_requeue.sh` | "All lanes busy" (exit 5) is distinguished from "everything failed" (exit 2) |
+| `test_resume.sh` | Resume replays the journal, respects dependency order, never re-runs a completed task |
+| `test_verify.sh` | A task that claims success without producing its declared files is failed |
 
-Worth testing first, offline, using these stubs:
+**Every suite has been mutation-tested** — the corresponding behaviour was
+deliberately broken in `bin/` and each suite caught it. A passing test that does
+not fail when the code is broken is worse than no test, so treat mutation-testing
+as part of adding one.
 
-- bucket lease exclusivity (two tasks, one wallet)
-- the breaker (bucket-attributable failures cool the wallet; timeouts do not)
-- `no_lane` requeue vs genuine exhaustion
-- candidate ordering, including per-category ranking
-- journal replay: resume runs each task exactly once
-- verification: a task that claims success without writing its files must fail
+## Not yet covered
+
+- **The bucket circuit breaker** — that a wallet-attributable failure cools the
+  whole wallet and that a model timeout does not. Partially exercised by
+  `test_ranking.sh` case 3; it deserves its own suite.
+- Cooldown *escalation* (a first failure must be short-lived) is covered only in
+  `bin/lib/classify.sh --self-test`, not end to end.
+- `bin/plan.sh` has no coverage at all.
+
+## Writing a new suite
+
+```bash
+#!/usr/bin/env bash
+set -uo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"
+REPO="$(cd "$HERE/.." && pwd)"     # always call the engine as "$REPO/bin/..."
+source "$HERE/harness.sh"
+begin_suite "what it proves"
+fixture_registry 3 || exit 1       # sets FREE_AGENTS_STATE; never call in $( )
+sandbox_on                         # stub opencode/kilo/hermes on PATH
+...
+end_suite
+final_report
+```
+
+Stub modes: `success ratelimit error hang slow plan`, set with
+`mode_for opencode hang` (agent name lowercase — the stub reads `${basename}_STUB_MODE`).

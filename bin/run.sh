@@ -188,7 +188,11 @@ invoke() { # $1=agent $2=model $3=provider $4=prompt
 record() { # $1=bucket $2=model $3=state $4=ms $5=output(optional)
   local bucket="$1" model="$2" state="$3" ms="$4" out="${5:-}" cd_secs until_ts=0 hint
   [[ "$state" == "local_network" ]] && return 0
-  cd_secs="$(cooldown_for "$state")"
+  # Pass the failure count so a first, possibly transient failure gets a short
+  # window and only a repeatedly-failing wallet earns the long one.
+  local nfail
+  nfail="$(registry_read --arg b "$bucket" '(.buckets[$b].health.consecutive_failures // 0) + 1' 2>/dev/null || echo 1)"
+  cd_secs="$(cooldown_for "$state" "$nfail")"
   # A window the provider stated itself beats our guess in both directions:
   # retrying sooner burns an attempt, retrying later idles a usable lane.
   hint="$(retry_after_secs "$out")"

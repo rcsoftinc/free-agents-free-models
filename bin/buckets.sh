@@ -167,10 +167,48 @@ identities_kilo() {
                   | join("\u001f")' "$KILO_CONFIG" 2>/dev/null)
 }
 
+# METERED agents: copilot and cursor route through an "Auto" model chosen by the
+# vendor, so there is no model list to enumerate - each is one bucket with a
+# single pseudo-model. Their free tiers are a DEPLETING ALLOWANCE rather than an
+# unlimited free pool, so they are marked metered and are excluded from
+# scheduling unless explicitly allowed. They cannot overspend into a bill
+# (GitHub reports overage_permitted:false) - the cost of using them carelessly is
+# exhausting a small monthly budget, not money.
+identities_copilot() {
+  have copilot || return 0
+  local ident="anon" extra='{"metered":true}'
+  if have gh; then
+    local info
+    info="$(gh api /copilot_internal/user 2>/dev/null || true)"
+    if [[ -n "$info" ]]; then
+      ident="$(fp "$(printf '%s' "$info" | jq -r '.login // ""')")"
+      extra="$(printf '%s' "$info" | jq -c '{metered:true,
+        plan: .access_type_sku,
+        renews: .quota_reset_date,
+        overage_permitted: (.quota_snapshots.chat.overage_permitted // false),
+        credits_remaining: (.quota_snapshots.chat.remaining // null),
+        credits_entitlement: (.quota_snapshots.chat.entitlement // null)}' 2>/dev/null || echo '{"metered":true}')"
+    fi
+  fi
+  printf 'copilot\x1fcopilot\x1fcopilot\x1f%s\x1f%s\x1f%s\n' \
+    "$ident" "copilot:github" "$extra"
+}
+
+identities_cursor() {
+  have cursor-agent || return 0
+  local ident="anon" who
+  who="$(timeout 20 cursor-agent status 2>/dev/null | grep -oE '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+' | head -1 || true)"
+  [[ -n "$who" ]] && ident="$(fp "$who")"
+  printf 'cursor\x1fcursor\x1fcursor\x1f%s\x1f%s\x1f{"metered":true}\n' \
+    "$ident" "cursor:status"
+}
+
 collect_identities() {
   identities_opencode
   identities_hermes
   identities_kilo
+  identities_copilot
+  identities_cursor
 }
 
 # ------------------------------------------------------------------- models --
@@ -320,6 +358,10 @@ cmd_discover() {
   if have hermes; then
     models_hermes | sed 's/^/hermes\t/' >> "$modfile" || true
   fi
+  # Auto-routed agents expose no model list - the vendor picks per request. One
+  # pseudo-model each, so the scheduler has something to address.
+  have copilot     && printf 'copilot\tcopilot\tauto\tauto\ttrue\n' >> "$modfile"
+  have cursor-agent && printf 'cursor\tcursor\tauto\tauto\ttrue\n' >> "$modfile"
   log "identities: $(wc -l < "$idfile"), model rows: $(wc -l < "$modfile")"
 
   # Join models to buckets by (agent, provider). A model with no matching
@@ -355,6 +397,8 @@ cmd_discover() {
               reachable_via: ([.[].agent] | unique),
               preferred_agent: ([.[].agent] | unique | .[0]),
               limits: ($id.extra.limits // {}),
+              metered: ($id.extra.metered // false),
+              meter: ($id.extra | del(.limits, .metered) | if length > 0 then . else null end),
               health: ($old[$bid].health //
                        {state:"unknown", consecutive_failures:0, cooldown_until:null}),
               models: ([ .[] | . as $m | {
@@ -480,11 +524,12 @@ cmd_lanes() {
   local now; now="$(now_epoch)"
   local n
   n="$(registry_read '[ .buckets[]
+        | select($metered == "1" or (.metered // false) == false)
         | select((.health.cooldown_until // 0) <= ($now|tonumber))
         | select(.health.state != "no_credits" and .health.state != "auth_error")
         | select([.models[] | select(.free)
                   | select((.cooldown_until // 0) <= ($now|tonumber))] | length > 0)
-      ] | length' --arg now "$now")"
+      ] | length' --arg now "$now" --arg metered "${FA_ALLOW_METERED:-0}")"
   if [[ "${1:-}" == "-v" ]]; then
     printf 'healthy lanes: %s\n' "$n"
     # Same predicate as the count, so the listing can never disagree with it.
@@ -512,6 +557,12 @@ cmd_show() {
       "   health=\($b.health.state)   agents=\($b.reachable_via | join(","))   preferred=\($b.preferred_agent)",
       "   free models: \([$b.models[] | select(.free)] | length)   probed ok: \([$b.models[] | select(.probe.state=="ok")] | length)",
       (if ($b.limits | length) > 0 then "   limits: \($b.limits | to_entries | map("\(.key)=\(.value)") | join(" "))" else empty end),
+      (if ($b.metered // false) then
+        "   METERED - a depleting monthly allowance, not an unlimited pool. Off unless FA_ALLOW_METERED=1, and always tried last."
+        + (if $b.meter.credits_remaining != null then
+             "\n   credits: \($b.meter.credits_remaining)/\($b.meter.entitlement // $b.meter.credits_entitlement) - renews \($b.meter.renews // "?") - overage \(if $b.meter.overage_permitted then "PERMITTED" else "blocked (it stops, it cannot bill you)" end)"
+           else "" end)
+       else empty end),
       (if ($b.reachable_via | length) > 1 then
         "   ** SHARED WALLET: \($b.reachable_via | join(" + ")) hit the same credential - ONE lane, never run them in parallel **"
        else empty end),

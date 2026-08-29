@@ -15,6 +15,10 @@ set -euo pipefail
 #   -w, --workdir DIR     run the agent in DIR (default: cwd)
 #   -b, --bucket ID       pin to one bucket (used by the scheduler to hold a lane)
 #   -x, --exclude ID      skip a bucket (repeatable)
+#       --allow-metered   also use metered wallets (copilot, cursor). They spend a
+#                         small MONTHLY ALLOWANCE, not money - GitHub reports
+#                         overage_permitted:false, so they stop rather than bill.
+#                         Off by default; when on they are tried LAST.
 #       --max-attempts N  default 6
 #       --timeout SEC     per-attempt timeout (default 300)
 #       --dry-run         print the candidate chain and exit
@@ -51,6 +55,7 @@ while [[ $# -gt 0 ]]; do
     --max-attempts) MAX_ATTEMPTS="$2"; shift 2 ;;
     --timeout)     ATTEMPT_TIMEOUT="$2"; shift 2 ;;
     --dry-run)     DRY_RUN=1; shift ;;
+    --allow-metered) export FA_ALLOW_METERED=1; shift ;;
     -h|--help)     sed -n '6,26p' "$0"; exit 0 ;;
     -)             PROMPT="$(cat)"; shift ;;
     -*)            die "unknown option: $1" ;;
@@ -91,6 +96,9 @@ candidates() {
       | select(($pin == "") or (.id == $pin))
       | select((.health.cooldown_until // 0) <= ($now|tonumber))
       | select((.id | IN($ex[])) | not)
+      # A metered wallet spends a small monthly allowance rather than an
+      # unlimited free pool, so it is invisible unless explicitly allowed.
+      | select($metered == "1" or (.metered // false) == false)
       | . as $b
       | .models[]
       | select(.free)
@@ -101,6 +109,9 @@ candidates() {
           agent:  $r.agent,
           model:  $r.model_arg,
           provider: ($r.provider // ""),
+          # Metered lanes sort AFTER every unmetered one, so an allowance is only
+          # spent once the genuinely free capacity is busy or cold.
+          metered: (if ($b.metered // false) then 1 else 0 end),
           bucket_last_used: ($b.health.last_used // 0),
           # Ranking is LEARNED from observed outcomes, per category. A model that
           # is good at coding is not automatically good at reasoning, and free
@@ -113,10 +124,10 @@ candidates() {
                        - 2 * (($m.stats.fail // 0)) )
                    + (if $m.probe.state == "ok" then 5 else 0 end) ) }
     ]
-    | sort_by(.bucket_last_used, -.score)
+    | sort_by(.metered, .bucket_last_used, -.score)
     | .[] | [.bucket, .agent, .model, .provider] | @tsv
   ' --arg pin "$PIN_BUCKET" --arg now "$now" --argjson ex "$ex_json" \
-    --arg cat "$CATEGORY"
+    --arg cat "$CATEGORY" --arg metered "${FA_ALLOW_METERED:-0}"
 }
 
 # ------------------------------------------------------------------- leasing --
@@ -173,6 +184,14 @@ invoke() { # $1=agent $2=model $3=provider $4=prompt
         out="$(timeout "$ATTEMPT_TIMEOUT" "${henv[@]}" hermes -m "$model" \
           --in "$WORKDIR" --yolo -z "$prompt" </dev/null 2>&1)" || rc=$?
       fi ;;
+    copilot)
+      # --allow-all is required for unattended use; --add-dir is what contains it.
+      out="$(timeout "$ATTEMPT_TIMEOUT" copilot -p "$prompt" --allow-all \
+        --add-dir "$WORKDIR" </dev/null 2>&1)" || rc=$? ;;
+    cursor)
+      # -f trusts the directory (it refuses to run headless otherwise).
+      out="$(cd "$WORKDIR" && timeout "$ATTEMPT_TIMEOUT" cursor-agent -p "$prompt" \
+        --output-format text -f </dev/null 2>&1)" || rc=$? ;;
     *) return 3 ;;
   esac
   printf '%s' "$out"

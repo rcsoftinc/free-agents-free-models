@@ -29,6 +29,21 @@ Read my request and pick the mode yourself. Do not ask me which mode to use.
 | build something that splits into independent pieces | Check the gate below. If it passes, plan → dispatch. If not, build it directly. |
 | continue after an interruption | `.free-agents/bin/fa status`, then `.free-agents/bin/fa resume`. The journal is the truth, not your memory of the session. |
 
+## Keep the small work yourself
+
+When you do split, **do not dispatch everything.** Take the small, quick,
+context-heavy tasks yourself and give the lanes the substantial, self-contained
+ones.
+
+Your context is already loaded and already paid for. A worker starts cold: it
+re-reads a spec it has never seen, on a weaker free model, and it cannot ask you
+anything. So a one-line fix, a rename, a config tweak or a glue file costs a lane
+more than it costs you — and every lane you leave free is one more substantial
+task running in parallel.
+
+Rule of thumb: **if writing the spec would take about as long as doing the work,
+do the work.**
+
 ## The gate — the only thing you must not get wrong
 
 Split work across lanes **only when BOTH** are true:

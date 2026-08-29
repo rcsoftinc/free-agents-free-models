@@ -64,6 +64,13 @@ never assumes the worker has seen the repo, the conversation, or another task.
 `files` is not documentation — the runner refuses to run overlapping tasks
 concurrently, and it verifies afterwards that the declared files exist.
 
+### Phase 1b — Keep the small work
+
+Do not dispatch everything. Take the small, quick, context-heavy tasks yourself
+and give the lanes the substantial, self-contained ones. Your context is already
+loaded; a worker starts cold, on a weaker model, and cannot ask you anything.
+**If writing the spec would take as long as doing the work, do the work.**
+
 ### Phase 2 — Dispatch
 ```sh
 fa orch run tasks.json     # parallel width = healthy lanes, automatically

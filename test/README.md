@@ -17,6 +17,7 @@ bash bin/lib/classify.sh --self-test   # the error taxonomy, ~1s
 | `test_requeue.sh` | "All lanes busy" (exit 5) is distinguished from "everything failed" (exit 2) |
 | `test_resume.sh` | Resume replays the journal, respects dependency order, never re-runs a completed task |
 | `test_verify.sh` | A task that claims success without producing its declared files is failed |
+| `test_breaker.sh` | A wallet fault cools the whole wallet; a model hang does not; a first cooldown is short; a cooled wallet is skipped; success resets the count |
 
 **Every suite has been mutation-tested** — the corresponding behaviour was
 deliberately broken in `bin/` and each suite caught it. A passing test that does
@@ -25,12 +26,9 @@ as part of adding one.
 
 ## Not yet covered
 
-- **The bucket circuit breaker** — that a wallet-attributable failure cools the
-  whole wallet and that a model timeout does not. Partially exercised by
-  `test_ranking.sh` case 3; it deserves its own suite.
-- Cooldown *escalation* (a first failure must be short-lived) is covered only in
-  `bin/lib/classify.sh --self-test`, not end to end.
-- `bin/plan.sh` has no coverage at all.
+- `bin/plan.sh` — no coverage at all.
+- `bin/buckets.sh discover` — needs fake agent config files to test credential
+  attribution and the shared-wallet collapse.
 
 ## Writing a new suite
 

@@ -81,6 +81,24 @@ failed_tasks() {
 # Parallel width is DERIVED from how many wallets are actually healthy, never a
 # constant. On one healthy bucket, concurrency buys nothing and only produces
 # rate-limit collisions; on five, a fixed 2 wastes three lanes.
+# How many lanes are free RIGHT NOW - i.e. healthy and not currently leased by
+# another task. Dispatching more tasks than this is what produced the churn: a
+# task would launch, find every wallet busy, exit 5, sleep, and repeat (observed:
+# 9 requeues for one task). Checking first means we simply do not launch it.
+free_lanes() {
+  local dir="${FREE_AGENTS_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/free-agents}/leases"
+  local n=0 b f
+  while IFS= read -r b; do
+    [[ -z "$b" ]] && continue
+    f="${dir}/$(printf '%s' "$b" | tr '/:' '__').lock"
+    # No lock file yet means nobody has ever leased it, so it is free.
+    if [[ ! -e "$f" ]]; then n=$((n+1)); continue; fi
+    # flock -n succeeds only if the lane is unheld; the subshell drops it at once.
+    if ( exec 9<>"$f"; flock -n 9 ) 2>/dev/null; then n=$((n+1)); fi
+  done < <(registry_read '.buckets | keys[]' 2>/dev/null)
+  printf '%s' "$n"
+}
+
 healthy_buckets() {
   local now; now="$(now_epoch)"
   registry_read '[ .buckets[]
@@ -172,7 +190,7 @@ cmd_run() {
   [[ "$width" -ge 1 ]] || width=1
   log "project=$PROJECT  parallel=$width (healthy buckets)"
 
-  declare -A ATTEMPTS=() PIDS=() RUNNING=()
+  declare -A ATTEMPTS=() PIDS=() RUNNING=() LANEWAIT=()
   local todo remaining id pid finished progressed
 
   while :; do
@@ -191,6 +209,11 @@ cmd_run() {
       [[ -z "$id" ]] && continue
       [[ -n "${RUNNING[$id]:-}" ]] && continue
       [[ ${#RUNNING[@]} -ge $width ]] && break
+      # Never dispatch into a full house. Without this the task launches only to
+      # discover every wallet is busy, and burns a cycle finding out.
+      if [[ $DRY_RUN -eq 0 && ${#RUNNING[@]} -gt 0 ]]; then
+        [[ "$(free_lanes)" -gt 0 ]] || break
+      fi
       deps_met "$id" || continue
       files_conflict "$id" "${!RUNNING[@]}" && continue
 
@@ -225,11 +248,16 @@ cmd_run() {
     unset 'RUNNING[$finished]' 'PIDS[$finished]'
 
     if [[ $rc -eq 0 ]]; then
+      unset 'LANEWAIT[$finished]'
       log "done $finished"
     elif [[ $rc -eq 5 ]]; then
-      # All lanes were busy. Nothing was tried, so this costs no retry budget.
-      log "requeue $finished (no lane free)"
-      sleep "$LANE_WAIT"
+      # All lanes were busy. Nothing was tried, so this costs no retry budget -
+      # but back off so a task that keeps losing the race does not spin.
+      LANEWAIT[$finished]=$(( ${LANEWAIT[$finished]:-0} + 1 ))
+      local w=$(( LANE_WAIT * (1 << (${LANEWAIT[$finished]} > 4 ? 4 : ${LANEWAIT[$finished]} - 1)) ))
+      [[ $w -gt ${LANE_WAIT_MAX:-60} ]] && w=${LANE_WAIT_MAX:-60}
+      log "requeue $finished (no lane free; waiting ${w}s)"
+      sleep "$w"
     else
       ATTEMPTS[$finished]=$(( ${ATTEMPTS[$finished]:-0} + 1 ))
       if [[ ${ATTEMPTS[$finished]} -gt $TASK_RETRIES ]]; then

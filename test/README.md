@@ -20,6 +20,7 @@ bash bin/lib/classify.sh --self-test   # the error taxonomy, ~1s
 | `test_metered.sh` | Metered wallets are opt-in, counted only when allowed, and always ranked last |
 | `test_plan.sh` | A goal becomes a valid graph; JSON buried in prose is extracted; a model returning no plan is retried rather than fatal; boundary-violating plans are rejected |
 | `test_discover.sh` | Models are attributed to the credential that pays for them; the SAME key in two agents collapses to one lane; no secret is ever stored |
+| `test_bootstrap.sh` | `fa bootstrap` builds a registry from real credentials, installs skills into the project, stores no secret, and is idempotent; `fa doctor` refuses before bootstrap, passes after, and warns when only one lane exists |
 | `test_deps.sh` | Cycles and unknown dependency ids terminate rather than hang; a task behind a failed dependency never starts while unrelated work still completes; diamonds run in order; the stall is recorded and surfaced |
 | `test_breaker.sh` | A wallet fault cools the whole wallet; a model hang does not; a first cooldown is short; a cooled wallet is skipped; success resets the count |
 
@@ -30,9 +31,9 @@ as part of adding one.
 
 ## Not yet covered
 
-- `fa bootstrap` / `fa doctor` end to end.
-- Concurrency beyond two tasks — the lease is tested with 2-3, not with a full
-  fan-out under contention.
+- Concurrency beyond two or three tasks — the lease is tested with a handful, not
+  with a full fan-out under contention.
+- `bin/kilo-add-openrouter.sh` and `bin/find-free-providers.sh`.
 
 ## Writing a new suite
 

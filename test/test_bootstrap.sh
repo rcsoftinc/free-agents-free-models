@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+# Proves `fa bootstrap` sets a project up from nothing and `fa doctor` tells the
+# truth about whether the machine can actually run anything. These are the two
+# commands a new user runs first, so a wrong answer here is the worst kind:
+# it is the one nobody is in a position to question.
+set -uo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"
+REPO="$(cd "$HERE/.." && pwd)"
+source "$HERE/harness.sh"
+begin_suite "fa bootstrap and fa doctor"
+sandbox_on
+
+# A realistic layout: the tool cloned INTO a project as .free-agents/, so
+# install-skills links into the project rather than the developer's home.
+PROJ="$(mktemp -d)"; trap 'rm -rf "$PROJ"' EXIT
+TOOL="$PROJ/.free-agents"
+mkdir -p "$TOOL"
+cp -r "$REPO/bin" "$REPO/skills" "$TOOL/"
+FA="$TOOL/bin/fa"
+
+# Fabricated credentials, so nothing depends on this machine being logged in.
+export OPENCODE_AUTH="$PROJ/oc.json" KILO_CONFIG="$PROJ/kilo.jsonc" \
+       KILO_DB="$PROJ/none.db" HERMES_AUTH="$PROJ/h.json" HERMES_ENV="$PROJ/h.env"
+SECRET="sk-or-v1-TESTSECRET000000000000"
+cat > "$OPENCODE_AUTH" <<EOF
+{"opencode":{"type":"api","key":"sk-oc-AAA111"},"openrouter":{"type":"api","key":"$SECRET"}}
+EOF
+cat > "$KILO_CONFIG" <<EOF
+{"provider":{"openai":{"options":{"apiKey":"sk-or-v1-OTHER222","baseURL":"https://openrouter.ai/api/v1"}}}}
+EOF
+echo '{"credential_pool":{}}' > "$HERMES_AUTH"; : > "$HERMES_ENV"
+unset FREE_AGENTS_STATE          # let it default to <clone>/state
+REG="$TOOL/state/buckets.json"
+
+# --- doctor BEFORE bootstrap: must refuse, not pretend ----------------------
+out="$(timeout 90 "$FA" doctor 2>&1)"; rc=$?
+assert_ne "doctor fails when there is no registry" "$rc" "0"
+assert_contains "doctor says the registry is missing" "$out" "MISSING"
+assert_contains "doctor tells you how to fix it" "$out" "discover"
+assert_contains "doctor does not claim readiness" "$out" "NOT READY"
+
+# --- bootstrap ---------------------------------------------------------------
+out="$(timeout 300 "$FA" bootstrap 2>&1)"; rc=$?
+assert_eq "bootstrap exits 0" "$rc" "0"
+assert_true "bootstrap wrote a registry inside the clone" '[[ -s "$REG" ]]'
+assert_json_valid "the registry is valid JSON" "$REG"
+assert_true "it found at least one bucket" '[[ $(jq -r ".buckets | length" "$REG") -ge 1 ]]'
+assert_contains "it reports a lane count" "$out" "healthy lane"
+
+# The registry must never contain a key, only fingerprints of one.
+assert_not_contains "no API key is stored" "$(cat "$REG")" "$SECRET"
+
+# Paid models must not be scheduled as free.
+assert_eq "a priced model is not counted free" \
+  "$(jq -r '[.buckets[].models[] | select(.free) | select(.upstream=="paid-a")] | length' "$REG")" "0"
+assert_true "free models were found" \
+  '[[ $(jq -r "[.buckets[].models[] | select(.free)] | length" "$REG") -ge 1 ]]'
+
+# --- skills land in the PROJECT, not the home directory ---------------------
+assert_true "skills are installed into the project" '[[ -e "$PROJ/.opencode/skills" ]]'
+assert_true "the coordinator skill is present" \
+  '[[ -e "$PROJ/.opencode/skills/agent-coordinator" ]]'
+
+# --- doctor AFTER bootstrap --------------------------------------------------
+out="$(timeout 90 "$FA" doctor 2>&1)"; rc=$?
+assert_eq "doctor passes once bootstrapped" "$rc" "0"
+assert_contains "doctor reports READY" "$out" "READY"
+assert_contains "doctor lists the dependencies it checked" "$out" "jq"
+assert_contains "doctor runs the taxonomy self-test" "$out" "self-test"
+assert_contains "doctor reports the lane count" "$out" "healthy lane"
+
+# --- doctor must warn when only ONE lane exists ------------------------------
+# With one lane, splitting work cannot help; saying so is the difference between
+# a useful check and a green tick.
+# Keep one bucket that actually counts as a lane: unmetered, uncooled, with at
+# least one free model. Picking the first key alphabetically can land on a
+# metered wallet, which is worth zero lanes and tests nothing.
+first="$(jq -r '[.buckets[] | select((.metered // false) == false)
+                 | select([.models[] | select(.free)] | length > 0)][0].id' "$REG")"
+assert_true "a usable bucket exists to trim down to" '[[ -n "$first" && "$first" != "null" ]]'
+jq --arg k "$first" '{schema:1, buckets: {($k): .buckets[$k]}, phantom_routes: [], counts:{}}' \
+   "$REG" > "$REG.one" && mv "$REG.one" "$REG"
+assert_eq "the trimmed registry has exactly one lane" \
+          "$(FREE_AGENTS_STATE="$TOOL/state" "$TOOL/bin/buckets.sh" lanes)" "1"
+out="$(timeout 90 "$FA" doctor 2>&1)"
+assert_contains "doctor warns that one lane cannot parallelise" "$out" "only ONE lane"
+
+# --- bootstrap is idempotent -------------------------------------------------
+out="$(timeout 300 "$FA" bootstrap 2>&1)"; rc=$?
+assert_eq "bootstrap can be re-run safely" "$rc" "0"
+assert_json_valid "the registry survives a second bootstrap" "$REG"
+
+end_suite
+final_report

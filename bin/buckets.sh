@@ -539,9 +539,10 @@ cmd_lanes() {
           | select((.cooldown_until // 0) <= ($now|tonumber))] | length) as $usable
       | (($b.health.cooldown_until // 0) <= ($now|tonumber)
          and $b.health.state != "no_credits" and $b.health.state != "auth_error"
+         and ($metered == "1" or ($b.metered // false) == false)
          and $usable > 0) as $live
-      | "  \(if $live then "LANE   " else "unusable" end) \($b.id)  \($b.preferred_agent)  \($usable) free  health=\($b.health.state)"' \
-      --arg now "$now"
+      | "  \(if $live then "LANE    " elif ($b.metered // false) then "metered " else "unusable" end) \($b.id)  \($b.preferred_agent)  \($usable) free  health=\($b.health.state)"' \
+      --arg now "$now" --arg metered "${FA_ALLOW_METERED:-0}"
   else
     printf '%s\n' "$n"
   fi

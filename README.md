@@ -123,6 +123,39 @@ export FREE_AGENTS_STATE="$HOME/.local/state/free-agents"
 
 Where each agent keeps its keys, and how to add more: `docs/SETUP.md`.
 
+## Handoffs between tasks
+
+Workers are isolated: a task sees its own spec and nothing else. That is what makes
+weak models succeed, but it means a task cannot learn what the task it *depends on*
+decided — only what file that task left behind.
+
+So a task that has dependents is asked to end with one line:
+
+```
+---HANDOFF--- ids are uuid4 strings; the store is notes.json
+```
+
+That line, and only that line, is given to the tasks that named it in `deps`. Nothing
+else changes: no extra model call, no lane spent, no summariser. A worker that writes
+nothing degrades to the previous behaviour, and a task nothing depends on is never
+asked — the request is a line in every prompt, so it is not free.
+
+Bounded by `HANDOFF_MAX_CHARS` (320). Stored in `.orch/handoffs/`, gitignored.
+
+## Prompt size
+
+Every dispatch estimates its prompt size and reports it in `RUN-META` as
+`est_prompt_tokens`. Above `BLOAT_WARN_TOKENS` (8000) it says so:
+
+```
+[run] prompt is large: ~10035 tokens (warn above 8000).
+[run]   a spec this size usually means a file listing leaked into it
+```
+
+Oversized prompts are the usual upstream cause of `context_overflow` and of
+free-model calls that are slow or wrong for no visible reason. One call in this
+project's own history sent ~31,875 input tokens unnoticed.
+
 ## Model ranking (learned, per category)
 
 There is no static "best model" list — free models change too often for one to

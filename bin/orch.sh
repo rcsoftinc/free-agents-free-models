@@ -41,6 +41,7 @@ ORCH_DIR="${PROJECT}/.orch"
 JOURNAL="${ORCH_DIR}/journal.ndjson"
 JOURNAL_LOCK="${ORCH_DIR}/.journal.lock"
 RESULTS="${ORCH_DIR}/results"
+HANDOFFS="${ORCH_DIR}/handoffs"
 TASKS_FILE="${ORCH_DIR}/tasks.json"
 
 MAX_PARALLEL=""
@@ -111,6 +112,59 @@ task_ids()   { jq -r '.tasks[].id' "$TASKS_FILE"; }
 task_files() { jq -r --arg id "$1" '.tasks[] | select(.id==$id) | (.files // [])[]' "$TASKS_FILE"; }
 task_deps()  { jq -r --arg id "$1" '.tasks[] | select(.id==$id) | (.deps  // [])[]' "$TASKS_FILE"; }
 
+# ---------------------------------------------------------------- handoffs --
+# A worker is isolated by design: it sees its own spec and nothing else. That is
+# what makes weak models succeed, but it means a task cannot learn what the task
+# it DEPENDS ON decided - only what file that task left behind. An interface
+# choice, a version pin, a rejected approach: all invisible.
+#
+# The cheap fix, and the whole of it: a task that has dependents is asked to end
+# its output with one marked line. That line - and only that line - is given to
+# the tasks that declared it as a dependency.
+#
+# Deliberately NOT a summariser: no extra model call, no lane spent, and no
+# second-hand account of work by an agent whose self-report we already decided
+# not to trust. If a worker writes nothing, everything degrades to the old
+# behaviour.
+HANDOFF_MARK="---HANDOFF---"
+HANDOFF_MAX_CHARS="${HANDOFF_MAX_CHARS:-320}"
+
+# Tasks that declare $1 as a dependency.
+dependents_of() { # $1=task id
+  jq -r --arg id "$1" '.tasks[] | select((.deps // []) | index($id)) | .id' "$TASKS_FILE"
+}
+
+# Pull the marked line out of a finished task's output and store it.
+capture_handoff() { # $1=task id
+  local id="$1" out="${RESULTS}/${id}.out" line
+  [[ -f "$out" ]] || return 0
+  line="$(grep -a "^${HANDOFF_MARK}" "$out" 2>/dev/null | tail -1 || true)"
+  line="${line#"$HANDOFF_MARK"}"
+  line="$(printf '%s' "$line" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+  [[ -z "$line" ]] && return 0
+  mkdir -p "$HANDOFFS"
+  printf '%.'"$HANDOFF_MAX_CHARS"'s' "$line" > "${HANDOFFS}/${id}.txt"
+  journal handoff "$id" "chars=${#line}"
+}
+
+# Build what a worker actually receives: its dependencies' handoffs, then its own
+# spec, then (only if something depends on it) the request for a handoff back.
+build_prompt() { # $1=task id
+  local id="$1" d ctx="" note h
+  while IFS= read -r d; do
+    [[ -z "$d" ]] && continue
+    h="$(cat "${HANDOFFS}/${d}.txt" 2>/dev/null || true)"
+    [[ -n "$h" ]] && ctx+="- ${d}: ${h}"$'\n'
+  done < <(task_deps "$id")
+  [[ -n "$ctx" ]] && ctx="Context from the tasks you depend on (already finished):"$'\n'"${ctx}"$'\n'
+
+  if [[ -n "$(dependents_of "$id")" ]]; then
+    note=$'\n\n'"Other tasks depend on this one. End your reply with a single line:"$'\n'
+    note+="${HANDOFF_MARK} <one sentence: decisions, names or constraints the next task must match>"
+  fi
+  printf '%s%s%s' "$ctx" "$(task_field "$id" prompt)" "${note:-}"
+}
+
 # Two tasks that touch the same file must not run at once, however many lanes are
 # free. The coordinator contract promises disjoint boundaries; this enforces it
 # rather than trusting it.
@@ -141,7 +195,7 @@ deps_met() { # $1=task
 # --------------------------------------------------------------- execution --
 run_task() { # $1=task id ; runs in a subshell as a background job
   local id="$1" prompt category out rc=0 meta
-  prompt="$(task_field "$id" prompt)"
+  prompt="$(build_prompt "$id")"
   category="$(task_field "$id" category)"; category="${category:-general}"
   out="${RESULTS}/${id}.out"; mkdir -p "$RESULTS"
 
@@ -168,6 +222,8 @@ run_task() { # $1=task id ; runs in a subshell as a background job
       return 1
     fi
   fi
+
+  [[ $rc -eq 0 ]] && capture_handoff "$id"
 
   case $rc in
     0) journal done "$id" \
@@ -320,6 +376,7 @@ write_orch_gitignore() {
 # Everything else here is a record of one machine's run.
 journal.ndjson
 results/
+handoffs/
 *.lock
 EOF
 }

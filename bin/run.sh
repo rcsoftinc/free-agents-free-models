@@ -71,6 +71,17 @@ workdir_preamble() {
   printf 'Your working directory is %s\nCreate and edit files only inside it, using paths relative to it. Do not use absolute paths.\n\n' "$1"
 }
 
+# A rough token estimate from character count. Deliberately crude: every runtime
+# tokenises differently and most will not tell us in advance, so an approximation
+# that is always available beats an exact figure that is usually missing.
+# ~4 chars/token is the standard rule of thumb for English + code.
+est_tokens() { local n=${#1}; printf '%s' "$(( (n + 3) / 4 ))"; }
+
+# Oversized prompts are the usual upstream cause of context_overflow and of
+# free-model calls that are mysteriously slow or wrong. One observed call in this
+# project's own history sent ~31,875 input tokens without anyone noticing.
+BLOAT_WARN_TOKENS="${BLOAT_WARN_TOKENS:-8000}"
+
 have jq    || die "jq is required"
 have flock || die "flock is required"
 [[ $DRY_RUN -eq 1 || -n "$PROMPT" ]] || die "no prompt given"
@@ -296,9 +307,15 @@ for row in "${CHAIN[@]}"; do
   lease_acquire "$bucket" || { log "lane busy: $bucket"; SKIP[$bucket]=busy; continue; }
 
   attempt=$((attempt+1))
+  full_prompt="$(workdir_preamble "$WORKDIR")$PROMPT"
+  est="$(est_tokens "$full_prompt")"
+  if [[ $attempt -eq 1 && "$est" -gt "$BLOAT_WARN_TOKENS" ]]; then
+    log "prompt is large: ~${est} tokens (warn above ${BLOAT_WARN_TOKENS})."
+    log "  a spec this size usually means a file listing leaked into it; workers"
+    log "  are meant to receive a self-contained instruction, not context."
+  fi
   t0=$(date +%s%3N); rc=0
-  out="$(invoke "$agent" "$model" "$provider" \
-          "$(workdir_preamble "$WORKDIR")$PROMPT")" || rc=$?
+  out="$(invoke "$agent" "$model" "$provider" "$full_prompt")" || rc=$?
   t1=$(date +%s%3N); ms=$((t1-t0))
   state="$(classify "$rc" "$out")"
 
@@ -319,7 +336,9 @@ for row in "${CHAIN[@]}"; do
     printf '%s %s\n' '---RUN-META---' \
       "$(jq -cn --arg b "$bucket" --arg m "$model" --arg a "$agent" \
               --arg p "$provider" --argjson n "$attempt" --argjson ms "$ms" \
-              '{bucket:$b, model:$m, agent:$a, provider:$p, attempts:$n, ms:$ms, state:"ok"}')" >&2
+              --argjson est "${est:-0}" \
+              '{bucket:$b, model:$m, agent:$a, provider:$p, attempts:$n, ms:$ms,
+                est_prompt_tokens:$est, state:"ok"}')" >&2
     exit 0
   fi
 

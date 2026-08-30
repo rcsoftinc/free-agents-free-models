@@ -81,6 +81,21 @@ if [[ -n "${GOOD_MODEL:-}" && "$MODEL_ID" == "$GOOD_MODEL" ]]; then
   MODE="success"
 fi
 
+# If the prompt asks for a handoff line, emit one - and echo any context it was
+# given, so a test can prove the injection actually reached the worker.
+if printf '%s' "$*" | grep -q -- '---HANDOFF---'; then
+  if printf '%s' "$*" | grep -q 'Context from the tasks you depend on'; then
+    printf 'SAW_CONTEXT\n'
+  fi
+  printf 'did the work\n'
+  printf -- '---HANDOFF--- decided: ids are uuid4 strings, store is notes.json\n'
+  exit 0
+fi
+if printf '%s' "$*" | grep -q 'Context from the tasks you depend on'; then
+  printf 'SAW_CONTEXT\ndid the work\n'
+  exit 0
+fi
+
 case "$MODE" in
   ratelimit)
     # Exact OpenRouter credit/in-flight message; exits 0 (the bug we reproduce)

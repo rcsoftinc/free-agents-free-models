@@ -10,12 +10,19 @@
 `github.com/noonelifecoach/free-agents-free-models`. Full suite green:
 **185 assertions, 14 suites, ~95s, offline.**
 
-**It has built real software unattended.** On 2026-08-30 it produced a
-markdown-to-static-site generator from one sentence: 6 tasks across 4 wallets,
-7m38s, 0 failures, 419 lines of Python, 29 passing tests, independently verified
-against what the code does rather than what the agents reported. Output:
-`github.com/noonelifecoach/mdsite` (private). Full record with caveats:
-**`docs/dev/RUN-2026-08-30-mdsite.md`**.
+**It has built real software unattended, twice.** Both on 2026-08-30, both
+independently verified against what the code does rather than what the agents
+reported:
+
+| Project | Shape | Tasks | Peak lanes | Time | Result |
+|---|---|---|---|---|---|
+| [mdsite](https://github.com/noonelifecoach/mdsite) | chain | 6 | 3 | 7m38s | 419 lines, 29 tests |
+| [fmtkit](https://github.com/noonelifecoach/fmtkit) | wide | 8 | **5** | 5m09s | 503 lines, 8 modules |
+
+Records: **`docs/dev/RUN-2026-08-30-mdsite.md`** and **`RUN-2026-08-30-fmtkit.md`**.
+The two together matter more than either: mdsite showed the dependency GRAPH
+limiting throughput, fmtkit showed the LANE COUNT limiting it — the healthier
+constraint, since it means another credential directly buys speed.
 
 Design and full findings: **`docs/dev/ALIGNMENT.md`** (the source of truth).
 `docs/dev/ANALYSIS.md` is historical. User-facing docs: `README.md`, `docs/SETUP.md`.
@@ -131,8 +138,10 @@ Metered wallets need `FA_ALLOW_METERED=1`. They cannot bill you
 Nothing is outstanding and the tool has been proven on a real project. Options,
 roughly in order of value:
 
-1. **Run a wider graph.** mdsite was chain-shaped, so lanes idled. A project with
-   5-6 genuinely independent tasks would test the scheduler where this one did not.
+1. **A real project that actually FAILS.** Two clean runs mean every incident this
+   system handles has been seen only in the test suite or in early development.
+   The recovery paths are mutation-tested, but no real build has yet hit a rate
+   limit mid-flight. Running when lanes are already cold would close that gap.
 2. **Token accounting, scoped.** Assessed in `docs/dev/TOKENS-AND-HANDOFFS.md` and
    deliberately not built: worth it only for the two lanes that publish a budget
    (`nous` tph, `copilot` credits), where it turns the reactive breaker into a

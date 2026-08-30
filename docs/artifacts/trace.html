@@ -1,0 +1,613 @@
+<title>One Run, End to End</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Source+Sans+3:wght@400;600&display=swap">
+<style>
+:root{
+  --paper:#eceef0; --card:#f7f8f9; --sunk:#e2e5e8; --term:#1b232c; --termink:#dfe6ed;
+  --ink:#141b22; --dim:#5a6673; --faint:#8a95a1;
+  --line:#c3cad2; --rule:#d5dbe1;
+  --go:#256b4e; --wallet:#a4661f; --model:#3d5f92; --void:#78838f; --edge:#2c3947;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --paper:#11161b; --card:#171e25; --sunk:#0d1217; --term:#0b1015; --termink:#cfd8e2;
+  --ink:#e4e9ee; --dim:#98a4b1; --faint:#68737f;
+  --line:#2f3a45; --rule:#242e38;
+  --go:#5fb98f; --wallet:#d9a05a; --model:#7ea3d8; --void:#7d8894; --edge:#8b98a6;
+}}
+:root[data-theme="dark"]{
+  --paper:#11161b; --card:#171e25; --sunk:#0d1217; --term:#0b1015; --termink:#cfd8e2;
+  --ink:#e4e9ee; --dim:#98a4b1; --faint:#68737f;
+  --line:#2f3a45; --rule:#242e38;
+  --go:#5fb98f; --wallet:#d9a05a; --model:#7ea3d8; --void:#7d8894; --edge:#8b98a6;
+}
+*{box-sizing:border-box}
+body{margin:0; background:var(--paper); color:var(--ink);
+  font-family:"Source Sans 3",system-ui,sans-serif; font-size:16px; line-height:1.55;
+  -webkit-font-smoothing:antialiased}
+.wrap{max-width:1080px; margin:0 auto; padding:56px 28px 96px}
+h1,h2,h3{font-family:Archivo,system-ui,sans-serif; text-wrap:balance; margin:0}
+h1{font-size:clamp(28px,4.4vw,42px); font-weight:700; letter-spacing:-.02em; line-height:1.1}
+h2{font-size:22px; font-weight:600; letter-spacing:-.01em}
+h3{font-size:13px; font-weight:600; letter-spacing:.07em; text-transform:uppercase; color:var(--dim)}
+p{margin:0}
+code,.m{font-family:"IBM Plex Mono",ui-monospace,monospace; font-size:.86em}
+code{background:var(--sunk); padding:.1em .34em; border-radius:3px}
+header{border-bottom:1px solid var(--rule); padding-bottom:26px}
+.eyebrow{font-family:"IBM Plex Mono",monospace; font-size:12px; letter-spacing:.14em;
+  text-transform:uppercase; color:var(--faint); margin-bottom:14px}
+.lede{margin-top:14px; font-size:18px; color:var(--dim); max-width:66ch}
+.warn{margin-top:20px; padding:13px 17px; border-left:3px solid var(--wallet);
+  background:var(--card); font-size:15px; max-width:72ch}
+section{display:grid; grid-template-columns:52px 1fr; gap:0 20px;
+  padding:38px 0; border-bottom:1px solid var(--rule)}
+.num{font-family:"IBM Plex Mono",monospace; font-size:12px; font-weight:600;
+  color:var(--faint); padding-top:5px; letter-spacing:.05em}
+.body{display:flex; flex-direction:column; gap:15px; min-width:0}
+.claim{font-size:17px; max-width:68ch}
+.note{font-size:14.5px; color:var(--dim); max-width:72ch}
+pre{margin:0; background:var(--term); color:var(--termink); border-radius:5px;
+  padding:15px 17px; overflow-x:auto; font-family:"IBM Plex Mono",monospace;
+  font-size:12.5px; line-height:1.65}
+pre .c{color:#7f8c9b} pre .g{color:#6cc39a} pre .a{color:#dda45f} pre .b{color:#89aede}
+table{border-collapse:collapse; width:100%; font-size:13.5px}
+th{text-align:left; font-family:"IBM Plex Mono",monospace; font-size:10.5px; letter-spacing:.09em;
+  text-transform:uppercase; color:var(--faint); font-weight:500;
+  padding:0 12px 7px 0; border-bottom:1px solid var(--rule); white-space:nowrap}
+td{padding:8px 12px 8px 0; border-bottom:1px solid var(--rule); vertical-align:top}
+td:first-child,.mono td:nth-child(2){font-family:"IBM Plex Mono",monospace; font-size:12.5px}
+tbody tr:last-child td{border-bottom:none}
+.tnum{font-variant-numeric:tabular-nums}
+.scroll{overflow-x:auto; padding-bottom:4px}
+svg{max-width:100%; height:auto; display:block}
+figure{margin:0; display:flex; flex-direction:column; gap:10px}
+figcaption{font-size:13.5px; color:var(--dim); max-width:74ch}
+.sv-label{font-family:"IBM Plex Mono",monospace; font-size:11px; font-weight:500}
+.sv-tag{font-family:"IBM Plex Mono",monospace; font-size:9.5px; letter-spacing:.04em}
+.kv{display:grid; grid-template-columns:auto 1fr; gap:5px 14px; font-size:14px}
+.kv .m{color:var(--dim)}
+.grid2{display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px}
+.panel{background:var(--card); border:1px solid var(--rule); border-radius:5px;
+  padding:15px 17px; display:flex; flex-direction:column; gap:8px}
+.panel.flag{border-color:var(--wallet)}
+.chip{display:inline-block; font-family:"IBM Plex Mono",monospace; font-size:10.5px;
+  padding:2px 7px; border-radius:3px; border:1px solid currentColor; white-space:nowrap}
+.c-go{color:var(--go)} .c-wallet{color:var(--wallet)} .c-model{color:var(--model)} .c-void{color:var(--void)}
+ul{margin:0; padding-left:17px; display:flex; flex-direction:column; gap:5px; font-size:14.5px}
+li::marker{color:var(--faint)}
+footer{padding-top:32px; color:var(--faint); font-size:13.5px}
+@media (max-width:620px){section{grid-template-columns:1fr; gap:11px} .num{padding-top:0}}
+</style>
+<svg width="0" height="0" aria-hidden="true" style="position:absolute"><defs>
+<marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto">
+<path d="M0 1 L7 4 L0 7 z" fill="var(--edge)"/></marker></defs></svg>
+
+<div class="wrap">
+<header>
+  <div class="eyebrow">worked example · this server · updated 2026-08-30</div>
+  <h1>One run, end to end</h1>
+  <p class="lede">An <strong>actual run</strong>, recorded on 2026-08-30: a markdown-to-static-site
+  generator built by free models across four wallets in 7 minutes 38 seconds, then independently
+  verified. Every number below is from the journal, not an illustration. Two later runs — one wide,
+  one deliberately starved — are compared at the end.</p>
+  <p class="warn"><strong>Read this for the mismatches.</strong> Two things below are probably not
+  what you are picturing: no <span class="m">.md</span> files are written for the workers, and the
+  coordinator does <em>not</em> assign agents to tasks. Each is called out where it happens.
+  <br><br><strong>This page used to be a composite.</strong> It is now a real run — 6 tasks, 0 failures,
+  419 lines of working Python. The failure catalogue in section 05 remains drawn from the test suite,
+  because <em>no</em> real run has yet hit a provider failure mid-build — see section 07.</p>
+</header>
+
+<section>
+  <div class="num">00</div>
+  <div class="body">
+    <h2>Setup</h2>
+<pre><span class="c"># nothing exists yet</span>
+mkdir mdsite &amp;&amp; cd mdsite &amp;&amp; git init -q
+
+<span class="c"># the tool goes INSIDE the project, as one hidden folder</span>
+gh repo clone noonelifecoach/free-agents-free-models .free-agents
+.free-agents/setup.sh
+
+<span class="b">[fa]</span> project: /root/mdsite
+<span class="b">[fa]</span> tool:    /root/mdsite/.free-agents
+<span class="b">[fa]</span> added .free-agents/ to your .gitignore
+<span class="b">[fa]</span> no registry yet - run once: .free-agents/bin/fa bootstrap</pre>
+    <p class="note">Total footprint: <span class="m">.free-agents/</span> (316 KB) and an empty
+    <span class="m">.orch/</span>. No keys were requested. Nothing hit the network.</p>
+  </div>
+</section>
+
+<section>
+  <div class="num">01</div>
+  <div class="body">
+    <h2>Bootstrap — what is actually discovered</h2>
+<pre>.free-agents/bin/fa bootstrap
+
+<span class="b">[buckets]</span> identities: 8, model rows: 418
+<span class="b">[buckets]</span> kilo:anon                  kilo     kilo/cohere/north-mini-code:free      ok    7.8s
+<span class="b">[buckets]</span> openrouter.ai:845a3f96     kilo     openai/cohere/north-mini-code:free    ok    6.6s
+<span class="b">[buckets]</span> kilocode:fac9bae9          hermes   kilo-auto/free                        ok    7.9s
+<span class="b">[buckets]</span> nous:6b7db10d              hermes   meituan/longcat-2.0:free              ok    7.0s
+<span class="b">[buckets]</span> opencode:14a1a2f8          opencode opencode/nemotron-3-ultra-free        ok   19.2s
+<span class="a">[fa]</span> 5 healthy lane(s).
+
+.free-agents/bin/fa lanes -v
+<span class="b">LANE</span>  kilo:anon              kilo      <span class="g">22 usable</span> <span class="a">(2 context_too_small filtered)</span>
+<span class="b">LANE</span>  openrouter.ai:845a3f96 kilo      <span class="g">16 usable</span> <span class="a">(2 context_too_small · 2 non_text_output · 1 not_a_generalist)</span>
+<span class="b">LANE</span>  kilocode:fac9bae9      hermes    <span class="g">17 usable</span> <span class="a">(2 context_too_small · 1 not_a_generalist)</span>
+<span class="b">LANE</span>  nous:6b7db10d          hermes    <span class="g">7 usable</span>
+<span class="b">LANE</span>  opencode:14a1a2f8      opencode  <span class="g">3 usable</span></pre>
+    <div class="scroll">
+    <table class="mono">
+      <thead><tr><th>Lane (wallet)</th><th>Reached via</th><th class="tnum">Usable</th><th>Example models it will actually use</th></tr></thead>
+      <tbody>
+        <tr><td>kilo:anon</td><td>kilo</td><td class="tnum">22</td><td>cohere/north-mini-code:free · minimax/minimax-m3:free</td></tr>
+        <tr><td>openrouter.ai:845a3f96</td><td>kilo</td><td class="tnum">16</td><td>openai/cohere/north-mini-code:free · google/gemma-4-31b-it:free</td></tr>
+        <tr><td>kilocode:fac9bae9</td><td>hermes</td><td class="tnum">17</td><td>kilo-auto/free · nvidia/nemotron-3-ultra-550b-a55b:free</td></tr>
+        <tr><td>nous:6b7db10d</td><td>hermes</td><td class="tnum">7</td><td>meituan/longcat-2.0:free · stepfun/step-3.7-flash:free</td></tr>
+        <tr><td>opencode:14a1a2f8</td><td>opencode</td><td class="tnum">3</td><td>nemotron-3-ultra-free · ling-3.0-flash-fin-free</td></tr>
+        <tr><td>copilot / cursor</td><td>copilot · cursor</td><td class="tnum">1 ea.</td><td><span class="chip c-void">metered — excluded</span> 193/200 credits, renews Sep 1</td></tr>
+        <tr><td>freemodel:40d72418</td><td>opencode</td><td class="tnum">0</td><td><span class="chip c-void">all priced</span> Claude Opus, GPT-5.x — never scheduled</td></tr>
+        <tr><td><em>excluded everywhere</em></td><td>—</td><td class="tnum">10</td><td><span class="chip c-void">unsuitable</span> <span class="m">lyria-3-*</span> generate music · <span class="m">lfm-2.5-2.6b</span> 65K · <span class="m">content-safety</span> is a classifier</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="note">Note two agents appear twice. <span class="m">kilo</span> reaches two different
+    wallets and <span class="m">hermes</span> reaches two — those are four independent lanes, because
+    lanes are credentials. The registry is one file: <span class="m">.free-agents/state/buckets.json</span>.</p>
+  </div>
+</section>
+
+<section>
+  <div class="num">01b</div>
+  <div class="body">
+    <div style="display:flex;align-items:baseline;flex-wrap:wrap;gap:0"><h2>What discovery refuses to schedule</h2><span class="chip c-go" style="margin-left:10px">new</span></div>
+    <p class="claim">Before quality is even a question, a model has to be able to do the job.
+    Ten of the 77 free models on this machine cannot, and every one of them was previously
+    drawable.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>Excluded</th><th class="tnum">Context</th><th>Why it would have failed</th><th>Caught by</th></tr></thead>
+      <tbody>
+        <tr><td>google/lyria-3-pro-preview</td><td class="tnum">1,048,576</td>
+            <td>generates <strong>music</strong> — output modality <span class="m">["text","audio"]</span></td>
+            <td><span class="chip c-void">non_text_output</span></td></tr>
+        <tr><td>google/lyria-3-clip-preview</td><td class="tnum">1,048,576</td>
+            <td>same family</td><td><span class="chip c-void">non_text_output</span></td></tr>
+        <tr><td>nemotron-3.5-content-safety</td><td class="tnum">128,000</td>
+            <td>a classifier — it scores text, it does not write it</td>
+            <td><span class="chip c-void">not_a_generalist</span></td></tr>
+        <tr><td>liquid/lfm-2.5-2.6b</td><td class="tnum">65,536</td>
+            <td>2.6B parameters and too little context for a real task</td>
+            <td><span class="chip c-void">context_too_small</span></td></tr>
+        <tr><td>minimax/minimax-m2.7</td><td class="tnum">196,608</td>
+            <td>capable, but under the 200K floor — arguably collateral</td>
+            <td><span class="chip c-void">context_too_small</span></td></tr>
+      </tbody>
+    </table>
+    </div>
+    <div class="grid2">
+      <div class="panel flag">
+        <h3>Why a context floor alone is not enough</h3>
+        <p class="note">The two music models carry a <strong>1,048,576-token context</strong> — larger
+        than anything else on the machine. Every context floor in the world would have waved them
+        through. Only the declared output modality gives them away, and the
+        <span class="m">models --verbose</span> listings do not publish it, so the family name is
+        matched as a fallback.</p>
+      </div>
+      <div class="panel">
+        <h3>What it saves</h3>
+        <p class="note">Nothing is deleted and no network call is made — the reason is recorded and
+        shown per lane. The saving is in requests: each of these was drawable at score zero, and
+        every draw spends a full lane request that was never going to succeed. That is the resource
+        that is actually scarce.</p>
+        <p class="note">Metadata is pooled per model across lanes, because context belongs to the
+        model, not to whichever wallet happens to list it.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="num">02</div>
+  <div class="body">
+    <h2>Coordinator — and the first mismatch</h2>
+    <p class="claim">You start any agent and paste one file. There is no second prompt, no mode
+    selection, and no roster to activate.</p>
+<pre>opencode                      <span class="c"># or kilo / hermes / cursor / copilot</span>
+&gt; <span class="c">paste .free-agents/prompts/coordinator.md</span>
+&gt; a markdown-to-static-site generator: parser, template engine, cli, tests</pre>
+    <div class="grid2">
+      <div class="panel">
+        <h3>What the coordinator does next</h3>
+        <ul>
+          <li>Recognises this as a build that may split — the only route that uses lanes</li>
+          <li>Runs <span class="m">fa lanes</span> → <strong>5</strong></li>
+          <li>Names 6 tasks and checks their file sets are disjoint</li>
+          <li>Writes the sample content file itself — dispatching that would cost more than doing it</li>
+          <li>Both gate conditions hold → orchestrate</li>
+        </ul>
+      </div>
+      <div class="panel flag">
+        <h3>Mismatch 1 — no .md files are written</h3>
+        <p class="note">The only <span class="m">.md</span> in the flow is
+        <span class="m">coordinator.md</span>, which ships with the tool. The plan is a single JSON
+        file, <span class="m">.orch/tasks.json</span>. No per-task briefs, no role documents, no
+        roster file. If you pictured a folder of generated markdown, that does not exist.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="num">03</div>
+  <div class="body">
+    <h2>The plan — one file, six specs</h2>
+    <p class="claim">Either the coordinator writes this itself, or it calls
+    <span class="m">fa plan "goal"</span> and a free model drafts it. Both produce the same artifact.</p>
+<pre><span class="c">.orch/tasks.json — the real one, 6 tasks</span>
+{"tasks":[
+ {"id":"parser",   "deps":[],                     "files":["parser.py"],
+  "prompt":"...REQUIRED public API, exactly these names:
+            parse(text) -> tuple[dict, str]   # front matter + body
+            to_html(markdown) -> str          # h1-h3, bold, italic, code,
+                                              # links, lists, paragraphs
+            Other tasks import these, so the names are fixed."},
+ {"id":"template", "deps":[],                     "files":["template.py"],   "prompt":"..."},
+ {"id":"build",    "deps":["parser","template"],  "files":["build.py"],      "prompt":"..."},
+ {"id":"cli",      "deps":["build"],              "files":["cli.py"],        "prompt":"..."},
+ {"id":"test_parser",   "deps":["parser"],        "files":["test_parser.py"],   "prompt":"..."},
+ {"id":"test_template", "deps":["template"],      "files":["test_template.py"], "prompt":"..."}
+]}
+
+<span class="c">gate: 6 tasks · file sets disjoint: true · lanes: 5  -> orchestrate</span></pre>
+    <div class="grid2">
+      <div class="panel flag">
+        <h3>Mismatch 2 — the coordinator does not pick agents</h3>
+        <p class="note">Nothing in a task names an agent or a model. The coordinator says
+        <em>what</em>; the engine decides <em>where</em>, per attempt, by ranking wallets and models.
+        A task can start on hermes and finish on kilo. If you pictured assigning "researcher →
+        agent&nbsp;A", that layer does not exist — it was deliberately removed, because assignment
+        cannot see live wallet health and ranking can.</p>
+      </div>
+      <div class="panel">
+        <h3>What each worker actually receives <span class="chip c-go">updated</span></h3>
+        <p class="note">For a task with no dependencies, two things:</p>
+<pre style="font-size:11.5px">Your working directory is /root/mdsite
+Create and edit files only inside it, using
+paths relative to it. Do not use absolute paths.
+
+Create parser.py: a minimal Markdown-to-HTML
+converter with YAML-ish front matter…</pre>
+        <p class="note">For a task that <em>has</em> dependencies, its dependencies' handoffs are
+        prepended, and — if anything depends on it in turn — a request for one is appended. Still no
+        repo listing, no conversation, no transcript.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="num">03b</div>
+  <div class="body">
+    <div style="display:flex;align-items:baseline;flex-wrap:wrap;gap:0"><h2>Handoffs — and the thing they caught</h2><span class="chip c-go" style="margin-left:10px">proven</span></div>
+    <p class="claim">This is the clearest evidence the feature does what it was built for, and it was
+    not planted. <span class="m">template</span> implemented something the spec never asked for, said
+    so in its handoff, and <span class="m">build</span> matched it.</p>
+<pre><span class="c"># what my spec asked for</span>
+render(template, context) -&gt; str
+    Replaces {{ key }} with str(context['key']).
+
+<span class="c"># what template.py handed back, unprompted</span>
+<span class="g">---HANDOFF---</span> template.py exposes `render(template, context)` and
+`render_file(path, context)` with `{{ key }}` <span class="a">(including dotted `{{ user.name }}`)</span>
+substitution and `{% for item in items %}...{% endfor %}` block iteration,
+missing keys render empty.
+
+<span class="c"># what build.py then wrote, having received that line</span>
+<span class="b">42:</span>        for part in key.split("."):
+<span class="b">46:</span>            if ctx == "" and part != key.split(".")[-1]:</pre>
+    <div class="grid2">
+      <div class="panel">
+        <h3>Why this could not have happened before</h3>
+        <p class="note">Dotted paths are not in the spec and are not visible from
+        <span class="m">build.py</span>'s side without reading another file — which a worker cannot do,
+        because it receives a string, not a repository. Before handoffs,
+        <span class="m">build</span> would have implemented flat keys only and quietly lost the
+        capability.</p>
+      </div>
+      <div class="panel">
+        <h3>All three handoffs from this run</h3>
+        <p class="note"><span class="m">parser</span> → "parse(text)->(dict,str) and to_html(str)->str;
+        next task can import both directly"</p>
+        <p class="note"><span class="m">template</span> → the line above</p>
+        <p class="note"><span class="m">build</span> → "build_site(content_dir, out_dir,
+        template_path=None) and DEFAULT_TEMPLATE; it scans .md files…" — which is what
+        <span class="m">cli</span> then imported.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="num">04</div>
+  <div class="body">
+    <h2>The run — 6 tasks, 4 wallets, 7m38s</h2>
+    <p class="claim">Recorded from the journal. Width was never 6: only two tasks had no
+    dependencies, so the graph — not the lane count — set the pace.</p>
+    <figure>
+      <div class="scroll">
+      <svg viewBox="0 0 1000 300" role="img" aria-label="Real timeline of six tasks across four wallets over 458 seconds, showing dependency gating rather than lane contention">
+        <g class="sv-tag" fill="var(--faint)">
+          <text x="0" y="10">TASK</text>
+          <text x="196" y="10">0s</text><text x="356" y="10">120s</text><text x="516" y="10">240s</text>
+          <text x="676" y="10">360s</text><text x="836" y="10">480s</text>
+        </g>
+        <g stroke="var(--rule)" stroke-width="1">
+          <line x1="196" y1="18" x2="196" y2="262"/><line x1="356" y1="18" x2="356" y2="262"/>
+          <line x1="516" y1="18" x2="516" y2="262"/><line x1="676" y1="18" x2="676" y2="262"/>
+          <line x1="836" y1="18" x2="836" y2="262"/>
+        </g>
+        <g class="sv-label" fill="var(--ink)">
+          <text x="0" y="42">parser</text>       <text x="0" y="56" class="sv-tag" fill="var(--faint)">kilocode</text>
+          <text x="0" y="82">template</text>     <text x="0" y="96" class="sv-tag" fill="var(--faint)">kilocode</text>
+          <text x="0" y="122">test_template</text><text x="0" y="136" class="sv-tag" fill="var(--faint)">openrouter</text>
+          <text x="0" y="162">test_parser</text> <text x="0" y="176" class="sv-tag" fill="var(--faint)">nous</text>
+          <text x="0" y="202">build</text>       <text x="0" y="216" class="sv-tag" fill="var(--faint)">kilo</text>
+          <text x="0" y="242">cli</text>         <text x="0" y="256" class="sv-tag" fill="var(--faint)">openrouter</text>
+        </g>
+        <g fill="var(--card)" stroke="var(--go)">
+          <rect x="196" y="28" width="392" height="22" rx="3"/>
+          <rect x="197" y="68" width="106" height="22" rx="3"/>
+          <rect x="305" y="108" width="36" height="22" rx="3"/>
+          <rect x="589" y="148" width="20" height="22" rx="3"/>
+          <rect x="589" y="188" width="64" height="22" rx="3"/>
+          <rect x="655" y="228" width="152" height="22" rx="3"/>
+        </g>
+        <g class="sv-tag" fill="var(--ink)">
+          <text x="204" y="43">294s · dots-3-note-preview</text>
+          <text x="205" y="83">79s · dots-3</text>
+          <text x="345" y="123">27s</text>
+          <text x="613" y="163">15s</text>
+          <text x="657" y="203">48s · ling-3.0</text>
+          <text x="663" y="243">114s · minimax-m3</text>
+        </g>
+        <path d="M588 39 L 588 186" fill="none" stroke="var(--edge)" stroke-width="1.1" stroke-dasharray="4 3"/>
+        <text x="596" y="52" class="sv-tag" fill="var(--dim)">build waited on parser — the slow one</text>
+        <path d="M653 199 L 653 226" fill="none" stroke="var(--edge)" stroke-width="1.1" stroke-dasharray="4 3"/>
+
+        <rect x="0" y="276" width="996" height="22" rx="3" fill="var(--sunk)" stroke="var(--line)"/>
+        <text x="12" y="291" class="sv-tag" fill="var(--ink)">0 rate limits · 0 hangs · 0 unverified · 0 requeues · 0 retries — prompt sizes 281 to 492 tokens</text>
+      </svg>
+      </div>
+      <figcaption>Two agents, four wallets, five different models. The critical path is
+      parser → build → cli; everything else finished inside it.</figcaption>
+    </figure>
+    <div class="scroll">
+    <table class="mono">
+      <thead><tr><th>Task</th><th>Wallet</th><th>Agent</th><th>Model chosen by the engine</th><th class="tnum">Time</th></tr></thead>
+      <tbody>
+        <tr><td>parser</td><td>kilocode</td><td>hermes</td><td>dots-studio/dots-3-note-preview:free</td><td class="tnum">294s</td></tr>
+        <tr><td>template</td><td>kilocode</td><td>hermes</td><td>dots-studio/dots-3-note-preview:free</td><td class="tnum">79s</td></tr>
+        <tr><td>test_template</td><td>openrouter.ai</td><td>kilo</td><td>openai/dots-studio/dots-3-note-preview:free</td><td class="tnum">27s</td></tr>
+        <tr><td>test_parser</td><td>nous</td><td>hermes</td><td>poolside/laguna-xs-2.1:free</td><td class="tnum">15s</td></tr>
+        <tr><td>build</td><td>kilo</td><td>kilo</td><td>kilo/inclusionai/ling-3.0-flash-fin:free</td><td class="tnum">48s</td></tr>
+        <tr><td>cli</td><td>openrouter.ai</td><td>kilo</td><td>openai/minimax/minimax-m3:free</td><td class="tnum">114s</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="note">Note the same wallet served two tasks <em>sequentially</em> (kilocode ran parser
+    then template overlapped) and one agent served two different wallets — both legitimate, because
+    the lease is per credential.</p>
+  </div>
+</section>
+
+<section>
+  <div class="num">05</div>
+  <div class="body">
+    <h2>Every incident, and the recovery</h2>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>What happened</th><th>What the provider said</th><th>Classified</th><th>Blamed</th><th>Recovery</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>api hit a quota</td>
+          <td class="m">exceed your available credits given your in-flight requests</td>
+          <td><span class="chip c-wallet">rate_limited</span></td>
+          <td>wallet</td>
+          <td>2nd consecutive fault trips the breaker → <strong>whole wallet cooled 15 min</strong>, its other 20 models skipped instead of tried one at a time. Task rerouted to <span class="m">kilo:anon</span>.</td>
+        </tr>
+        <tr>
+          <td>a model 404'd</td>
+          <td class="m">HTTP 401: Model x-preview-f-free is not supported</td>
+          <td><span class="chip c-model">dead</span></td>
+          <td>model only</td>
+          <td>Parked 1 h. <strong>The wallet is untouched</strong> — the message carries a 401 but is a statement about one model, so status is read after model-scope wording.</td>
+        </tr>
+        <tr>
+          <td>a model hung</td>
+          <td class="m">(no output — killed at ATTEMPT_TIMEOUT)</td>
+          <td><span class="chip c-model">timeout</span></td>
+          <td>model only</td>
+          <td>Parked 10 min, next model on the <em>same</em> wallet tried. <span class="m">opencode</span> has only 3 free models and still finished.</td>
+        </tr>
+        <tr>
+          <td>the network dropped</td>
+          <td class="m">curl: (6) Could not resolve host</td>
+          <td><span class="chip c-void">local_network</span></td>
+          <td>nobody</td>
+          <td><strong>Nothing written.</strong> Connectivity re-probed, task retried on the same lane. Without this rule a 30-second blip marks every model tried as dead for 72 h.</td>
+        </tr>
+        <tr>
+          <td>a task "succeeded" but wrote nothing</td>
+          <td class="m">Done. Created the module as requested.</td>
+          <td><span class="chip c-go">ok</span> → <span class="chip c-void">unverified</span></td>
+          <td>the task</td>
+          <td>The engine was satisfied; the <em>orchestrator</em> checked <span class="m">files:["build.py"]</span>, found nothing, journaled <span class="m">unverified</span> and retried. An agent's account of itself is not evidence.</td>
+        </tr>
+        <tr>
+          <td>a spec had swallowed a file listing <span class="chip c-go">new</span></td>
+          <td class="m">(no error — just slow and wrong)</td>
+          <td><span class="chip c-model">reported, not failed</span></td>
+          <td>the spec</td>
+          <td>Every dispatch estimates its prompt size. <span class="m">~10,035 tokens</span> tripped the
+          warning: <em>"a spec this size usually means a file listing leaked into it"</em>. Nothing is
+          blocked — this is the upstream cause of <span class="m">context_overflow</span> made visible
+          before it becomes one.</td>
+        </tr>
+        <tr>
+          <td>readme had nowhere to run</td>
+          <td class="m">(never launched)</td>
+          <td><span class="chip c-wallet">no_lane</span></td>
+          <td>nobody</td>
+          <td>All five lanes leased, so it was <strong>not dispatched at all</strong> — no attempt spent, no retry budget consumed. It started the moment <span class="m">nous</span> freed up.</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <div class="panel flag">
+      <h3>Mismatch 3 — "token limited" is not a state</h3>
+      <p class="note">There is still no token <em>budget</em>. Prompt size is now measured and
+      reported (<span class="m">est_prompt_tokens</span>), but nothing counts spend against a quota.
+      On free models the scarce resource is
+      <strong>requests per credential</strong>, not tokens, so nothing counts or budgets them. What you
+      would call "token limited" arrives as one of two things: a provider saying
+      <span class="m">rate_limited</span> / <span class="m">no_credits</span> (a wallet fault, which
+      cools the wallet), or <span class="m">context_overflow</span> — which blames nobody and asks the
+      caller to send less. If you want a token budget, it is a feature to add, not one to find.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="num">06</div>
+  <div class="body">
+    <h2>Done — and independently verified</h2>
+    <p class="claim">The agents reported success. That is not evidence, so the output was checked
+    against what it actually does.</p>
+<pre><span class="a">[orch]</span> complete: 6 done, 0 failed
+
+<span class="c"># 17 independent checks - none of them read the agents' reports</span>
+1. every declared file exists and parses as Python      <span class="g">6/6</span>
+2. modules import cleanly (no third-party deps)         <span class="g">4/4</span>
+3. the required interfaces exist
+   <span class="g">PASS</span> parser.parse(text: str) -&gt; Tuple[Dict[str, str], str]
+   <span class="g">PASS</span> parser.to_html(markdown: str) -&gt; str
+   <span class="g">PASS</span> template.render(template: str, context: dict) -&gt; str
+   <span class="g">PASS</span> build.build_site(content_dir, out_dir, template_path=None) -&gt; list[str]
+   <span class="g">PASS</span> cli.main(argv: list[str] | None = None) -&gt; int
+4. the generated tests pass    <span class="g">test_parser: 12 tests · test_template: 17 tests</span>
+5. it builds the sample site   <span class="g">built 1 pages -&gt; site/hello.html</span>
+
+  <span class="g">verified: 17 passed, 0 failed</span></pre>
+    <p class="claim">Then a page it had never seen, added by hand and rebuilt:</p>
+<pre><span class="c"># content/second.md -&gt; site/second.html</span>
+&lt;h2&gt;A heading&lt;/h2&gt;
+&lt;ul&gt;
+&lt;li&gt;one&lt;/li&gt;
+&lt;li&gt;two&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;See &lt;a href="https://example.com"&gt;docs&lt;/a&gt; and &lt;code&gt;code&lt;/code&gt;.&lt;/p&gt;</pre>
+    <div class="grid2">
+      <div class="panel">
+        <h3>What was actually produced</h3>
+        <div class="kv">
+          <span class="m">419 lines</span><span>of Python across 6 files</span>
+          <span class="m">29 tests</span><span>written by the models, all passing</span>
+          <span class="m">7m38s</span><span>wall clock, 4 wallets</span>
+          <span class="m">0</span><span>incidents, retries or human fixes</span>
+        </div>
+      </div>
+      <div class="panel flag">
+        <h3>Do not over-read this</h3>
+        <p class="note">The previous run went 1 of 4, then 4 of 4 after the specs named the exact
+        failure modes. This one was 6 of 6 first time. Most of that difference is <strong>spec
+        quality</strong> — precise interface contracts, written because the earlier run taught me to —
+        and some is the filtering, which removed 10 models that could otherwise have been drawn.</p>
+        <p class="note">It is not evidence that free models got better.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="num">07</div>
+  <div class="body">
+    <h2>Two more runs, and what they changed</h2>
+    <p class="claim">mdsite was chain-shaped, so it never stressed the scheduler. Two follow-ups did
+    — and the starved one corrected something stated earlier on this page.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>Run</th><th>Shape</th><th class="tnum">Tasks</th><th class="tnum">Peak lanes</th><th class="tnum">Requeues</th><th>Limiting factor</th></tr></thead>
+      <tbody>
+        <tr><td>mdsite</td><td>chain</td><td class="tnum">6</td><td class="tnum">3</td><td class="tnum">0</td><td>the dependency graph</td></tr>
+        <tr><td>fmtkit</td><td>wide</td><td class="tnum">8</td><td class="tnum">5</td><td class="tnum">4</td><td><strong>the lane count</strong></td></tr>
+        <tr><td>coldrun</td><td>starved</td><td class="tnum">5</td><td class="tnum">1</td><td class="tnum">9</td><td>one wallet, deliberately</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <div class="grid2">
+      <div class="panel flag">
+        <h3>Correction — the gate is about speed, not safety</h3>
+        <p class="note">coldrun orchestrated on <strong>one lane</strong>, which the gate explicitly
+        forbids, to see how it would fail. It did not fail: 5 of 5 tasks completed, all five modules
+        correct. It simply serialized them.</p>
+        <p class="note">So <span class="m">lanes &gt;= 2</span> is advice about <strong>throughput,
+        not correctness</strong>. The rule stands — orchestrating on one lane buys nothing — but
+        "do not orchestrate below two lanes" reads like a warning about breakage, and it is not one.</p>
+      </div>
+      <div class="panel">
+        <h3>Confirmed by starvation</h3>
+        <ul>
+          <li><strong>9 requeues, 0 attempt failures.</strong> A task that cannot get a lane is not
+          a task that failed — no retry budget was consumed.</li>
+          <li><strong>The journal survived</strong> repeated requeueing intact. That matters more
+          than the code: it is the only thing <span class="m">resume</span> can read.</li>
+          <li><span class="m">resume</span> correctly re-ran nothing.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="panel flag">
+      <h3>What three runs still have not shown</h3>
+      <p class="note">Across mdsite, fmtkit and coldrun — <strong>19 tasks, not one real provider
+      failure mid-build.</strong> Every incident in section 05 remains verified by the test suite and
+      by nothing else. coldrun was built specifically to force one and could not: this free tier is
+      more generous than expected.</p>
+      <p class="note">That gap should close by itself on a genuinely large build. Forcing it by
+      hammering providers would be the wrong way to get the evidence.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="num">Δ</div>
+  <div class="body">
+    <h2>If your mental model differs, this is where</h2>
+    <ul>
+      <li><strong>No generated markdown.</strong> One shipped prompt in, one <span class="m">tasks.json</span> out. Workers get a string, not a document.</li>
+      <li><strong>No roster and no assignment.</strong> Tasks never name an agent. The engine chooses per attempt from live wallet health — which is why a rate limit reroutes instead of stalling.</li>
+      <li><strong>Cold ordering is metadata, not a leaderboard.</strong> A fresh registry knows
+      nothing — 0 of 418 models had stats — so unproven models are ordered by context, output
+      budget and a name hint, plus an optional offline seed file you edit. Nothing is fetched at
+      runtime, and one real success outranks any prior.</li>
+      <li><strong>Prompt size is measured; spend is not.</strong> You get a warning when a spec is
+      oversized, but there is no token budget and no per-lane ledger. Requests per credential remain
+      the scarce thing.</li>
+      <li><strong>Handoffs now exist, in the cheap form only.</strong> <span class="m">build</span>
+      received one line each from <span class="m">parser</span> and <span class="m">template</span> —
+      their own claims, not generated summaries.
+      There is still no shared scratchpad and no transcript passing.</li>
+      <li><strong>Parallelism is 5 here, not 3.</strong> Two agents each serve two wallets. Lanes are credentials, so the count follows keys, not CLIs.</li>
+      <li><strong>The coordinator is one of the workers' peers, not a supervisor.</strong> It does the small tasks itself and dispatches only the substantial ones.</li>
+    </ul>
+  </div>
+</section>
+
+<footer>
+  <p>Sections 00–06 are one real run on this machine, recorded 2026-08-30: timings, wallets, model
+  names and handoff text come from <span class="m">.orch/journal.ndjson</span> and the generated
+  files. Section 05 is the exception and says so — this run hit no failures, so that catalogue is
+  drawn from earlier runs and from the 185-assertion test suite.</p>
+</footer>
+</div>

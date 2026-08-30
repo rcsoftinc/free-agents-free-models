@@ -18,8 +18,9 @@ reported:
 |---|---|---|---|---|---|
 | [mdsite](https://github.com/noonelifecoach/mdsite) | chain | 6 | 3 | 7m38s | 419 lines, 29 tests |
 | [fmtkit](https://github.com/noonelifecoach/fmtkit) | wide | 8 | **5** | 5m09s | 503 lines, 8 modules |
+| [coldrun](https://github.com/noonelifecoach/coldrun) | starved | 5 | **1** | — | 5 modules, 9 requeues, 0 failures |
 
-Records: **`docs/dev/RUN-2026-08-30-mdsite.md`** and **`RUN-2026-08-30-fmtkit.md`**.
+Records: **`docs/dev/RUN-2026-08-30-{mdsite,fmtkit,coldrun}.md`**.
 The two together matter more than either: mdsite showed the dependency GRAPH
 limiting throughput, fmtkit showed the LANE COUNT limiting it — the healthier
 constraint, since it means another credential directly buys speed.
@@ -63,6 +64,9 @@ The agent runs `fa bootstrap` itself. Everything lives in `.free-agents/` (tool 
 - **The ceiling is spec quality, not model capability.** The earlier run went 1/4,
   then 4/4 once specs named the exact failure modes; this went 6/6 first time.
   Do not read the 6/6 as free models becoming reliable.
+- **The gate is about THROUGHPUT, not correctness.** coldrun orchestrated on one
+  lane — which the gate forbids — and produced identical working output, merely
+  serialized. Orchestrating below 2 lanes buys nothing; it does not break.
 - **Parallelism was limited by the GRAPH, not the lanes.** Only two tasks had no
   dependencies, so `build` waited 294s on `parser` while three lanes sat idle. A
   wider graph would use the lanes better; a chain-shaped one cannot.
@@ -138,10 +142,12 @@ Metered wallets need `FA_ALLOW_METERED=1`. They cannot bill you
 Nothing is outstanding and the tool has been proven on a real project. Options,
 roughly in order of value:
 
-1. **A real project that actually FAILS.** Two clean runs mean every incident this
-   system handles has been seen only in the test suite or in early development.
-   The recovery paths are mutation-tested, but no real build has yet hit a rate
-   limit mid-flight. Running when lanes are already cold would close that gap.
+1. **A real provider failure mid-build — still unobserved.** Three projects,
+   19 tasks, and not one genuine mid-flight failure. coldrun was built to force
+   one by starving the scheduler to a single lane; it completed 5/5 anyway. The
+   breaker, cooldown escalation and cross-wallet rerouting remain verified only by
+   the test suite. **Do not force this by hammering providers** — it will close by
+   itself during a genuinely large build.
 2. **Token accounting, scoped.** Assessed in `docs/dev/TOKENS-AND-HANDOFFS.md` and
    deliberately not built: worth it only for the two lanes that publish a budget
    (`nous` tph, `copilot` credits), where it turns the reactive breaker into a

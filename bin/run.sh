@@ -113,6 +113,11 @@ candidates() {
       | . as $b
       | .models[]
       | select(.free)
+      # A model that cannot do the job at all - wrong modality, too little
+      # context, a classifier rather than a generalist - is excluded before it
+      # can waste a request. Records lacking the field (an older registry) are
+      # kept, so an upgrade never silently empties a lane.
+      | select(.suitable != false)
       | select((.cooldown_until // 0) <= ($now|tonumber))
       | . as $m
       | ($m.routes[] | select(.agent == $b.preferred_agent)) as $r
@@ -129,11 +134,35 @@ candidates() {
           # models vary wildly between the two. Evidence from THIS category counts
           # double; overall evidence still counts, so a model with no category
           # history is not stranded at the bottom forever.
-          score: ( 2 * ( (($m.cat_stats[$cat].ok   // 0))
+          # Observed results dominate. The prior only decides the order of models
+          # nothing is yet known about - which today is nearly all of them, since
+          # a fresh registry has stats for none. Weights are set so ONE observed
+          # success (+4) outranks the best possible prior: evidence beats opinion
+          # the moment evidence exists.
+          score: ( 4 * ( (($m.cat_stats[$cat].ok   // 0))
                        - 2 * (($m.cat_stats[$cat].fail // 0)) )
-                   +   ( (($m.stats.ok   // 0))
-                       - 2 * (($m.stats.fail // 0)) )
-                   + (if $m.probe.state == "ok" then 5 else 0 end) ) }
+                   + 2 * ( (($m.stats.ok   // 0))
+                         - 2 * (($m.stats.fail // 0)) )
+                   + (if $m.probe.state == "ok" then 5 else 0 end)
+                   # The prior applies ONLY to a model nothing is yet known
+                   # about. Clamping it below the value of one success is not
+                   # enough: the prior SPREAD between two models (+3 vs -3) can
+                   # still offset an evidence gap. Gating it on "no stats at all"
+                   # makes the rule exact - opinion orders the unknown, evidence
+                   # orders everything else, and the two never compete.
+                   + ( (if (($m.stats.ok // 0) + ($m.stats.fail // 0)
+                            + ($m.cat_stats[$cat].ok // 0)
+                            + ($m.cat_stats[$cat].fail // 0)) > 0
+                        then 0 else 1 end)
+                     * ( [ [ (if   ($m.context // 0) >= 400000 then 2
+                            elif ($m.context // 0) >= 200000 then 1
+                            else 0 end)
+                         + (if ($m.max_output // 0) >= 32000 then 1 else 0 end)
+                         + (if ($m.upstream | test("ultra|405b|550b|large|max")) then 2
+                            elif ($m.upstream | test("nano|mini|small|tiny|[0-9]b\\b")) then -2
+                            else 0 end)
+                         + (if ($m.router // false) then -1 else 0 end)
+                           + (($m.seed_tier // 1) - 1), 3 ] | min, -3 ] | max ) ) ) }
     ]
     | sort_by(.metered, .bucket_last_used, -.score)
     | .[] | [.bucket, .agent, .model, .provider] | @tsv

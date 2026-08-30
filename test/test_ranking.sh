@@ -69,5 +69,40 @@ rm -f run3_err.txt
 # ---------------------------------------------------------------- cleanup
 clear_modes
 
+# --- cold start: the prior orders models nothing is yet known about ---------
+# Measured on the live registry, 0 of 418 models had any observed stats, so
+# without a prior the ordering of a fresh registry is arbitrary. The prior must
+# break that tie - and must lose the moment real evidence exists.
+REG="$FREE_AGENTS_STATE/buckets.json"
+# nano-model is listed FIRST deliberately: with no prior the two tie and the
+# input order stands, so the assertion below can only pass if the prior actually
+# reorders them. A test that passes on input order proves nothing.
+jq '.buckets["b2:fp2"].models = [
+      {upstream:"nano-model",  free:true, context:200000,  max_output:4096,
+       routes:[{agent:"hermes",model_arg:"nano-model",provider:"p2"}],
+       probe:{state:"unprobed"}},
+      {upstream:"big-model",   free:true, context:1000000, max_output:64000,
+       routes:[{agent:"hermes",model_arg:"big-model",provider:"p2"}],
+       probe:{state:"unprobed"}}]' "$REG" > "$REG.t" && mv "$REG.t" "$REG"
+
+out="$(DRY_RUN_LIMIT=0 timeout 60 "$REPO/bin/run.sh" --dry-run -c coding 2>/dev/null)"
+pos_big=$(printf '%s\n' "$out" | grep -n 'big-model'  | head -1 | cut -d: -f1)
+pos_nano=$(printf '%s\n' "$out" | grep -n 'nano-model' | head -1 | cut -d: -f1)
+assert_true "with no stats at all, the larger model is preferred" '[[ $pos_big -lt $pos_nano ]]'
+
+# One observed success must outweigh the best possible prior.
+jq '.buckets["b2:fp2"].models |= map(
+      if .upstream=="nano-model" then . + {cat_stats:{coding:{ok:1,fail:0}}} else . end)'    "$REG" > "$REG.t" && mv "$REG.t" "$REG"
+out="$(DRY_RUN_LIMIT=0 timeout 60 "$REPO/bin/run.sh" --dry-run -c coding 2>/dev/null)"
+pos_big=$(printf '%s\n' "$out" | grep -n 'big-model'  | head -1 | cut -d: -f1)
+pos_nano=$(printf '%s\n' "$out" | grep -n 'nano-model' | head -1 | cut -d: -f1)
+assert_true "a single observed success beats the prior (evidence > opinion)" '[[ $pos_nano -lt $pos_big ]]'
+
+# --- unsuitable models never reach the chain --------------------------------
+jq '.buckets["b1:fp1"].models |= map(. + {suitable:false, unsuitable_reason:"context_too_small"})'    "$REG" > "$REG.t" && mv "$REG.t" "$REG"
+out="$(DRY_RUN_LIMIT=0 timeout 60 "$REPO/bin/run.sh" --dry-run 2>/dev/null)"
+assert_not_contains "an unsuitable model is not offered as a candidate" "$out" "b1:fp1"
+assert_contains "suitable lanes are unaffected" "$out" "b0:fp0"
+
 end_suite
 final_report

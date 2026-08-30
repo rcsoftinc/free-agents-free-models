@@ -83,7 +83,38 @@ else
   fail "discover wrote no registry"
 fi
 
-# --- 5. a credential-less agent is not invented into a bucket ---------------
+# --- 5. suitability: metadata decides what can be scheduled ----------------
+# A model that cannot do the job fails every time it is drawn, and each draw
+# costs a request on the resource that is actually scarce. These rules are about
+# capability, not quality - no leaderboard supplies them.
+write_configs "sk-or-v1-DIFFERENTKEY99999999999"
+timeout 150 "$REPO/bin/buckets.sh" discover >/dev/null 2>&1
+if [[ -s "$REG" ]]; then
+  ctx_of()  { jq -r --arg m "$1" '[.buckets[].models[]|select(.upstream==$m)|.context][0] // 0' "$REG"; }
+  # NOTE: `false // "absent"` returns "absent" - jq treats false as empty, which
+  # would swallow exactly the value under test. Ask for the length explicitly.
+  suit_of() { jq -r --arg m "$1" '[.buckets[].models[]|select(.upstream==$m)|.suitable]
+                                  | if length > 0 then (.[0]|tostring) else "absent" end' "$REG"; }
+  why_of()  { jq -r --arg m "$1" '[.buckets[].models[]|select(.upstream==$m)|.unsuitable_reason][0] // ""' "$REG"; }
+
+  assert_true "context size is captured, not discarded" '[[ $(ctx_of free-a) -ge 200000 ]]'
+  assert_eq "a model above the floor is schedulable" "$(suit_of free-a)" "true"
+  assert_eq "a small-context model is excluded" "$(suit_of tiny-ctx-free)" "false"
+  assert_eq "and the reason is recorded" "$(why_of tiny-ctx-free)" "context_too_small"
+  # 1M context would sail past any context floor - only the family name gives it away.
+  assert_eq "an audio model is excluded despite a huge context" "$(suit_of lyria-3-demo)" "false"
+  assert_eq "recorded as non-text" "$(why_of lyria-3-demo)" "non_text_output"
+  # The user rule: where we cannot determine context, accept the model as is.
+  assert_eq "a model with unknown context is KEPT" "$(suit_of auto)" "true"
+  assert_true "unsuitable models stay in the registry with their reason" \
+    '[[ $(jq -r "[.buckets[].models[]|select(.suitable==false)]|length" "$REG") -ge 2 ]]'
+  assert_true "the floor is recorded so the registry explains itself" \
+    '[[ $(jq -r ".context_floor // 0" "$REG") -eq 200000 ]]'
+else
+  fail "discover wrote no registry"
+fi
+
+# --- 6. a credential-less agent is not invented into a bucket ---------------
 rm -f "$OPENCODE_AUTH"
 out="$(ids)"
 assert_not_contains "an agent with no credentials contributes no bucket" "$out" "$OWN_KEY"

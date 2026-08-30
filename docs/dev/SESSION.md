@@ -10,7 +10,7 @@
 `github.com/noonelifecoach/free-agents-free-models`. Full suite green:
 **185 assertions, 14 suites, ~95s, offline.**
 
-**It has built real software unattended, twice.** Both on 2026-08-30, both
+**It has built real software unattended, three times.** All on 2026-08-30, all
 independently verified against what the code does rather than what the agents
 reported:
 
@@ -21,12 +21,32 @@ reported:
 | [coldrun](https://github.com/noonelifecoach/coldrun) | starved | 5 | **1** | — | 5 modules, 9 requeues, 0 failures |
 
 Records: **`docs/dev/RUN-2026-08-30-{mdsite,fmtkit,coldrun}.md`**.
-The two together matter more than either: mdsite showed the dependency GRAPH
+The three together matter more than any one: mdsite showed the dependency GRAPH
 limiting throughput, fmtkit showed the LANE COUNT limiting it — the healthier
-constraint, since it means another credential directly buys speed.
+constraint, since another credential then buys speed directly — and coldrun
+showed that below the gate's threshold the system slows rather than breaks.
 
-Design and full findings: **`docs/dev/ALIGNMENT.md`** (the source of truth).
-`docs/dev/ANALYSIS.md` is historical. User-facing docs: `README.md`, `docs/SETUP.md`.
+## Documentation map
+
+| Where | What |
+|---|---|
+| **[Route map](https://claude.ai/code/artifact/68bc7de1-6a06-4242-86f0-957904c09e1f)** | Visual: every route the tool can take — discovery, the gate, the dispatch loop, the taxonomy, and what is deliberately absent |
+| **[One run, end to end](https://claude.ai/code/artifact/727f0341-8a96-4e91-99fd-47ec5cdb7076)** | Visual: a real recorded build, with the wide and starved runs compared |
+| `docs/dev/ALIGNMENT.md` | The design and every finding — **the source of truth** |
+| `docs/dev/RUN-2026-08-30-*.md` | One record per real project, including what each did NOT show |
+| `docs/dev/TOKENS-AND-HANDOFFS.md` | Why handoffs were built cheap and token accounting was scoped |
+| `docs/SETUP.md` | Where each agent keeps its credentials (the non-reproducible part) |
+| `README.md` | User-facing: install, use, invariants |
+| `docs/dev/ANALYSIS.md` | Historical — the pre-rebuild survey |
+
+Artifact **sources are vendored** in `docs/artifacts/`, because they otherwise
+live only in a session scratchpad. Editing one and republishing to the **same
+URL** updates the published page; publishing without the URL creates a duplicate.
+
+**Both artifacts make claims about a live system and go stale silently.**
+`docs/artifacts/README.md` lists what must be re-checked — chiefly the lane
+counts, the model names, and the statement that no real provider failure has yet
+occurred mid-build. If that last one changes, both pages need it.
 
 ## The core idea
 

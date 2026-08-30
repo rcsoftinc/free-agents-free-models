@@ -36,6 +36,8 @@ LOG_TAG=run
 . "${HERE}/lib/common.sh"
 # shellcheck source=lib/classify.sh
 . "${HERE}/lib/classify.sh"
+# shellcheck source=lib/findings.sh
+. "${HERE}/lib/findings.sh"
 
 CATEGORY="general"
 WORKDIR="$(pwd)"
@@ -346,7 +348,15 @@ for row in "${CHAIN[@]}"; do
   t0=$(date +%s%3N); rc=0
   out="$(invoke "$agent" "$model" "$provider" "$full_prompt")" || rc=$?
   t1=$(date +%s%3N); ms=$((t1-t0))
-  state="$(classify "$rc" "$out")"
+  IFS=$'\t' read -r state matched <<<"$(classify_ex "$rc" "$out")"
+  # Nothing in the taxonomy recognised this. It is still handled as dead - the
+  # safe default - but the text is kept, because a silent default is how every
+  # classification bug in this project stayed hidden.
+  if [[ "$matched" == "no" && "$state" != "ok" ]]; then
+    record_finding unclassified \
+      "provider output that no taxonomy rule matched" "$out" \
+      "model=$model" "provider=$provider" "assigned=$state" "rc=$rc"
+  fi
 
   # Our own network dying is not evidence about anyone's model. Confirm before
   # believing it, and never write it down.

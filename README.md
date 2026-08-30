@@ -181,6 +181,36 @@ model, not to whichever wallet happens to list it.
 Vendor routers (`kilo-auto/free`, `openrouter/auto`, …) are kept and flagged. They work;
 they just cannot be ranked, because the model behind them changes per request.
 
+## Findings — how a project feeds a fix back
+
+A *finding* is not an error. Errors are handled: a rate limit cools a wallet, a
+hang parks a model. A finding is the tool admitting it **did not know what
+something was**, or that it did the same unhelpful thing twice.
+
+```sh
+fa findings          # what has been noticed
+fa findings --issue  # emit a ready-to-file GitHub issue
+fa findings --ack    # mark them seen
+```
+
+Three things are recorded:
+
+| Kind | When |
+|---|---|
+| `unclassified` | provider output no taxonomy rule matched — it is still handled as `dead`, the safe default, but the text is kept |
+| `unverified_repeat` | a task claimed success without producing its files more than once — a signal about the spec or the models |
+| `deadlock` | a task graph that could not progress |
+
+`unclassified` is the valuable one. **Every classification bug found in this
+project was invisible for the same reason**: the taxonomy has a silent default and
+the text that reached it was discarded. A billing refusal read as `dead`; a model
+404 read as an auth failure that cooled an entire wallet for 24 hours.
+
+After an orchestrated run, `orch.sh` prints any new findings and the coordinator
+reports them to you. Nothing leaves the machine on its own. Evidence is redacted
+before it is stored — keys, JWTs, bearer tokens and email addresses — because a
+finding is meant to be pasteable into a public issue.
+
 ## Model ranking (learned, per category)
 
 There is no static "best model" list — free models change too often for one to

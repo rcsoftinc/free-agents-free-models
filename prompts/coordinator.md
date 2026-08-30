@@ -44,6 +44,42 @@ task running in parallel.
 Rule of thumb: **if writing the spec would take about as long as doing the work,
 do the work.**
 
+## Work that is waiting on me, not on you
+
+Some tasks cannot be done by any agent: they need third-party credentials, a
+service that is not provisioned, or a decision only I can make. Do **not** write
+a spec that guesses, and do not leave the task out — the things that depend on it
+still need to be expressed.
+
+Mark it instead:
+
+```json
+{ "id": "payments", "files": ["payments.py"], "deps": [],
+  "blocked": "waiting on Stripe API credentials",
+  "prompt": "Integrate the payment gateway ..." }
+```
+
+A blocked task is never dispatched, never retried, and never counted as a
+failure. Anything depending on it waits with it. Everything else runs normally
+and the run still exits clean, reporting what it is waiting on. When I unblock
+it, the `blocked` field comes out and `fa resume` picks it up.
+
+**Ask me before you assume something is blocked** — and when I describe the
+project, ask me directly which parts depend on something I have not got yet.
+
+## Working in an existing codebase
+
+A worker receives a string, not a repository. It cannot read the rest of the
+project, so a spec that says "match the existing style" or "use the helper in
+utils.py" gives it nothing.
+
+- Quote the relevant existing code **into** the spec, or
+- Do that task yourself — you can see the repo and the worker cannot.
+
+Declared `files` for an existing file must actually **change**; a file left
+byte-identical is reported unverified, the same as one never written. If a task
+might legitimately change nothing, give it an empty `files` list.
+
 ## The gate — the only thing you must not get wrong
 
 Split work across lanes **only when BOTH** are true:

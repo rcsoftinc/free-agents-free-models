@@ -114,6 +114,39 @@ task_ids()   { jq -r '.tasks[].id' "$TASKS_FILE"; }
 task_files() { jq -r --arg id "$1" '.tasks[] | select(.id==$id) | (.files // [])[]' "$TASKS_FILE"; }
 task_deps()  { jq -r --arg id "$1" '.tasks[] | select(.id==$id) | (.deps  // [])[]' "$TASKS_FILE"; }
 
+# A task can be blocked on something no agent can supply - third-party
+# credentials, a service that is not provisioned yet, a decision only the user
+# can make. Dispatching it wastes lane attempts, fails verification, and then
+# deadlocks everything downstream. It is not a failure; it is a pause.
+task_blocked() { # $1=id -> reason, or empty
+  jq -r --arg id "$1" '.tasks[] | select(.id==$id) | .blocked // empty' "$TASKS_FILE"
+}
+
+# Blocked itself, or waiting on something that is.
+# NOTE the visited set. Without it this recurses forever on a dependency cycle -
+# and a cycle is a graph this tool explicitly supports detecting, so the guard is
+# not defensive, it is required. An unguarded version hung instead of reporting a
+# deadlock, which is strictly worse than the behaviour it replaced.
+is_halted() { # $1=id  $2=visited (internal)
+  local seen=" ${2:-} "
+  case "$seen" in *" $1 "*) return 1 ;; esac
+  [[ -n "$(task_blocked "$1")" ]] && return 0
+  local d
+  while IFS= read -r d; do
+    [[ -z "$d" ]] && continue
+    is_halted "$d" "${2:-} $1" && return 0
+  done < <(task_deps "$1")
+  return 1
+}
+
+halted_tasks() {
+  local id
+  while IFS= read -r id; do
+    [[ -z "$id" ]] && continue
+    is_halted "$id" && printf '%s\n' "$id"
+  done < <(task_ids)
+}
+
 # ---------------------------------------------------------------- handoffs --
 # A worker is isolated by design: it sees its own spec and nothing else. That is
 # what makes weak models succeed, but it means a task cannot learn what the task
@@ -291,6 +324,7 @@ cmd_run() {
       [[ -z "$id" ]] && continue
       grep -qxF "$id" <<<"$(completed_tasks)" && continue
       grep -qxF "$id" <<<"$(failed_tasks)"    && continue
+      is_halted "$id" && continue
       remaining=$((remaining+1))
       todo+="$id"$'\n'
     done < <(task_ids)
@@ -305,6 +339,14 @@ cmd_run() {
       # discover every wallet is busy, and burns a cycle finding out.
       if [[ $DRY_RUN -eq 0 && ${#RUNNING[@]} -gt 0 ]]; then
         [[ "$(free_lanes)" -gt 0 ]] || break
+      fi
+      # Blocked, or downstream of something blocked: skip silently. Journalled
+      # once so the record explains the gap, then never attempted.
+      if is_halted "$id"; then
+        if ! grep -q "\"event\":\"blocked\",\"task\":\"${id}\"" "$JOURNAL" 2>/dev/null; then
+          journal blocked "$id" "reason=$(task_blocked "$id" || true)"
+        fi
+        continue
       fi
       deps_met "$id" || continue
       files_conflict "$id" "${!RUNNING[@]}" && continue
@@ -368,8 +410,21 @@ cmd_run() {
     fi
   done
 
-  local nfail; nfail="$(failed_tasks | grep -c . || true)"
-  log "complete: $(completed_tasks | grep -c . || true) done, ${nfail} failed"
+  local nfail nhalt; nfail="$(failed_tasks | grep -c . || true)"
+  nhalt="$(halted_tasks | grep -c . || true)"
+  log "complete: $(completed_tasks | grep -c . || true) done, ${nfail} failed$([[ ${nhalt:-0} -gt 0 ]] && echo ", ${nhalt} waiting on you")"
+  if [[ "${nhalt:-0}" -gt 0 ]]; then
+    log ""
+    log "Waiting on you - these were never attempted:"
+    local h r
+    while IFS= read -r h; do
+      [[ -z "$h" ]] && continue
+      r="$(task_blocked "$h")"
+      if [[ -n "$r" ]]; then log "  $h — $r"
+      else log "  $h — blocked by a dependency above"; fi
+    done < <(halted_tasks)
+    log "When it is unblocked: remove the \"blocked\" field from .orch/tasks.json, then fa resume"
+  fi
   # Surface anything the tool noticed about ITSELF during this run, so a real
   # project can feed a fix back rather than the observation dying with the run.
   local nnew; nnew="$(findings_count new 2>/dev/null || echo 0)"
@@ -395,6 +450,13 @@ cmd_status() {
   # A deadlocked run leaves tasks that will never become runnable. Listing them
   # as "pending" reads as "waiting its turn", which is the wrong thing to
   # believe - nothing is going to move without a change to the graph.
+  local h r
+  while IFS= read -r h; do
+    [[ -z "$h" ]] && continue
+    r="$(task_blocked "$h")"
+    if [[ -n "$r" ]]; then printf '  WAITING  %s  — %s\n' "$h" "$r"
+    else printf '  WAITING  %s  — blocked by a dependency\n' "$h"; fi
+  done < <(halted_tasks 2>/dev/null)
   jq -r 'select(.event=="deadlock")
          | "  BLOCKED  \(.blocked // "?")  (cycle, unknown dependency id, or a failed prerequisite)"' \
      "$JOURNAL" 2>/dev/null | tail -1
@@ -403,6 +465,7 @@ cmd_status() {
     while IFS= read -r id; do
       grep -qxF "$id" <<<"$d" && continue
       grep -qxF "$id" <<<"$f" && continue
+      is_halted "$id" && continue
       echo "  pending $id"
     done < <(task_ids)
   fi

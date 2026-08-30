@@ -198,6 +198,29 @@ A task that declares a file and leaves it byte-identical is reported
 If a task legitimately may make no change, give it an empty `files` list and
 verify it another way.
 
+## Work blocked on you
+
+Some tasks need something no agent can supply — third-party credentials, an
+unprovisioned service, a decision only you can make. Mark them:
+
+```json
+{ "id": "payments", "blocked": "waiting on Stripe API credentials", ... }
+```
+
+Never dispatched, never retried, never counted as a failure. Dependents wait with
+it, everything else runs, and the run exits clean:
+
+```
+[orch] complete: 2 done, 0 failed, 2 waiting on you
+[orch] Waiting on you - these were never attempted:
+[orch]   payments — waiting on Stripe API credentials
+[orch]   checkout — blocked by a dependency above
+```
+
+Remove the `blocked` field and `fa resume` picks it up. Without this a blocked
+task burns lane attempts, fails verification, deadlocks its dependents and fails
+the whole run.
+
 ## Findings — how a project feeds a fix back
 
 A *finding* is not an error. Errors are handled: a rate limit cools a wallet, a

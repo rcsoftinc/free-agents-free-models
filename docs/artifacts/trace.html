@@ -587,6 +587,13 @@ missing keys render empty.
     <ul>
       <li><strong>No generated markdown.</strong> One shipped prompt in, one <span class="m">tasks.json</span> out. Workers get a string, not a document.</li>
       <li><strong>No roster and no assignment.</strong> Tasks never name an agent. The engine chooses per attempt from live wallet health — which is why a rate limit reroutes instead of stalling.</li>
+      <li><strong>The tool now reports its own blind spots.</strong> Provider output no rule
+      recognises is kept as a <em>finding</em> rather than swallowed by the taxonomy default, and
+      the coordinator tells you at the end of a run. Nothing is auto-filed —
+      <span class="m">fa findings --issue</span> hands you a report to review.</li>
+      <li><strong>Verification now detects "unchanged", not just "absent".</strong> On an existing
+      codebase a declared file that is already there proved nothing; it must now have actually
+      changed. All three runs above were greenfield, so this path is newly relevant.</li>
       <li><strong>Cold ordering is metadata, not a leaderboard.</strong> A fresh registry knows
       nothing — 0 of 418 models had stats — so unproven models are ordered by context, output
       budget and a name hint, plus an optional offline seed file you edit. Nothing is fetched at

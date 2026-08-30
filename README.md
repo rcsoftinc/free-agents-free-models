@@ -181,6 +181,23 @@ model, not to whichever wallet happens to list it.
 Vendor routers (`kilo-auto/free`, `openrouter/auto`, …) are kept and flagged. They work;
 they just cannot be ranked, because the model behind them changes per request.
 
+## Working on an existing codebase
+
+All the guidance above holds, with one difference that matters. On a greenfield
+project a task's declared `files` are checked for **existence**. On an existing
+one that proves nothing — the file is already there — so the runner also
+checksums every declared file before dispatch and requires it to have **changed**.
+
+A task that declares a file and leaves it byte-identical is reported
+`unverified` and retried, exactly like one that wrote nothing at all.
+
+```
+[orch] unverified refactor: declared but not written: src/api.py (unchanged)
+```
+
+If a task legitimately may make no change, give it an empty `files` list and
+verify it another way.
+
 ## Findings — how a project feeds a fix back
 
 A *finding* is not an error. Errors are handled: a rate limit cools a wallet, a

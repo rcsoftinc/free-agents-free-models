@@ -34,6 +34,7 @@ showed that below the gate's threshold the system slows rather than breaks.
 | **[One run, end to end](https://claude.ai/code/artifact/727f0341-8a96-4e91-99fd-47ec5cdb7076)** | Visual: a real recorded build, with the wide and starved runs compared |
 | `docs/dev/ALIGNMENT.md` | The design and every finding — **the source of truth** |
 | `docs/dev/RUN-2026-08-30-*.md` | One record per real project, including what each did NOT show |
+| `docs/artifacts/README.md` | What to re-check in the published pages when the tool changes |
 | `docs/dev/TOKENS-AND-HANDOFFS.md` | Why handoffs were built cheap and token accounting was scoped |
 | `docs/SETUP.md` | Where each agent keeps its credentials (the non-reproducible part) |
 | `README.md` | User-facing: install, use, invariants |
@@ -127,8 +128,12 @@ Metered wallets need `FA_ALLOW_METERED=1`. They cannot bill you
   a model hang demotes the MODEL only; `local_network` is recorded NOWHERE.
 - **Cooldowns escalate.** A first failure is short (15m) — a single transient 401
   once benched a healthy 21-model wallet for 24h.
-- **Verify, do not trust.** A task's declared `files` must exist afterwards; an
-  agent reporting success is not evidence.
+- **Verify, do not trust.** A task's declared `files` must exist afterwards AND,
+  on an existing codebase, must have **changed** — a file left byte-identical is
+  as unverified as one never written. An agent reporting success is not evidence.
+- **Findings are the feedback path.** Unrecognised provider output is kept rather
+  than swallowed by the taxonomy default. Never auto-filed; the coordinator
+  reports, the user decides.
 - **Containment differs per agent**: `opencode --dir`, `kilo --dir`, hermes via
   `HOME` (it honours neither `cwd` nor `--in`). There is no uniform flag.
 - **These CLIs exit 0 on hard failures.** Classify on output, never on rc.
@@ -162,6 +167,10 @@ Metered wallets need `FA_ALLOW_METERED=1`. They cannot bill you
 Nothing is outstanding and the tool has been proven on a real project. Options,
 roughly in order of value:
 
+0. **IN PROGRESS: a half-built real project.** The first run against an existing
+   codebase rather than a greenfield one. Watch for: tasks that declare a file and
+   leave it unchanged (now caught), specs that assume context the worker does not
+   have, and any findings the run produces.
 1. **A real provider failure mid-build — still unobserved.** Three projects,
    19 tasks, and not one genuine mid-flight failure. coldrun was built to force
    one by starving the scheduler to a single lane; it completed 5/5 anyway. The

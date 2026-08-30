@@ -1,14 +1,21 @@
 # SESSION STATE — read this first on resume
 
-**Last updated:** 2026-08-29
+**Last updated:** 2026-08-30
 
 ---
 
 ## Where we are
 
-**Complete and working.** Published privately at
+**Complete, working, and proven on a real project.** Published privately at
 `github.com/noonelifecoach/free-agents-free-models`. Full suite green:
-**157 assertions, 13 suites, ~70s, offline.**
+**185 assertions, 14 suites, ~95s, offline.**
+
+**It has built real software unattended.** On 2026-08-30 it produced a
+markdown-to-static-site generator from one sentence: 6 tasks across 4 wallets,
+7m38s, 0 failures, 419 lines of Python, 29 passing tests, independently verified
+against what the code does rather than what the agents reported. Output:
+`github.com/noonelifecoach/mdsite` (private). Full record with caveats:
+**`docs/dev/RUN-2026-08-30-mdsite.md`**.
 
 Design and full findings: **`docs/dev/ALIGNMENT.md`** (the source of truth).
 `docs/dev/ANALYSIS.md` is historical. User-facing docs: `README.md`, `docs/SETUP.md`.
@@ -35,6 +42,23 @@ opencode                                    # or kilo / hermes / cursor / copilo
 The agent runs `fa bootstrap` itself. Everything lives in `.free-agents/` (tool +
 `state/`) and `.orch/` (run journal). State is per-project by default;
 `FREE_AGENTS_STATE` shares one registry across projects.
+
+## What the real run showed
+
+- **Handoffs work, provably.** `template.py` implemented dotted paths
+  (`{{ user.name }}`) that the spec never asked for, reported it in its handoff,
+  and `build.py` matched it with `key.split(".")`. Without the handoff that
+  capability would have been silently lost — a worker receives a string, not a
+  repository.
+- **Zero incidents**, against four in the previous run. Two things changed:
+  suitability filtering removed 10 drawable-but-useless models, and the specs were
+  far more precise.
+- **The ceiling is spec quality, not model capability.** The earlier run went 1/4,
+  then 4/4 once specs named the exact failure modes; this went 6/6 first time.
+  Do not read the 6/6 as free models becoming reliable.
+- **Parallelism was limited by the GRAPH, not the lanes.** Only two tasks had no
+  dependencies, so `build` waited 294s on `parser` while three lanes sat idle. A
+  wider graph would use the lanes better; a chain-shaped one cannot.
 
 ## Layout
 
@@ -104,10 +128,20 @@ Metered wallets need `FA_ALLOW_METERED=1`. They cannot bill you
 
 ## Next, if resuming
 
-Nothing is outstanding. The valuable next step is **pointing it at a real project
-of the user's own** and seeing where it strains — the acceptance run built this
-test suite and surfaced 7 bugs; a messier project will surface different ones.
+Nothing is outstanding and the tool has been proven on a real project. Options,
+roughly in order of value:
 
-Observed at real scale: free models produce structurally correct bash with subtle
-defects; the yield went from 1/4 to 4/4 once specs named the exact failure modes.
-**The ceiling is spec quality, not model capability.**
+1. **Run a wider graph.** mdsite was chain-shaped, so lanes idled. A project with
+   5-6 genuinely independent tasks would test the scheduler where this one did not.
+2. **Token accounting, scoped.** Assessed in `docs/dev/TOKENS-AND-HANDOFFS.md` and
+   deliberately not built: worth it only for the two lanes that publish a budget
+   (`nous` tph, `copilot` credits), where it turns the reactive breaker into a
+   predictive one. A general ledger for the five lanes with no budget changes no
+   decision.
+3. **Retire `opencode-free-agents/oc.sh`** — already removed from the tree; its
+   cross-model session-continuity trick was never ported and remains the only
+   capability lost in the rewrite.
+
+**Do not** add: token budgets on unmetered lanes, live leaderboard fetching (see
+ALIGNMENT for why gateway metadata beats it), or a summariser-based handoff — each
+was evaluated and rejected with reasons recorded.

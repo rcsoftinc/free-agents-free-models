@@ -82,4 +82,7 @@ so the graph set the pace, not the lane count — `build` waited 294s on `parser
 while three lanes sat idle. A wider graph would use the lanes better; this one
 was shaped like a chain.
 
-Project committed separately at `/root/mdsite` (no remote).
+Project published separately at `github.com/noonelifecoach/mdsite` (private).
+Its `.orch/tasks.json` is committed, so the build can be reproduced on any machine
+with its own lanes — equivalent software from different models, which is the honest
+form of reproducibility this design offers.

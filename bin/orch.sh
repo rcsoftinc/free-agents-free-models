@@ -34,6 +34,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG_TAG=orch
 # shellcheck source=lib/common.sh
 . "${HERE}/lib/common.sh"
+# shellcheck source=lib/findings.sh
+. "${HERE}/lib/findings.sh"
 
 RUN_SH="${HERE}/run.sh"
 PROJECT="${ORCH_PROJECT:-$(pwd)}"
@@ -219,6 +221,14 @@ run_task() { # $1=task id ; runs in a subshell as a background job
     if [[ ${#missing[@]} -gt 0 ]]; then
       journal unverified "$id" "missing=${missing[*]}"
       log "unverified $id: declared but absent: ${missing[*]}"
+      # Once is a bad draw. Twice on the same task is a signal about the SPEC or
+      # the models, and it is the kind of thing a real project notices that a
+      # test suite never will.
+      if [[ $(grep -c "\"event\":\"unverified\",\"task\":\"${id}\"" "$JOURNAL" 2>/dev/null || echo 0) -ge 2 ]]; then
+        record_finding unverified_repeat \
+          "task claimed success without producing its files, more than once" \
+          "task=${id} declared=${missing[*]}" "task=${id}"
+      fi
       return 1
     fi
   fi
@@ -292,6 +302,8 @@ cmd_run() {
       # leaves it empty tells a later reader nothing.
       local blocked; blocked="$(printf '%s' "$todo" | tr '\n' ' ' | sed 's/ *$//')"
       journal deadlock "-" "blocked=${blocked}" "remaining=${remaining}"
+      record_finding deadlock "a task graph could not progress" \
+        "blocked: ${blocked}" "remaining=${remaining}"
       log "deadlock: $remaining task(s) left, none runnable: ${blocked}"
       log "  (dependency cycle, unknown dependency id, or a failed prerequisite)"
       return 1
@@ -332,6 +344,15 @@ cmd_run() {
 
   local nfail; nfail="$(failed_tasks | grep -c . || true)"
   log "complete: $(completed_tasks | grep -c . || true) done, ${nfail} failed"
+  # Surface anything the tool noticed about ITSELF during this run, so a real
+  # project can feed a fix back rather than the observation dying with the run.
+  local nnew; nnew="$(findings_count new 2>/dev/null || echo 0)"
+  if [[ "${nnew:-0}" -gt 0 ]]; then
+    log ""
+    log "${nnew} new finding(s) from this run - things the tool handled badly:"
+    findings_show new 2>/dev/null | sed 's/^/  /' | head -12 >&2
+    log "review with: fa findings     file one with: fa findings --issue"
+  fi
   [[ "$nfail" -eq 0 ]]
 }
 

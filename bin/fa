@@ -21,6 +21,10 @@ set -euo pipefail
 #   fa status          progress of the current project
 #   fa resume          continue after any interruption
 #   fa update          git pull the tool
+#   fa findings        things the tool noticed it handled badly
+#                        --new    only ones not yet acknowledged
+#                        --issue  emit a ready-to-file GitHub issue
+#                        --ack    mark all as seen
 #   fa where           print install paths
 
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
@@ -85,6 +89,22 @@ case "$cmd" in
     exec "${HERE}/orch.sh" run
     ;;
 
+  findings)
+    . "${HERE}/lib/common.sh"; . "${HERE}/lib/findings.sh"
+    case "${1:-}" in
+      --issue) findings_issue "${2:-all}" ;;
+      --ack)   findings_ack; echo "[fa] findings marked as seen" ;;
+      --new)   findings_show new ;;
+      --count) findings_count "${2:-all}" ;;
+      *)       findings_show all
+               n="$(findings_count all)"
+               [[ "${n:-0}" -gt 0 ]] && {
+                 echo "To turn one into an issue:  fa findings --issue"
+                 echo "To dismiss them:            fa findings --ack"; } ;;
+    esac
+    exit 0
+    ;;
+
   where)
     printf 'tool:     %s\nstate:    %s\nproject:  %s\n' "$ROOT" "$STATE" "$(pwd)"
     ;;
@@ -138,6 +158,12 @@ case "$cmd" in
     else
       echo "  MISSING no registry - run: fa discover && fa probe"; rc=1
     fi
+    echo
+    echo "findings"
+    ( . "${HERE}/lib/common.sh"; . "${HERE}/lib/findings.sh"
+      n="$(findings_count all)"; nn="$(findings_count new)"
+      if [[ "${n:-0}" -eq 0 ]]; then echo "  ok      nothing noted"
+      else printf '  note    %s finding(s), %s unseen - run: fa findings\n' "$n" "$nn"; fi )
     echo
     [[ $rc -eq 0 ]] && echo "READY" || echo "NOT READY (see above)"
     exit $rc

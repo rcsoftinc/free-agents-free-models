@@ -23,12 +23,23 @@
 # is not evidence about anyone's model, and a minute of bad wifi must not bench
 # good models for three days.
 
-classify() { # $1=rc $2=output -> state
+# classify_ex echoes "state<TAB>matched", where matched is yes|no.
+#
+# "no" means NOTHING in the taxonomy recognised the text and it fell through to
+# the default. That is the single most valuable signal this tool produces: every
+# real classification bug found so far - a billing refusal read as dead, a model
+# 404 read as an auth failure that cooled a whole wallet - was invisible because
+# the default is silent and the text was discarded.
+#
+# classify() is a thin wrapper so existing callers and the self-test are unchanged.
+classify() { classify_ex "$1" "${2:-}" | cut -f1; }
+
+classify_ex() { # $1=rc $2=output -> state<TAB>matched
   local rc="${1:-0}" t
   t="$(printf '%s' "${2:-}" | tr '[:upper:]' '[:lower:]')"
 
   if printf '%s' "$t" | grep -qE 'could not resolve host|name or service not known|network is unreachable|no route to host|connection refused|temporary failure in name resolution|ssl connect error|tls handshake|connection reset by peer'; then
-    echo local_network; return
+    printf 'local_network\tyes\n'; return
   fi
 
   # MODEL-SCOPE FIRST. These messages arrive carrying an HTTP status that belongs
@@ -37,7 +48,7 @@ classify() { # $1=rc $2=output -> state
   # would cool the entire wallet for 24h because one model is unsupported, which
   # is the single most expensive misclassification available here.
   if printf '%s' "$t" | grep -qE 'is not supported|not supported|unknown model|no such model|does not exist|model .* not found|invalid model'; then
-    echo dead; return
+    printf 'dead\tyes\n'; return
   fi
 
   # Account-wide free-tier exhaustion. This is a WALLET fault and must trip the
@@ -45,36 +56,38 @@ classify() { # $1=rc $2=output -> state
   # walking them one at a time is pure waste. Note these messages say neither
   # "429" nor "insufficient balance".
   if printf '%s' "$t" | grep -qE 'free usage exceeded|usage exceeded|subscribe to|upgrade to continue|free tier.*exceeded|daily limit reached'; then
-    echo no_credits; return
+    printf 'no_credits\tyes\n'; return
   fi
 
   if printf '%s' "$t" | grep -qE '429|rate.?limit|too many requests|temporarily rate-limited|try again later|in-flight requests|overloaded'; then
-    echo rate_limited; return
+    printf 'rate_limited\tyes\n'; return
   fi
   if printf '%s' "$t" | grep -qE 'insufficient balance|model access is unavailable|subscribe or add credits|exceed your available credits|quota|billing|payment required|402'; then
-    echo no_credits; return
+    printf 'no_credits\tyes\n'; return
   fi
   if printf '%s' "$t" | grep -qE 'unauthorized|forbidden|invalid api key|authentication|401|403'; then
-    echo auth_error; return
+    printf 'auth_error\tyes\n'; return
   fi
   if printf '%s' "$t" | grep -qE 'context length|too large|maximum context|token limit exceeded'; then
-    echo context_overflow; return
+    printf 'context_overflow\tyes\n'; return
   fi
 
   # A gateway failing upstream is usually transient and says nothing about the
   # model's health - parking it for 72h like a genuinely dead model throws away a
   # working endpoint over a blip. Short cooldown instead.
   if printf '%s' "$t" | grep -qE 'upstream request failed|provider returned error|upstream error|bad gateway|service unavailable|50[234]'; then
-    echo provider_error; return
+    printf 'provider_error\tyes\n'; return
   fi
 
   if printf '%s' "$t" | grep -qE 'not found|404'; then
-    echo dead; return
+    printf 'dead\tyes\n'; return
   fi
   # 124 = timeout(1) killed it, 143 = SIGTERM. A hang is the model's fault.
-  if [[ "$rc" == "124" || "$rc" == "143" ]]; then echo timeout; return; fi
-  [[ "$rc" == "0" ]] && { echo ok; return; }
-  echo dead
+  if [[ "$rc" == "124" || "$rc" == "143" ]]; then printf 'timeout\tyes\n'; return; fi
+  [[ "$rc" == "0" ]] && { printf 'ok\tyes\n'; return; }
+  # Nothing matched. Still classified as dead - the safe default, unchanged - but
+  # now flagged so the caller can keep the evidence.
+  printf 'dead\tno\n'
 }
 
 # Providers often state their own retry window ("retrying in 3h 53m",
@@ -198,6 +211,16 @@ classify_self_test() {
     && echo "  ok   no_credits escalates with repeats" || { echo "  FAIL"; fails=1; }
   [[ "$(cooldown_for local_network 9)" == "0" ]] \
     && echo "  ok   local_network never cools, however many times" || { echo "  FAIL"; fails=1; }
+
+  echo "unknown-text detection (the signal findings are built on)"
+  [[ "$(classify_ex 1 "HTTP 429 rate limit" | cut -f2)" == "yes" ]] \
+    && echo "  ok   a recognised message reports matched=yes" || { echo "  FAIL"; fails=1; }
+  [[ "$(classify_ex 1 "Flurgle bimble wozzat 7" | cut -f2)" == "no" ]] \
+    && echo "  ok   an unrecognised message reports matched=no" || { echo "  FAIL"; fails=1; }
+  [[ "$(classify_ex 1 "Flurgle bimble wozzat 7" | cut -f1)" == "dead" ]] \
+    && echo "  ok   and is still classified dead - behaviour unchanged" || { echo "  FAIL"; fails=1; }
+  [[ "$(classify_ex 0 "OK" | cut -f2)" == "yes" ]] \
+    && echo "  ok   success is never reported as unknown" || { echo "  FAIL"; fails=1; }
 
   echo "attribution"
   is_bucket_fault rate_limited && echo "  ok   rate_limited blames the wallet"   || { echo "  FAIL"; fails=1; }

@@ -195,11 +195,29 @@ deps_met() { # $1=task
 }
 
 # --------------------------------------------------------------- execution --
+# Checksum a task's declared files before it runs. On a GREENFIELD project this
+# is empty and existence is a sufficient test. On an EXISTING codebase it is not:
+# a task told to modify a file that is already there would pass a mere existence
+# check without touching anything - which is exactly the "claimed success, did
+# nothing" failure verification exists to catch.
+snapshot_files() { # $1=task id
+  local f
+  while IFS= read -r f; do
+    [[ -z "$f" ]] && continue
+    if [[ -f "${PROJECT}/${f}" ]]; then
+      printf '%s\t%s\n' "$f" "$(md5sum "${PROJECT}/${f}" 2>/dev/null | cut -d" " -f1)"
+    else
+      printf '%s\t-\n' "$f"
+    fi
+  done < <(task_files "$1")
+}
+
 run_task() { # $1=task id ; runs in a subshell as a background job
-  local id="$1" prompt category out rc=0 meta
+  local id="$1" prompt category out rc=0 meta before
   prompt="$(build_prompt "$id")"
   category="$(task_field "$id" category)"; category="${category:-general}"
   out="${RESULTS}/${id}.out"; mkdir -p "$RESULTS"
+  before="$(snapshot_files "$id")"
 
   journal started "$id"
   set +e
@@ -213,14 +231,22 @@ run_task() { # $1=task id ; runs in a subshell as a background job
   # happened: models have claimed to create a file and written it elsewhere, or
   # not at all. If the task declared files, they must exist in the project.
   if [[ $rc -eq 0 ]]; then
-    local missing=() f
+    local missing=() f was now
     while IFS= read -r f; do
       [[ -z "$f" ]] && continue
-      [[ -e "${PROJECT}/${f}" ]] || missing+=("$f")
+      if [[ ! -e "${PROJECT}/${f}" ]]; then
+        missing+=("${f} (absent)")
+        continue
+      fi
+      was="$(printf '%s' "$before" | awk -F'\t' -v k="$f" '$1==k{print $2}')"
+      now="$(md5sum "${PROJECT}/${f}" 2>/dev/null | cut -d' ' -f1)"
+      # It existed before and is byte-identical now: the task declared it would
+      # touch this file and did not. Unchanged is as unverified as absent.
+      [[ "$was" != "-" && "$was" == "$now" ]] && missing+=("${f} (unchanged)")
     done < <(task_files "$id")
     if [[ ${#missing[@]} -gt 0 ]]; then
       journal unverified "$id" "missing=${missing[*]}"
-      log "unverified $id: declared but absent: ${missing[*]}"
+      log "unverified $id: declared but not written: ${missing[*]}"
       # Once is a bad draw. Twice on the same task is a signal about the SPEC or
       # the models, and it is the kind of thing a real project notices that a
       # test suite never will.

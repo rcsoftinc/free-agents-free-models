@@ -1102,3 +1102,39 @@ occur.
 Moving Layer B broke two suites: `test/reset.sh` and `test/snapshot.sh` computed
 `.orchestrator` from their own location rather than from the harness, so they missed
 the move. Repointed; all suites pass again.
+
+
+---
+
+## 15. Findings — the feedback path (2026-08-30)
+
+The taxonomy ended with a bare `echo dead`: any provider message no rule
+recognised silently became a model failure and the text was discarded. **Both
+classification bugs ever found in this project hid behind that default** — a
+billing refusal read as `dead`, and a model 404 read as an auth failure that
+cooled a 21-model wallet for 24 hours. Both surfaced only because the raw text
+was pasted into a conversation by hand.
+
+`classify()` now wraps `classify_ex()`, which reports `state<TAB>matched`.
+Behaviour is unchanged; the silent default is merely no longer silent.
+
+Recorded as findings: `unclassified` provider output, `unverified_repeat` (a task
+that claimed success without producing its files more than once — a signal about
+the *spec*), and `deadlock`. Not recorded: ordinary rate limits and timeouts,
+which are handled correctly and would be noise.
+
+Evidence is redacted (keys, JWTs, bearer tokens, emails) and fingerprinted, so a
+finding is pasteable into a public issue and twenty occurrences are one row.
+`orch.sh` prints new findings at the end of a run, the coordinator reports them,
+`fa findings --issue` emits a complete issue body including the exact self-test
+line to add. **Nothing leaves the machine automatically.**
+
+## 16. Verification on an existing codebase (2026-08-30)
+
+Existence was a sufficient check only because every project so far was
+greenfield. On an existing codebase a task told to modify a file that is already
+present would pass without touching it — precisely the failure verification
+exists to catch.
+
+Declared files are now checksummed before dispatch. Afterwards a file must either
+have appeared, or have **changed**. Byte-identical counts as unverified.

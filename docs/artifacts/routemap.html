@@ -519,8 +519,8 @@ footer{padding-top:34px; color:var(--faint); font-size:13.5px}
         <rect x="0" y="330" width="996" height="76" rx="4" fill="var(--sunk)" stroke="var(--line)"/>
         <text x="14" y="352" class="sv-tag" fill="var(--faint)">EVEN ON SUCCESS, THE AGENT IS NOT BELIEVED</text>
         <g class="sv-label" fill="var(--ink)">
-          <text x="14" y="378">A model can still write to an absolute path, or claim work it never did.</text>
-          <text x="14" y="398" fill="var(--go)">The orchestrator checks the task's declared files exist before journaling it done.</text>
+          <text x="14" y="376">A model can write to an absolute path, or claim work it never did.</text>
+          <text x="14" y="396" fill="var(--go)">Declared files must EXIST — and on an existing codebase, must have CHANGED.</text>
         </g>
       </svg>
       </div>
@@ -813,6 +813,60 @@ footer{padding-top:34px; color:var(--faint); font-size:13.5px}
 </section>
 
 <section>
+  <div class="num">09</div>
+  <div class="body">
+    <div class="h2row"><h2>Findings — the loop back to the tool</h2><span class="chip c-go" style="margin-left:10px">new</span></div>
+    <p class="claim">A finding is not an error. Errors are handled. A finding is the tool admitting it
+    <em>did not know what something was</em> — and it exists because that admission used to be silent.</p>
+    <figure>
+      <div class="scroll">
+      <svg viewBox="0 0 1000 250" role="img" aria-label="Unrecognised provider output is kept as a finding, surfaced by the coordinator, and turned into a ready-to-file issue">
+        <g class="sv-tag" fill="var(--faint)"><text x="0" y="12">BEFORE — THE SILENT DEFAULT</text></g>
+        <g class="sv-label" fill="var(--ink)">
+          <rect x="0" y="22" width="300" height="58" rx="4" fill="var(--card)" stroke="var(--line)"/>
+          <text x="12" y="46">provider says something new</text>
+          <text x="12" y="66" class="sv-tag" fill="var(--dim)">no taxonomy rule matches</text>
+          <rect x="360" y="22" width="280" height="58" rx="4" fill="var(--card)" stroke="var(--void)"/>
+          <text x="372" y="46" fill="var(--void)">classified dead, text discarded</text>
+          <text x="372" y="66" class="sv-tag" fill="var(--dim)">nobody ever finds out</text>
+          <rect x="700" y="22" width="296" height="58" rx="4" fill="var(--sunk)" stroke="var(--wallet)"/>
+          <text x="712" y="46" fill="var(--wallet)">both real bugs hid here</text>
+          <text x="712" y="66" class="sv-tag" fill="var(--dim)">a 24h bench on a healthy wallet</text>
+        </g>
+        <g stroke="var(--edge)" stroke-width="1.2" marker-end="url(#ar)">
+          <line x1="304" y1="51" x2="356" y2="51"/><line x1="644" y1="51" x2="696" y2="51"/>
+        </g>
+
+        <g class="sv-tag" fill="var(--faint)"><text x="0" y="118">NOW</text></g>
+        <g class="sv-label" fill="var(--ink)">
+          <rect x="0" y="128" width="228" height="58" rx="4" fill="var(--card)" stroke="var(--line)"/>
+          <text x="12" y="152">still classified dead</text>
+          <text x="12" y="172" class="sv-tag" fill="var(--dim)">safe default, unchanged</text>
+          <rect x="256" y="128" width="228" height="58" rx="4" fill="var(--card)" stroke="var(--go)"/>
+          <text x="268" y="152" fill="var(--go)">but the text is KEPT</text>
+          <text x="268" y="172" class="sv-tag" fill="var(--dim)">redacted · fingerprinted</text>
+          <rect x="512" y="128" width="228" height="58" rx="4" fill="var(--card)" stroke="var(--line)"/>
+          <text x="524" y="152">coordinator reports it</text>
+          <text x="524" y="172" class="sv-tag" fill="var(--dim)">at the end of the run</text>
+          <rect x="768" y="128" width="228" height="58" rx="4" fill="var(--card)" stroke="var(--line)"/>
+          <text x="780" y="152">fa findings --issue</text>
+          <text x="780" y="172" class="sv-tag" fill="var(--dim)">you decide, nothing auto-files</text>
+        </g>
+        <g stroke="var(--edge)" stroke-width="1.2" marker-end="url(#ar)">
+          <line x1="232" y1="157" x2="252" y2="157"/><line x1="488" y1="157" x2="508" y2="157"/>
+          <line x1="744" y1="157" x2="764" y2="157"/>
+        </g>
+        <rect x="0" y="204" width="996" height="40" rx="4" fill="var(--sunk)" stroke="var(--line)"/>
+        <text x="14" y="229" class="sv-label" fill="var(--ink)">Recorded: unclassified output · a task that failed verification twice · a deadlocked graph.  NOT recorded: ordinary rate limits and timeouts — handled correctly, so only noise.</text>
+      </svg>
+      </div>
+      <figcaption>The issue body includes the redacted evidence and, for a taxonomy gap, the exact
+      self-test line to add — so acting on a finding is a paste, not an investigation.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section>
   <div class="num">EVID</div>
   <div class="body">
     <h2>What has actually been observed</h2>
@@ -877,6 +931,9 @@ footer{padding-top:34px; color:var(--faint); font-size:13.5px}
       already publish, plus an optional offline <span class="m">data/model-seed.json</span> you
       edit yourself. Nothing is fetched at runtime — leaderboards score the flagship, not the
       <span class="m">:free</span> variant we actually call, and they cannot rank a router at all.</li>
+      <li><strong>Findings are never auto-filed.</strong> The tool records what it did not
+      understand and the coordinator reports it; opening an issue or a PR is always yours. A
+      consuming project cannot modify the tool.</li>
       <li><strong>Nothing tests real models.</strong> 157 assertions run against stubs. Whether a given
       free model can follow a spec is not assertable — only observable.</li>
     </ul>

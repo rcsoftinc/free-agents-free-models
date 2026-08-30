@@ -18,6 +18,8 @@ These pages make claims about a live system, so they go stale silently. Two
 things in particular must be re-checked whenever the tool changes:
 
 - **Lane counts and model names** come from a specific machine on a specific day.
+- **The findings mechanism** (added 2026-08-30) and the change-detecting
+  verification are described in both pages; if either changes, both need it.
 - **The evidence sections** distinguish what has been *observed* from what is only
   *tested*. As of the last update: three real projects, 19 tasks, and **no real
   provider failure mid-build** — so the breaker, cooldown escalation and

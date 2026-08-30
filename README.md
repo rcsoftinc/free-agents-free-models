@@ -295,6 +295,16 @@ not by automated tests. `test/` keeps the stub agent CLIs and harness that a sui
 would be built on. The retired Layer B and its 14 suites were removed in the
 cleanup — they tested code that no longer ships; `git log` has them.
 
+## Visual reference
+
+Two published pages, source in `docs/artifacts/`:
+
+- **[Route map](https://claude.ai/code/artifact/68bc7de1-6a06-4242-86f0-957904c09e1f)** — every
+  route the tool can take: discovery, the gate, the dispatch loop, the error taxonomy, and what
+  is deliberately absent.
+- **[One run, end to end](https://claude.ai/code/artifact/727f0341-8a96-4e91-99fd-47ec5cdb7076)** —
+  a real recorded build, compared against a wide run and a deliberately starved one.
+
 ## Docs
 
 - **`docs/ALIGNMENT.md`** — the design, every finding, and the build log. Current.

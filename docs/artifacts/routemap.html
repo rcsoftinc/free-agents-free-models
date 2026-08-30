@@ -1,0 +1,891 @@
+<title>Free-Agents Route Map</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Source+Sans+3:wght@400;600&display=swap">
+<style>
+:root{
+  --paper:#eceef0; --card:#f7f8f9; --sunk:#e2e5e8;
+  --ink:#141b22; --dim:#5a6673; --faint:#8a95a1;
+  --line:#c3cad2; --rule:#d5dbe1;
+  --go:#256b4e; --wallet:#a4661f; --model:#3d5f92; --void:#78838f;
+  --edge:#2c3947;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --paper:#11161b; --card:#171e25; --sunk:#0d1217;
+    --ink:#e4e9ee; --dim:#98a4b1; --faint:#68737f;
+    --line:#2f3a45; --rule:#242e38;
+    --go:#5fb98f; --wallet:#d9a05a; --model:#7ea3d8; --void:#7d8894;
+    --edge:#8b98a6;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#11161b; --card:#171e25; --sunk:#0d1217;
+  --ink:#e4e9ee; --dim:#98a4b1; --faint:#68737f;
+  --line:#2f3a45; --rule:#242e38;
+  --go:#5fb98f; --wallet:#d9a05a; --model:#7ea3d8; --void:#7d8894;
+  --edge:#8b98a6;
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"Source Sans 3",system-ui,sans-serif; font-size:16px; line-height:1.55;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1080px; margin:0 auto; padding:56px 28px 96px}
+h1,h2,h3{font-family:Archivo,system-ui,sans-serif; text-wrap:balance; margin:0}
+h1{font-size:clamp(28px,4.4vw,44px); font-weight:700; letter-spacing:-.02em; line-height:1.08}
+h2{font-size:22px; font-weight:600; letter-spacing:-.01em}
+h3{font-size:14px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--dim)}
+p{margin:0}
+code,.m{font-family:"IBM Plex Mono",ui-monospace,monospace; font-size:.86em}
+code{background:var(--sunk); padding:.1em .34em; border-radius:3px}
+
+header{border-bottom:1px solid var(--rule); padding-bottom:28px; margin-bottom:8px}
+.eyebrow{font-family:"IBM Plex Mono",monospace; font-size:12px; letter-spacing:.14em;
+  text-transform:uppercase; color:var(--faint); margin-bottom:14px}
+.lede{margin-top:14px; font-size:18px; color:var(--dim); max-width:64ch}
+.thesis{margin-top:22px; padding:14px 18px; border-left:3px solid var(--edge);
+  background:var(--card); font-size:15px; max-width:70ch}
+
+section{display:grid; grid-template-columns:44px 1fr; gap:0 22px;
+  padding:40px 0; border-bottom:1px solid var(--rule)}
+.num{font-family:"IBM Plex Mono",monospace; font-size:13px; font-weight:600;
+  color:var(--faint); padding-top:4px; letter-spacing:.04em}
+.body{display:flex; flex-direction:column; gap:16px; min-width:0}
+.claim{font-size:17px; max-width:68ch}
+.note{font-size:14.5px; color:var(--dim); max-width:70ch}
+
+figure{margin:0; display:flex; flex-direction:column; gap:10px}
+.scroll{overflow-x:auto; padding-bottom:4px}
+svg{max-width:100%; height:auto; display:block}
+figcaption{font-size:13.5px; color:var(--dim); max-width:72ch}
+.sv-label{font-family:"IBM Plex Mono",monospace; font-size:11.5px; font-weight:500}
+.sv-tag{font-family:"IBM Plex Mono",monospace; font-size:10px; letter-spacing:.05em}
+.sv-title{font-family:Archivo,sans-serif; font-size:12px; font-weight:600; letter-spacing:.04em}
+
+table{border-collapse:collapse; width:100%; font-size:14px}
+th{text-align:left; font-family:"IBM Plex Mono",monospace; font-size:11px; letter-spacing:.09em;
+  text-transform:uppercase; color:var(--faint); font-weight:500;
+  padding:0 14px 8px 0; border-bottom:1px solid var(--rule); white-space:nowrap}
+td{padding:9px 14px 9px 0; border-bottom:1px solid var(--rule); vertical-align:top}
+td:first-child{font-family:"IBM Plex Mono",monospace; font-size:13px; white-space:nowrap}
+tbody tr:last-child td{border-bottom:none}
+.tnum{font-variant-numeric:tabular-nums}
+
+.chip{display:inline-block; font-family:"IBM Plex Mono",monospace; font-size:11px;
+  padding:2px 7px; border-radius:3px; border:1px solid currentColor; white-space:nowrap}
+.c-go{color:var(--go)} .c-wallet{color:var(--wallet)}
+.c-model{color:var(--model)} .c-void{color:var(--void)}
+
+.grid2{display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:18px}
+.panel{background:var(--card); border:1px solid var(--rule); border-radius:5px; padding:16px 18px;
+  display:flex; flex-direction:column; gap:9px}
+.panel h3{margin-bottom:2px}
+.panel.flag{border-color:var(--wallet)}
+.kv{display:grid; grid-template-columns:auto 1fr; gap:5px 14px; font-size:14px}
+.kv .m{color:var(--dim)}
+ul{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:6px; font-size:14.5px}
+li::marker{color:var(--faint)}
+.gap-list li{color:var(--dim)}
+.gap-list strong{color:var(--ink); font-weight:600}
+.absent{border-style:dashed}
+.badge{display:inline-block; font-family:"IBM Plex Mono",monospace; font-size:10.5px;
+  letter-spacing:.08em; text-transform:uppercase; padding:3px 8px; border-radius:3px;
+  border:1px dashed var(--void); color:var(--void); vertical-align:middle; margin-left:10px}
+.h2row{display:flex; align-items:baseline; flex-wrap:wrap; gap:0}
+footer{padding-top:34px; color:var(--faint); font-size:13.5px}
+@media (max-width:620px){
+  section{grid-template-columns:1fr; gap:12px}
+  .num{padding-top:0}
+}
+</style>
+
+<svg width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute">
+  <defs><marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto">
+    <path d="M0 1 L7 4 L0 7 z" fill="var(--edge)"/></marker></defs>
+</svg>
+<div class="wrap">
+<header>
+  <div class="eyebrow">free-agents-free-models · under the hood</div>
+  <h1>Every route the tool can take</h1>
+  <p class="lede">From <code>cd project</code> to a finished task, with every branch, every
+  thing written to disk, and every way it can end. Read it to find what is missing.</p>
+  <p class="thesis"><strong>The one invariant:</strong> a <em>bucket</em> is one wallet —
+  <span class="m">(provider, credential)</span>. It is the unit of rate limiting, so it is the
+  unit of scheduling. Never the agent. Two agents sharing one API key are <strong>one lane</strong>.</p>
+</header>
+
+<section>
+  <div class="num">MAP</div>
+  <div class="body">
+    <p class="claim">Six stages end to end. Sections <span class="m">01–07</span> expand them; <span class="m">08</span> is a path that does not exist yet, drawn so its absence is visible.</p>
+    <figure>
+      <div class="scroll">
+      <svg viewBox="0 0 1000 92" role="img" aria-label="Six stages: setup, bootstrap, coordinator, gate, dispatch, outcome">
+        <g class="sv-label" fill="var(--ink)" text-anchor="middle">
+          <rect x="4" y="26" width="146" height="40" rx="4" fill="var(--card)" stroke="var(--line)"/>
+          <text x="77" y="45">1 · setup</text><text x="77" y="59" class="sv-tag" fill="var(--dim)">clone + setup.sh</text>
+          <rect x="174" y="26" width="146" height="40" rx="4" fill="var(--card)" stroke="var(--line)"/>
+          <text x="247" y="45">2 · bootstrap</text><text x="247" y="59" class="sv-tag" fill="var(--dim)">credentials → lanes</text>
+          <rect x="344" y="26" width="146" height="40" rx="4" fill="var(--card)" stroke="var(--line)"/>
+          <text x="417" y="45">3 · coordinator</text><text x="417" y="59" class="sv-tag" fill="var(--dim)">one prompt</text>
+          <rect x="514" y="26" width="146" height="40" rx="4" fill="var(--card)" stroke="var(--line)"/>
+          <text x="587" y="45">4 · the gate</text><text x="587" y="59" class="sv-tag" fill="var(--dim)">split or not</text>
+          <rect x="684" y="26" width="146" height="40" rx="4" fill="var(--card)" stroke="var(--line)"/>
+          <text x="757" y="45">5 · dispatch</text><text x="757" y="59" class="sv-tag" fill="var(--dim)">lease · classify</text>
+          <rect x="854" y="26" width="142" height="40" rx="4" fill="var(--card)" stroke="var(--line)"/>
+          <text x="925" y="45">6 · outcome</text><text x="925" y="59" class="sv-tag" fill="var(--dim)">journal</text>
+        </g>
+        <g stroke="var(--edge)" stroke-width="1.2" marker-end="url(#ar)">
+          <line x1="152" y1="46" x2="170" y2="46"/><line x1="322" y1="46" x2="340" y2="46"/>
+          <line x1="492" y1="46" x2="510" y2="46"/><line x1="662" y1="46" x2="680" y2="46"/>
+          <line x1="832" y1="46" x2="850" y2="46"/>
+        </g>
+        <text x="4" y="16" class="sv-tag" fill="var(--faint)">ONCE PER PROJECT</text>
+        <text x="344" y="16" class="sv-tag" fill="var(--faint)">EVERY SESSION</text>
+        <text x="684" y="16" class="sv-tag" fill="var(--faint)">EVERY TASK</text>
+      </svg>
+      </div>
+      <figcaption>Stages 1–2 run once per project; 3–4 once per session; 5–6 once per task.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section>
+  <div class="num">01</div>
+  <div class="body">
+    <h2>Setup — what lands on disk</h2>
+    <p class="claim">The tool is cloned <em>into</em> the project as a hidden folder and adds itself
+    to your <span class="m">.gitignore</span>. Two directories, nothing else.</p>
+    <figure>
+      <div class="scroll">
+      <svg viewBox="0 0 1000 236" role="img" aria-label="Project layout after setup, showing which files are committed and which are ignored">
+        <g class="sv-label" fill="var(--ink)">
+          <text x="0" y="14" class="sv-tag" fill="var(--faint)">COMMANDS</text>
+          <rect x="0" y="24" width="330" height="86" rx="4" fill="var(--sunk)" stroke="var(--line)"/>
+          <text x="14" y="46">cd myproject</text>
+          <text x="14" y="66">gh repo clone …  .free-agents</text>
+          <text x="14" y="86">.free-agents/setup.sh</text>
+          <text x="14" y="102" class="sv-tag" fill="var(--dim)">no keys asked for · no network</text>
+
+          <text x="392" y="14" class="sv-tag" fill="var(--faint)">RESULT ON DISK</text>
+          <rect x="392" y="24" width="300" height="196" rx="4" fill="var(--card)" stroke="var(--line)"/>
+          <text x="408" y="46">myproject/</text>
+          <text x="424" y="70" fill="var(--dim)">.free-agents/</text>
+          <text x="424" y="90" fill="var(--dim)">.orch/</text>
+          <text x="424" y="110">README.md  src/ …</text>
+          <text x="408" y="140">.gitignore</text>
+          <text x="424" y="160" class="sv-tag" fill="var(--dim)">+ .free-agents/</text>
+          <text x="408" y="190" class="sv-tag" fill="var(--faint)">YOUR REPO IS OTHERWISE UNTOUCHED</text>
+
+          <text x="734" y="14" class="sv-tag" fill="var(--faint)">TRACKED BY YOUR GIT?</text>
+          <rect x="734" y="24" width="262" height="196" rx="4" fill="var(--card)" stroke="var(--line)"/>
+          <text x="748" y="48" fill="var(--go)">✓ .orch/tasks.json</text>
+          <text x="762" y="64" class="sv-tag" fill="var(--dim)">the specification — it travels</text>
+          <text x="748" y="94" fill="var(--void)">✗ .orch/journal.ndjson</text>
+          <text x="762" y="110" class="sv-tag" fill="var(--dim)">one machine's run record</text>
+          <text x="748" y="140" fill="var(--void)">✗ .orch/results/</text>
+          <text x="748" y="170" fill="var(--void)">✗ .free-agents/</text>
+          <text x="762" y="186" class="sv-tag" fill="var(--dim)">the tool itself</text>
+        </g>
+        <g stroke="var(--edge)" stroke-width="1.2" marker-end="url(#ar)">
+          <line x1="336" y1="66" x2="386" y2="66"/><line x1="698" y1="120" x2="728" y2="120"/>
+        </g>
+      </svg>
+      </div>
+      <figcaption>Delete <span class="m">.free-agents/</span> and every trace of the tool is gone.
+      Your agents stay logged in — their keys are their own files, which this only ever reads.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section>
+  <div class="num">02</div>
+  <div class="body">
+    <h2>Bootstrap — credentials become lanes</h2>
+    <p class="claim">Five credential sources are read, fingerprinted, and <strong>collapsed by
+    fingerprint</strong>. This is where a shared key stops being counted twice.</p>
+    <figure>
+      <div class="scroll">
+      <svg viewBox="0 0 1000 330" role="img" aria-label="Bootstrap pipeline: five credential sources are fingerprinted, identical fingerprints collapse into one bucket, models are enumerated per credential, then each wallet is probed">
+        <g class="sv-tag" fill="var(--faint)">
+          <text x="0" y="12">1 · READ CONFIGS</text><text x="248" y="12">2 · FINGERPRINT</text>
+          <text x="470" y="12">3 · COLLAPSE</text><text x="700" y="12">4 · ENUMERATE + PROBE</text>
+        </g>
+        <g class="sv-label" fill="var(--ink)">
+          <rect x="0" y="22" width="212" height="140" rx="4" fill="var(--card)" stroke="var(--line)"/>
+          <text x="12" y="42">opencode auth.json</text>
+          <text x="12" y="64">kilo.jsonc providers</text>
+          <text x="12" y="86">kilo gateway (no key)</text>
+          <text x="12" y="108">hermes auth + .env</text>
+          <text x="12" y="130">copilot · cursor</text>
+          <text x="12" y="152" class="sv-tag" fill="var(--dim)">read only — never written</text>
+
+          <rect x="248" y="22" width="178" height="140" rx="4" fill="var(--card)" stroke="var(--line)"/>
+          <text x="260" y="46">api key</text><text x="260" y="62" class="sv-tag" fill="var(--dim)">sha256(key)[:12]</text>
+          <text x="260" y="90">oauth</text><text x="260" y="106" class="sv-tag" fill="var(--dim)">sha256(sub claim)</text>
+          <text x="260" y="134">none</text><text x="260" y="150" class="sv-tag" fill="var(--dim)">"anon" — never merged</text>
+
+          <rect x="470" y="22" width="196" height="140" rx="4" fill="var(--card)" stroke="var(--wallet)"/>
+          <text x="482" y="46">same fingerprint</text>
+          <text x="482" y="66" class="sv-tag" fill="var(--dim)">→ ONE bucket</text>
+          <text x="482" y="94" class="sv-tag" fill="var(--dim)">opencode calls it "openrouter"</text>
+          <text x="482" y="110" class="sv-tag" fill="var(--dim)">kilo calls it "openrouter.ai"</text>
+          <text x="482" y="134" fill="var(--wallet)">canonical name wins</text>
+          <text x="482" y="152" class="sv-tag" fill="var(--dim)">so both resolve together</text>
+
+          <rect x="700" y="22" width="296" height="140" rx="4" fill="var(--card)" stroke="var(--line)"/>
+          <text x="712" y="44">models listed PER CREDENTIAL</text>
+          <text x="712" y="62" class="sv-tag" fill="var(--dim)">never from third-party metadata</text>
+          <text x="712" y="84">zero-priced → free</text>
+          <text x="712" y="106" fill="var(--wallet)">then: CAN it do the job?</text>
+          <text x="712" y="122" class="sv-tag" fill="var(--dim)">context · output budget · modality</text>
+          <text x="712" y="144">probe: does the wallet answer?</text>
+          <text x="712" y="158" class="sv-tag" fill="var(--dim)">up to 3 models before judging it</text>
+        </g>
+        <g stroke="var(--edge)" stroke-width="1.2" marker-end="url(#ar)">
+          <line x1="216" y1="92" x2="243" y2="92"/><line x1="430" y1="92" x2="465" y2="92"/>
+          <line x1="670" y1="92" x2="695" y2="92"/>
+        </g>
+
+        <rect x="0" y="196" width="996" height="118" rx="4" fill="var(--sunk)" stroke="var(--line)"/>
+        <text x="14" y="216" class="sv-tag" fill="var(--faint)">WRITTEN TO .free-agents/state/buckets.json — THE ONLY THING THAT PERSISTS</text>
+        <g class="sv-label" fill="var(--ink)">
+          <text x="14" y="242">per wallet: id · provider · credential FINGERPRINT · reachable_via[] · preferred agent</text>
+          <text x="14" y="264">health: state · consecutive_failures · cooldown_until · last_used</text>
+          <text x="14" y="286">per model: free? · probe result · stats{ok,fail} · cat_stats{coding,reasoning,…} · cooldown</text>
+          <text x="14" y="306" fill="var(--go)">NO SECRET IS EVER STORED — only fingerprints of one</text>
+        </g>
+      </svg>
+      </div>
+<figure>
+      <div class="scroll">
+      <svg viewBox="0 0 1000 208" role="img" aria-label="Suitability rules applied at discovery: non-text output, too-small context and non-generalist models are excluded with a recorded reason, routers are kept and flagged, unknown context is kept">
+        <g class="sv-tag" fill="var(--faint)"><text x="0" y="12">SUITABILITY — APPLIED ONCE, AT DISCOVERY. FIRST RULE THAT FIRES WINS.</text></g>
+        <g class="sv-label" fill="var(--ink)">
+          <rect x="0" y="22" width="238" height="60" rx="4" fill="var(--card)" stroke="var(--void)"/>
+          <text x="12" y="44" fill="var(--void)">outputs audio or images</text>
+          <text x="12" y="64" class="sv-tag" fill="var(--dim)">non_text_output</text>
+
+          <rect x="254" y="22" width="238" height="60" rx="4" fill="var(--card)" stroke="var(--void)"/>
+          <text x="266" y="44" fill="var(--void)">context below the floor</text>
+          <text x="266" y="64" class="sv-tag" fill="var(--dim)">context_too_small · 200K default</text>
+
+          <rect x="508" y="22" width="238" height="60" rx="4" fill="var(--card)" stroke="var(--void)"/>
+          <text x="520" y="44" fill="var(--void)">classifier · embed · rerank</text>
+          <text x="520" y="64" class="sv-tag" fill="var(--dim)">not_a_generalist</text>
+
+          <rect x="762" y="22" width="234" height="60" rx="4" fill="var(--card)" stroke="var(--go)"/>
+          <text x="774" y="44" fill="var(--go)">context unknown → KEPT</text>
+          <text x="774" y="64" class="sv-tag" fill="var(--dim)">accepted as-is</text>
+        </g>
+        <rect x="0" y="98" width="486" height="98" rx="4" fill="var(--sunk)" stroke="var(--wallet)"/>
+        <text x="14" y="120" class="sv-tag" fill="var(--faint)">WHY MODALITY, NOT JUST SIZE</text>
+        <g class="sv-label" fill="var(--ink)">
+          <text x="14" y="144">google/lyria-3-* generates MUSIC</text>
+          <text x="14" y="166" class="sv-tag" fill="var(--dim)">and carries a 1,048,576 context — so every context</text>
+          <text x="14" y="182" class="sv-tag" fill="var(--dim)">floor in the world would have let it through</text>
+        </g>
+        <rect x="510" y="98" width="486" height="98" rx="4" fill="var(--card)" stroke="var(--line)"/>
+        <text x="524" y="120" class="sv-tag" fill="var(--faint)">NOTHING IS DELETED</text>
+        <g class="sv-label" fill="var(--ink)">
+          <text x="524" y="144">the reason is stored and shown</text>
+          <text x="524" y="168" class="sv-tag" fill="var(--dim)">kilo:anon  22 usable (2 context_too_small filtered)</text>
+          <text x="524" y="186" class="sv-tag" fill="var(--dim)">routers kept + flagged — they work, they just cannot be ranked</text>
+        </g>
+      </svg>
+      </div>
+      <figcaption>Excluded before dispatch, at no cost. Each of these would otherwise be drawable at
+      score zero and would waste a full lane request every time it came up.</figcaption>
+    </figure>
+    <figcaption>Give each agent a <em>different</em> free key and you get more lanes. Give two agents
+      the same key and the collapse makes them one — which is the point, not a limitation.</figcaption>
+    </figure>
+    <div class="grid2">
+      <div class="panel">
+        <h3>What ends up in the model's context</h3>
+        <ul>
+          <li>The task prompt, as written</li>
+          <li>A prepended <strong>working-directory contract</strong> — absolute path, "use relative paths only"</li>
+          <li>Nothing else. No repo dump, no conversation, no other task's output.</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h3>Also written here</h3>
+        <div class="kv">
+          <span class="m">skills/</span><span>linked into <span class="m">.opencode/skills/</span></span>
+          <span class="m">state/</span><span>the registry above (gitignored)</span>
+          <span class="m">.orch/</span><span>created empty, ready for a run</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="num">03</div>
+  <div class="body">
+    <h2>Coordinator — one prompt, five routes</h2>
+    <p class="claim">You paste <span class="m">prompts/coordinator.md</span> once. After that you
+    talk normally; the agent picks the route from what you ask. You never name a mode.</p>
+    <figure>
+      <div class="scroll">
+      <svg viewBox="0 0 1000 258" role="img" aria-label="One coordinator prompt routes to five modes based on what the user asks">
+        <rect x="0" y="96" width="196" height="62" rx="4" fill="var(--card)" stroke="var(--edge)"/>
+        <text x="14" y="122" class="sv-label" fill="var(--ink)">coordinator.md</text>
+        <text x="14" y="140" class="sv-tag" fill="var(--dim)">pasted once, start of session</text>
+        <g stroke="var(--edge)" stroke-width="1.1" fill="none" marker-end="url(#ar)">
+          <path d="M200 118 C 250 118, 250 26, 316 26"/>
+          <path d="M200 122 C 250 122, 250 76, 316 76"/>
+          <path d="M200 127 C 250 127, 250 127, 316 127"/>
+          <path d="M200 132 C 250 132, 250 178, 316 178"/>
+          <path d="M200 136 C 250 136, 250 228, 316 228"/>
+        </g>
+        <g class="sv-label" fill="var(--ink)">
+          <rect x="320" y="8" width="290" height="38" rx="4" fill="var(--card)" stroke="var(--line)"/>
+          <text x="332" y="26">"explain this" · "get oriented"</text><text x="332" y="40" class="sv-tag" fill="var(--dim)">explore and answer — no tooling</text>
+          <rect x="320" y="58" width="290" height="38" rx="4" fill="var(--card)" stroke="var(--line)"/>
+          <text x="332" y="76">"compare options" · "decide"</text><text x="332" y="90" class="sv-tag" fill="var(--dim)">research, then recommend</text>
+          <rect x="320" y="109" width="290" height="38" rx="4" fill="var(--card)" stroke="var(--line)"/>
+          <text x="332" y="127">"fix this file" · one bounded thing</text><text x="332" y="141" class="sv-tag" fill="var(--dim)">do it directly</text>
+          <rect x="320" y="160" width="290" height="38" rx="4" fill="var(--card)" stroke="var(--go)"/>
+          <text x="332" y="178">"build X" — splits into pieces</text><text x="332" y="192" class="sv-tag" fill="var(--dim)">→ THE GATE (stage 4)</text>
+          <rect x="320" y="210" width="290" height="38" rx="4" fill="var(--card)" stroke="var(--line)"/>
+          <text x="332" y="228">"carry on" after an interruption</text><text x="332" y="242" class="sv-tag" fill="var(--dim)">fa status → fa resume</text>
+        </g>
+        <g stroke="var(--edge)" stroke-width="1.1" marker-end="url(#ar)">
+          <line x1="614" y1="27" x2="656" y2="27"/><line x1="614" y1="77" x2="656" y2="77"/>
+          <line x1="614" y1="128" x2="656" y2="128"/><line x1="614" y1="179" x2="656" y2="179"/>
+          <line x1="614" y1="229" x2="656" y2="229"/>
+        </g>
+        <rect x="660" y="8" width="336" height="140" rx="4" fill="var(--sunk)" stroke="var(--line)"/>
+        <text x="674" y="30" class="sv-tag" fill="var(--faint)">HANDLED IN THE COORDINATOR'S OWN CONTEXT</text>
+        <g class="sv-label" fill="var(--ink)">
+          <text x="674" y="56">Already loaded. Already paid for.</text>
+          <text x="674" y="82" class="sv-tag" fill="var(--dim)">A worker starts cold, on a weaker model,</text>
+          <text x="674" y="98" class="sv-tag" fill="var(--dim)">and cannot ask you anything.</text>
+          <text x="674" y="126" fill="var(--go)">If writing the spec takes as long</text>
+          <text x="674" y="142" fill="var(--go)">as doing the work — do the work.</text>
+        </g>
+        <rect x="660" y="160" width="336" height="88" rx="4" fill="var(--card)" stroke="var(--go)"/>
+        <text x="674" y="182" class="sv-tag" fill="var(--faint)">ONLY THIS ROUTE USES LANES</text>
+        <text x="674" y="208" class="sv-label" fill="var(--ink)">Everything else stays in one context.</text>
+        <text x="674" y="230" class="sv-tag" fill="var(--dim)">Fanning out is never the default.</text>
+      </svg>
+      </div>
+      <figcaption>Four of five routes never touch a lane. That is deliberate: orchestration only pays
+      when the work genuinely splits.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section>
+  <div class="num">04</div>
+  <div class="body">
+    <h2>The gate — both conditions, or work directly</h2>
+    <p class="claim">The second condition is the one that gets forgotten. It is about
+    <strong>throughput, not correctness</strong> — a distinction confirmed by deliberately
+    breaking the rule.</p>
+    <figure>
+      <div class="scroll">
+      <svg viewBox="0 0 1000 208" role="img" aria-label="Both gate conditions must hold or the coordinator works directly">
+        <g class="sv-label" fill="var(--ink)">
+          <rect x="0" y="24" width="330" height="66" rx="4" fill="var(--card)" stroke="var(--line)"/>
+          <text x="14" y="48">A · ≥2 tasks, disjoint files, no deps</text>
+          <text x="14" y="70" class="sv-tag" fill="var(--dim)">cannot write the file boundary? → it is ONE task</text>
+
+          <rect x="0" y="104" width="330" height="66" rx="4" fill="var(--card)" stroke="var(--line)"/>
+          <text x="14" y="128">B · fa lanes ≥ 2</text>
+          <text x="14" y="150" class="sv-tag" fill="var(--dim)">live state — a wallet healthy this morning may be cold</text>
+        </g>
+        <g stroke="var(--edge)" stroke-width="1.2" fill="none">
+          <path d="M334 57 L 372 57 L 372 97" marker-end="url(#ar)"/>
+          <path d="M334 137 L 372 137 L 372 101" marker-end="url(#ar)"/>
+        </g>
+        <text x="386" y="102" class="sv-label" fill="var(--edge)">AND</text>
+        <g stroke="var(--edge)" stroke-width="1.2" marker-end="url(#ar)">
+          <line x1="430" y1="98" x2="470" y2="60"/><line x1="430" y1="102" x2="470" y2="146"/>
+        </g>
+        <g class="sv-label" fill="var(--ink)">
+          <rect x="474" y="30" width="250" height="62" rx="4" fill="var(--card)" stroke="var(--go)"/>
+          <text x="488" y="54" fill="var(--go)">BOTH → orchestrate</text>
+          <text x="488" y="76" class="sv-tag" fill="var(--dim)">plan → dispatch → verify</text>
+
+          <rect x="474" y="118" width="250" height="62" rx="4" fill="var(--card)" stroke="var(--line)"/>
+          <text x="488" y="142">EITHER FAILS → work directly</text>
+          <text x="488" y="164" class="sv-tag" fill="var(--dim)">the default, and usually right</text>
+        </g>
+        <rect x="750" y="30" width="246" height="150" rx="4" fill="var(--sunk)" stroke="var(--line)"/>
+        <text x="764" y="52" class="sv-tag" fill="var(--faint)">TESTED BY BREAKING IT</text>
+        <g class="sv-label" fill="var(--ink)">
+          <text x="764" y="78">5 tasks, 1 lane, gate ignored</text>
+          <text x="764" y="102" fill="var(--go)">→ 5 done, 0 failed</text>
+          <text x="764" y="126" class="sv-tag" fill="var(--dim)">It serialized. Same working output,</text>
+          <text x="764" y="142" class="sv-tag" fill="var(--dim)">just slower. The rule is about</text>
+          <text x="764" y="158" class="sv-tag" fill="var(--dim)">THROUGHPUT, not breakage.</text>
+        </g>
+      </svg>
+      </div>
+      <figcaption>Structural, not lexical — the old version routed on words like "big project", which
+      is wrong in both directions. And the rule is advice about efficiency: orchestrating on one lane
+      buys nothing, but it does not break.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section>
+  <div class="num">05</div>
+  <div class="body">
+    <h2>Dispatch — the loop every task goes through</h2>
+    <p class="claim">One task enters. It walks a ranked chain of candidates, takes a lease on a wallet,
+    invokes an agent, and classifies the result by <strong>who is at fault</strong>.</p>
+    <figure>
+      <div class="scroll">
+      <svg viewBox="0 0 1000 420" role="img" aria-label="The dispatch loop: candidate ordering, lease acquisition, invocation, classification and recording">
+        <g class="sv-tag" fill="var(--faint)">
+          <text x="0" y="12">ORDER CANDIDATES</text><text x="300" y="12">TAKE A LANE</text>
+          <text x="560" y="12">INVOKE</text><text x="790" y="12">CLASSIFY + RECORD</text>
+        </g>
+        <g class="sv-label" fill="var(--ink)">
+          <rect x="0" y="22" width="266" height="132" rx="4" fill="var(--card)" stroke="var(--line)"/>
+          <text x="12" y="42">skip UNSUITABLE models</text>
+          <text x="12" y="58" class="sv-tag" fill="var(--dim)">wrong modality · too small · classifier</text>
+          <text x="12" y="78">skip cooled wallets (breaker)</text>
+          <text x="12" y="96">skip metered unless allowed</text>
+          <text x="12" y="114">sort: metered last, then LRU wallet</text>
+          <text x="12" y="134">then observed per-CATEGORY score</text>
+          <text x="12" y="150" class="sv-tag" fill="var(--dim)">no stats yet? a prior breaks the tie</text>
+
+          <rect x="300" y="22" width="222" height="132" rx="4" fill="var(--card)" stroke="var(--line)"/>
+          <text x="312" y="46">flock on the BUCKET</text>
+          <text x="312" y="64" class="sv-tag" fill="var(--dim)">not the agent, not the model</text>
+          <text x="312" y="92" fill="var(--wallet)">busy → skip this wallet</text>
+          <text x="312" y="110" class="sv-tag" fill="var(--dim)">for the rest of this run</text>
+          <text x="312" y="138">free → hold it, invoke</text>
+
+          <rect x="560" y="22" width="200" height="132" rx="4" fill="var(--card)" stroke="var(--line)"/>
+          <text x="572" y="46">opencode --dir</text>
+          <text x="572" y="68">kilo --dir</text>
+          <text x="572" y="90">hermes via HOME</text>
+          <text x="572" y="106" class="sv-tag" fill="var(--dim)">ignores cwd AND --in</text>
+          <text x="572" y="130">copilot · cursor</text>
+          <text x="572" y="146" class="sv-tag" fill="var(--dim)">no uniform flag exists</text>
+
+          <rect x="790" y="22" width="206" height="132" rx="4" fill="var(--card)" stroke="var(--line)"/>
+          <text x="802" y="46">read the OUTPUT</text>
+          <text x="802" y="64" class="sv-tag" fill="var(--dim)">never the exit code —</text>
+          <text x="802" y="80" class="sv-tag" fill="var(--dim)">these CLIs exit 0 on</text>
+          <text x="802" y="96" class="sv-tag" fill="var(--dim)">404s and billing refusals</text>
+          <text x="802" y="126">→ one of 8 states</text>
+          <text x="802" y="146" class="sv-tag" fill="var(--dim)">see attribution below</text>
+        </g>
+        <g stroke="var(--edge)" stroke-width="1.2" marker-end="url(#ar)">
+          <line x1="270" y1="88" x2="296" y2="88"/><line x1="526" y1="88" x2="556" y2="88"/>
+          <line x1="764" y1="88" x2="786" y2="88"/>
+        </g>
+        <path d="M893 158 L 893 186 L 120 186 L 120 158" fill="none" stroke="var(--edge)"
+              stroke-width="1.1" stroke-dasharray="4 3" marker-end="url(#ar)"/>
+        <text x="440" y="180" class="sv-tag" fill="var(--dim)" text-anchor="middle">not ok → next candidate (max 6 attempts)</text>
+
+        <g class="sv-tag" fill="var(--faint)"><text x="0" y="222">HOW IT CAN END</text></g>
+        <g class="sv-label" fill="var(--ink)">
+          <rect x="0" y="232" width="192" height="74" rx="4" fill="var(--card)" stroke="var(--go)"/>
+          <text x="12" y="256" fill="var(--go)">0 · ok</text>
+          <text x="12" y="276" class="sv-tag" fill="var(--dim)">output + RUN-META footer</text>
+          <text x="12" y="294" class="sv-tag" fill="var(--dim)">stats recorded</text>
+
+          <rect x="204" y="232" width="192" height="74" rx="4" fill="var(--card)" stroke="var(--line)"/>
+          <text x="216" y="256">2 · exhausted</text>
+          <text x="216" y="276" class="sv-tag" fill="var(--dim)">every candidate tried</text>
+          <text x="216" y="294" class="sv-tag" fill="var(--dim)">and failed</text>
+
+          <rect x="408" y="232" width="192" height="74" rx="4" fill="var(--card)" stroke="var(--wallet)"/>
+          <text x="420" y="256" fill="var(--wallet)">5 · no lane</text>
+          <text x="420" y="276" class="sv-tag" fill="var(--dim)">all wallets busy · NOTHING tried</text>
+          <text x="420" y="294" class="sv-tag" fill="var(--go)">observed: 9 requeues, 0 cost</text>
+
+          <rect x="612" y="232" width="192" height="74" rx="4" fill="var(--card)" stroke="var(--void)"/>
+          <text x="624" y="256" fill="var(--void)">4 · network down</text>
+          <text x="624" y="276" class="sv-tag" fill="var(--dim)">confirmed by probe</text>
+          <text x="624" y="294" class="sv-tag" fill="var(--dim)">NOTHING recorded</text>
+
+          <rect x="816" y="232" width="180" height="74" rx="4" fill="var(--card)" stroke="var(--line)"/>
+          <text x="828" y="256">3 · setup error</text>
+          <text x="828" y="276" class="sv-tag" fill="var(--dim)">no registry, bad flag,</text>
+          <text x="828" y="294" class="sv-tag" fill="var(--dim)">missing dependency</text>
+        </g>
+
+        <rect x="0" y="330" width="996" height="76" rx="4" fill="var(--sunk)" stroke="var(--line)"/>
+        <text x="14" y="352" class="sv-tag" fill="var(--faint)">EVEN ON SUCCESS, THE AGENT IS NOT BELIEVED</text>
+        <g class="sv-label" fill="var(--ink)">
+          <text x="14" y="378">A model can still write to an absolute path, or claim work it never did.</text>
+          <text x="14" y="398" fill="var(--go)">The orchestrator checks the task's declared files exist before journaling it done.</text>
+        </g>
+      </svg>
+      </div>
+      <figcaption>The dashed return path is the fallback chain: a failure moves to the next candidate,
+      preferring a different wallet.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section>
+  <div class="num">06</div>
+  <div class="body">
+    <h2>Attribution — who is blamed decides what is cooled</h2>
+    <p class="claim">This table is the heart of the system. Blame the wrong party and you either
+    bench a healthy wallet for a day, or keep hammering a dead one.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>State</th><th>Meaning</th><th>Blamed</th><th>Effect</th><th class="tnum">First cooldown</th></tr></thead>
+      <tbody>
+        <tr><td>ok</td><td>it worked</td><td><span class="chip c-go">model + wallet</span></td><td>stats++, wallet reset to healthy</td><td class="tnum">—</td></tr>
+        <tr><td>rate_limited</td><td>429, quota, overloaded</td><td><span class="chip c-wallet">wallet</span></td><td>failure count++, breaker at 2</td><td class="tnum">15 min</td></tr>
+        <tr><td>no_credits</td><td>balance out, "free usage exceeded"</td><td><span class="chip c-wallet">wallet</span></td><td>same, longer window</td><td class="tnum">30 min</td></tr>
+        <tr><td>auth_error</td><td>401/403 with no model named</td><td><span class="chip c-wallet">wallet</span></td><td>same</td><td class="tnum">15 min</td></tr>
+        <tr><td>dead</td><td>404, "model not supported"</td><td><span class="chip c-model">model only</span></td><td>that endpoint parked</td><td class="tnum">1 h</td></tr>
+        <tr><td>timeout</td><td>hung, killed</td><td><span class="chip c-model">model only</span></td><td>that endpoint parked</td><td class="tnum">10 min</td></tr>
+        <tr><td>provider_error</td><td>upstream 5xx, gateway blip</td><td><span class="chip c-model">model only</span></td><td>short park — likely transient</td><td class="tnum">10 min</td></tr>
+        <tr><td>context_overflow</td><td>prompt too large</td><td><span class="chip c-void">neither</span></td><td>caller's problem; retry smaller</td><td class="tnum">none</td></tr>
+        <tr><td>local_network</td><td>DNS, refused, TLS — <em>your</em> connection</td><td><span class="chip c-void">nobody</span></td><td><strong>recorded nowhere</strong></td><td class="tnum">none</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <div class="grid2">
+      <div class="panel">
+        <h3>Why cooldowns escalate</h3>
+        <p class="note">A first failure is treated as possibly transient <em>however severe it looks</em>
+        — 15 min, then 60, then 4 h, then 16 h. A genuinely dead key re-fails at once and earns the long
+        window on its own. A blip costs minutes instead of a day.</p>
+        <p class="note">This exists because a single transient 401 once benched a healthy 21-model
+        wallet for 24 hours while it was answering fine.</p>
+      </div>
+      <div class="panel">
+        <h3>Why <span class="m">local_network</span> writes nothing</h3>
+        <p class="note">A failure you caused is not evidence about anyone's model. Without this rule,
+        thirty seconds of bad wifi marks every model tried as dead and poisons the rankings — the only
+        state in the system that compounds.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="num">07</div>
+  <div class="body">
+    <h2>Orchestrator — many tasks, few lanes</h2>
+    <p class="claim">The scheduler never launches a task it cannot place, and it replays a journal
+    rather than trusting its own memory of what it started.</p>
+    <figure>
+      <div class="scroll">
+      <svg viewBox="0 0 1000 300" role="img" aria-label="The orchestrator loop: ready tasks, free lane check, dispatch, verify, journal, with resume by replay">
+        <g class="sv-label" fill="var(--ink)">
+          <rect x="0" y="30" width="176" height="92" rx="4" fill="var(--card)" stroke="var(--line)"/>
+          <text x="12" y="54">ready?</text>
+          <text x="12" y="74" class="sv-tag" fill="var(--dim)">deps all done</text>
+          <text x="12" y="92" class="sv-tag" fill="var(--dim)">files disjoint from</text>
+          <text x="12" y="108" class="sv-tag" fill="var(--dim)">everything running</text>
+
+          <rect x="214" y="30" width="176" height="92" rx="4" fill="var(--card)" stroke="var(--wallet)"/>
+          <text x="226" y="54">a lane free?</text>
+          <text x="226" y="74" class="sv-tag" fill="var(--dim)">width = healthy lanes</text>
+          <text x="226" y="96" fill="var(--wallet)">no → wait, do not</text>
+          <text x="226" y="112" fill="var(--wallet)">launch (kills churn)</text>
+
+          <rect x="428" y="30" width="176" height="92" rx="4" fill="var(--card)" stroke="var(--line)"/>
+          <text x="440" y="54">dispatch</text>
+          <text x="440" y="74" class="sv-tag" fill="var(--dim)">one run.sh per task</text>
+          <text x="440" y="96" class="sv-tag" fill="var(--dim)">journal: started</text>
+
+          <rect x="642" y="30" width="176" height="92" rx="4" fill="var(--card)" stroke="var(--go)"/>
+          <text x="654" y="54">verify</text>
+          <text x="654" y="74" class="sv-tag" fill="var(--dim)">declared files exist?</text>
+          <text x="654" y="96" fill="var(--go)">no → unverified</text>
+          <text x="654" y="112" class="sv-tag" fill="var(--dim)">whatever it claimed</text>
+
+          <rect x="856" y="30" width="140" height="92" rx="4" fill="var(--sunk)" stroke="var(--line)"/>
+          <text x="868" y="54">journal</text>
+          <text x="868" y="74" class="sv-tag" fill="var(--dim)">append-only</text>
+          <text x="868" y="92" class="sv-tag" fill="var(--dim)">one line per</text>
+          <text x="868" y="108" class="sv-tag" fill="var(--dim)">transition</text>
+        </g>
+        <g stroke="var(--edge)" stroke-width="1.2" marker-end="url(#ar)">
+          <line x1="180" y1="76" x2="210" y2="76"/><line x1="394" y1="76" x2="424" y2="76"/>
+          <line x1="608" y1="76" x2="638" y2="76"/><line x1="822" y1="76" x2="852" y2="76"/>
+        </g>
+        <path d="M926 126 L 926 152 L 88 152 L 88 126" fill="none" stroke="var(--edge)"
+              stroke-width="1.1" stroke-dasharray="4 3" marker-end="url(#ar)"/>
+        <text x="507" y="146" class="sv-tag" fill="var(--dim)" text-anchor="middle">reap one, re-plan · retry ×2 on real failure · requeue free on no-lane</text>
+
+        <rect x="0" y="180" width="486" height="106" rx="4" fill="var(--card)" stroke="var(--line)"/>
+        <text x="14" y="202" class="sv-tag" fill="var(--faint)">RESUME IS REPLAY, NOT BOOKKEEPING</text>
+        <g class="sv-label" fill="var(--ink)">
+          <text x="14" y="228">"done" is derived from the journal every time.</text>
+          <text x="14" y="252" class="sv-tag" fill="var(--dim)">There is no mutable status field a crash can leave lying.</text>
+          <text x="14" y="274" class="sv-tag" fill="var(--dim)">Kill it mid-run, resume: only outstanding work is dispatched.</text>
+        </g>
+        <rect x="510" y="180" width="486" height="106" rx="4" fill="var(--card)" stroke="var(--line)"/>
+        <text x="524" y="202" class="sv-tag" fill="var(--faint)">WHEN NOTHING CAN RUN</text>
+        <g class="sv-label" fill="var(--ink)">
+          <text x="524" y="228">deadlock → journaled, and named</text>
+          <text x="524" y="252" class="sv-tag" fill="var(--dim)">cycle · unknown dependency id · failed prerequisite</text>
+          <text x="524" y="274" class="sv-tag" fill="var(--dim)">status shows BLOCKED, not "pending"</text>
+        </g>
+      </svg>
+      </div>
+      <figcaption>Journal events: <span class="m">started · done · failed · unverified · attempt_failed ·
+      no_lane · deadlock</span>.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section>
+  <div class="num">08</div>
+  <div class="body">
+    <div class="h2row"><h2>Cross-task memory and handoffs</h2><span class="badge">not built</span></div>
+    <p class="claim">Workers are fully isolated today: a task sees its own spec and nothing else.
+    Everything a previous task learned reaches the next one <em>only</em> as files on disk.</p>
+    <figure>
+      <div class="scroll">
+      <svg viewBox="0 0 1000 300" role="img" aria-label="Comparison: today a worker receives only its spec and the working-directory contract, while the proposed handoff path would add a compressed summary of the tasks it depends on">
+        <g class="sv-tag" fill="var(--faint)"><text x="0" y="12">TODAY — WHAT A WORKER RECEIVES</text></g>
+        <g class="sv-label" fill="var(--ink)">
+          <rect x="0" y="22" width="196" height="104" rx="4" fill="var(--card)" stroke="var(--line)"/>
+          <text x="12" y="46">task A finishes</text>
+          <text x="12" y="68" class="sv-tag" fill="var(--dim)">stdout → .orch/results/</text>
+          <text x="12" y="88" class="sv-tag" fill="var(--dim)">files → the project</text>
+          <text x="12" y="112" class="sv-tag" fill="var(--dim)">journal → done</text>
+
+          <rect x="392" y="22" width="238" height="104" rx="4" fill="var(--card)" stroke="var(--line)"/>
+          <text x="404" y="46">task B starts COLD</text>
+          <text x="404" y="70" class="sv-tag" fill="var(--dim)">its own prompt</text>
+          <text x="404" y="88" class="sv-tag" fill="var(--dim)">+ workdir contract</text>
+          <text x="404" y="112" fill="var(--void)">nothing from A</text>
+        </g>
+        <g stroke="var(--edge)" stroke-width="1.2" marker-end="url(#ar)">
+          <line x1="200" y1="74" x2="240" y2="74"/>
+        </g>
+        <text x="248" y="66" class="sv-tag" fill="var(--dim)">files on disk</text>
+        <text x="248" y="84" class="sv-tag" fill="var(--dim)">are the ONLY channel</text>
+        <g stroke="var(--edge)" stroke-width="1.2" marker-end="url(#ar)">
+          <line x1="352" y1="74" x2="388" y2="74"/>
+        </g>
+        <rect x="656" y="22" width="340" height="104" rx="4" fill="var(--sunk)" stroke="var(--line)"/>
+        <text x="670" y="44" class="sv-tag" fill="var(--faint)">CONSEQUENCE</text>
+        <g class="sv-label" fill="var(--ink)">
+          <text x="670" y="70">B cannot know what A decided,</text>
+          <text x="670" y="90">only what A wrote.</text>
+          <text x="670" y="114" class="sv-tag" fill="var(--dim)">Interface choices, rejected approaches, gotchas — all lost.</text>
+        </g>
+
+        <g class="sv-tag" fill="var(--faint)"><text x="0" y="172">PROPOSED — ONE EXTRA HOP (dashed = does not exist)</text></g>
+        <g class="sv-label" fill="var(--ink)">
+          <rect x="0" y="182" width="196" height="98" rx="4" fill="var(--card)" stroke="var(--line)"/>
+          <text x="12" y="206">task A finishes</text>
+          <text x="12" y="230" class="sv-tag" fill="var(--dim)">same as today</text>
+
+          <rect x="240" y="182" width="196" height="98" rx="4" fill="none" stroke="var(--model)" stroke-dasharray="5 3"/>
+          <text x="252" y="206" fill="var(--model)">capture + compress</text>
+          <text x="252" y="228" class="sv-tag" fill="var(--dim)">summarise A to 1-2 lines</text>
+          <text x="252" y="246" class="sv-tag" fill="var(--dim)">via a free model, on a lane</text>
+          <text x="252" y="268" class="sv-tag" fill="var(--dim)">store in .orch/handoffs/</text>
+
+          <rect x="480" y="182" width="196" height="98" rx="4" fill="none" stroke="var(--model)" stroke-dasharray="5 3"/>
+          <text x="492" y="206" fill="var(--model)">inject into B</text>
+          <text x="492" y="228" class="sv-tag" fill="var(--dim)">only from B.deps[]</text>
+          <text x="492" y="250" class="sv-tag" fill="var(--dim)">bounded: N lines max</text>
+          <text x="492" y="270" class="sv-tag" fill="var(--dim)">never the raw transcript</text>
+
+          <rect x="720" y="182" width="276" height="98" rx="4" fill="var(--card)" stroke="var(--line)"/>
+          <text x="732" y="206">task B starts INFORMED</text>
+          <text x="732" y="230" class="sv-tag" fill="var(--dim)">spec + contract + what A concluded</text>
+          <text x="732" y="256" fill="var(--wallet)">cost: 1 extra call per dependency edge</text>
+        </g>
+        <g stroke="var(--model)" stroke-width="1.2" stroke-dasharray="5 3" marker-end="url(#ar)">
+          <line x1="200" y1="230" x2="236" y2="230"/><line x1="440" y1="230" x2="476" y2="230"/>
+          <line x1="680" y1="230" x2="716" y2="230"/>
+        </g>
+      </svg>
+      </div>
+      <figcaption>The retired Layer B had exactly this: <span class="m">handoff.sh</span> captured a
+      finished task's summary and touched files, <span class="m">compress.sh</span> asked a model to
+      reduce it to one or two sentences. Neither was carried into <span class="m">bin/</span>.</figcaption>
+    </figure>
+
+    <div class="grid2">
+      <div class="panel">
+        <h3>Why it was left out</h3>
+        <ul>
+          <li>Self-contained specs are what make <em>weak</em> models succeed — extra context is also
+          extra to misread.</li>
+          <li>A summary is a lossy claim about work, and this system already learned not to trust an
+          agent's account of itself.</li>
+          <li>It costs a lane call per dependency edge, on the resource that is actually scarce.</li>
+          <li>Tasks are file-disjoint by construction, so the common case genuinely needs nothing.</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h3>When its absence actually bites</h3>
+        <ul>
+          <li>B must match an interface A invented — the signature is in the file, the <em>reasoning</em> is not.</li>
+          <li>A discovered a constraint (a version pin, a broken API) that B will rediscover the hard way.</li>
+          <li>A chain deeper than two, where drift compounds silently.</li>
+          <li>Research-then-build splits, where A's whole output <em>is</em> the context B needs.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>The cheap version, if you want it</h3>
+      <p class="note">No summariser and no extra model call: let a task write a short
+      <span class="m">handoff</span> string as part of its own result, and inject only the handoffs of
+      tasks named in <span class="m">deps[]</span>. It costs nothing on a lane, it is bounded by
+      construction, and it degrades to today's behaviour when a task writes nothing. The expensive
+      version — compressing raw transcripts with a model — is the part that earns its keep only on
+      long chains.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="num">REF</div>
+  <div class="body">
+    <h2>Reference</h2>
+    <div class="grid2">
+      <div class="panel">
+        <h3>Commands you or the agent can run</h3>
+        <div class="kv">
+          <span class="m">fa bootstrap</span><span>discover + probe + skills (first run)</span>
+          <span class="m">fa doctor</span><span>deps, agents, self-test, lanes</span>
+          <span class="m">fa lanes -v</span><span>which wallets, credits, health</span>
+          <span class="m">fa run "…"</span><span>one task, full fallback</span>
+          <span class="m">fa plan "…"</span><span>goal → tasks.json</span>
+          <span class="m">fa go "…"</span><span>plan then run</span>
+          <span class="m">fa status</span><span>progress from the journal</span>
+          <span class="m">fa resume</span><span>continue after anything</span>
+        </div>
+      </div>
+      <div class="panel">
+        <h3>Where state lives</h3>
+        <div class="kv">
+          <span class="m">state/buckets.json</span><span>wallets, health, rankings — the only thing that compounds</span>
+          <span class="m">.orch/tasks.json</span><span>the spec — commit this</span>
+          <span class="m">.orch/journal.ndjson</span><span>this machine's run — gitignored</span>
+          <span class="m">.orch/results/</span><span>raw agent output per task</span>
+        </div>
+        <p class="note">Per-project by default. <span class="m">FREE_AGENTS_STATE</span> points several
+        projects at one registry so health compounds across them.</p>
+      </div>
+      <div class="panel">
+        <h3>Cold-start ordering</h3>
+        <p class="note">A fresh registry has stats for nothing — measured live, <strong>0 of 418</strong>
+        models had any, so 414 tied at zero and were ordered arbitrarily. Models with
+        <em>no observed results</em> are now ordered by context size, output budget, a parameter
+        hint in the id, and an optional seed tier.</p>
+        <p class="note">The prior applies <strong>only</strong> while a model has no stats. Clamping
+        it below the value of one success is not enough — the spread between two priors can still
+        offset an evidence gap — so it is gated on absence of evidence outright. Opinion orders the
+        unknown; evidence orders everything else.</p>
+      </div>
+      <div class="panel">
+        <h3>Tuning</h3>
+        <div class="kv tnum">
+          <span class="m">MAX_PARALLEL</span><span>healthy lane count</span>
+          <span class="m">BREAKER_TRIP</span><span>2 wallet faults → cooldown</span>
+          <span class="m">TASK_RETRIES</span><span>2 after a real failure</span>
+          <span class="m">MAX_ATTEMPTS</span><span>6 candidates per task</span>
+          <span class="m">ATTEMPT_TIMEOUT</span><span>300 s</span>
+          <span class="m">FA_ALLOW_METERED</span><span>off — copilot/cursor excluded</span>
+          <span class="m">CONTEXT_FLOOR</span><span>200000 — unknown context kept</span>
+          <span class="m">BLOAT_WARN_TOKENS</span><span>8000 — prompt size warning</span>
+        </div>
+      </div>
+      <div class="panel">
+        <h3>Metered lanes</h3>
+        <p class="note">copilot and cursor are a <strong>depleting monthly allowance</strong>, not an
+        unlimited pool. Invisible unless enabled, and tried <em>last</em> when they are. They cannot
+        bill you — overage is blocked, so they stop. Credits and reset date show in
+        <span class="m">fa lanes -v</span>.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="num">EVID</div>
+  <div class="body">
+    <h2>What has actually been observed</h2>
+    <p class="claim">Three real projects, 19 tasks, all built unattended on free models. Worth
+    separating what has been <em>seen</em> from what is only <em>tested</em>.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>Project</th><th>Shape</th><th class="tnum">Tasks</th><th class="tnum">Peak lanes</th><th>What it proved</th></tr></thead>
+      <tbody>
+        <tr><td>mdsite</td><td>chain</td><td class="tnum">6</td><td class="tnum">3</td>
+            <td>handoffs work — a module reported a feature the spec never asked for and its dependent matched it</td></tr>
+        <tr><td>fmtkit</td><td>wide</td><td class="tnum">8</td><td class="tnum">5</td>
+            <td>full lane saturation; 4 requeues under contention; 7 handoffs into one prompt</td></tr>
+        <tr><td>coldrun</td><td>starved</td><td class="tnum">5</td><td class="tnum">1</td>
+            <td>9 requeues cost nothing; the journal survived; the gate is about speed, not correctness</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <div class="grid2">
+      <div class="panel">
+        <h3>Confirmed outside the test suite</h3>
+        <ul>
+          <li>Handoffs carry decisions a dependent could not otherwise discover</li>
+          <li>Lane leasing and full saturation across four wallets</li>
+          <li><span class="m">no_lane</span> requeues consume no retry budget — 13 observed, 0 attempt failures</li>
+          <li>The journal stays intact under repeated requeueing</li>
+          <li>Suitability filtering removes models that would waste a request</li>
+        </ul>
+      </div>
+      <div class="panel flag" style="border-color:var(--wallet)">
+        <h3>Still only tested, never seen</h3>
+        <p class="note">Across all three projects, <strong>not one real provider failure occurred
+        mid-build.</strong> The circuit breaker, cooldown escalation and cross-wallet rerouting are
+        verified by 185 mutation-tested assertions — and by nothing else.</p>
+        <p class="note">coldrun was built to force one, by starving the scheduler to a single lane.
+        It completed 5 of 5 anyway. This free tier is more generous than expected.</p>
+        <p class="note">That gap should close by itself during a genuinely large build. It should
+        <em>not</em> be forced by hammering providers for the sake of a test.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="num">GAPS</div>
+  <div class="body">
+    <h2>What is deliberately not here</h2>
+    <p class="claim">So you can tell a missing feature from a decision.</p>
+    <ul class="gap-list">
+      <li><strong>No token accounting.</strong> On free models the scarce resource is
+      requests-per-credential, not tokens. Nothing counts or budgets tokens.</li>
+      <li><strong>No cross-task memory.</strong> Every worker starts cold with only its spec —
+      see stage 08 for what this costs and what adding it would take.</li>
+      <li><strong>No mid-task recovery.</strong> A failed task is retried from scratch on another
+      wallet, not resumed. Session continuity across models exists in the retired
+      <span class="m">oc.sh</span> and was not carried over.</li>
+      <li><strong>No cost or quota forecasting.</strong> Health is observed, never predicted. The tool
+      learns a wallet is cold by trying it.</li>
+      <li><strong>No agent-quality ranking.</strong> Rankings are per model per category. Nothing
+      tracks that, say, kilo follows specs better than hermes.</li>
+      <li><strong>No live leaderboard.</strong> Cold ordering comes from metadata the gateways
+      already publish, plus an optional offline <span class="m">data/model-seed.json</span> you
+      edit yourself. Nothing is fetched at runtime — leaderboards score the flagship, not the
+      <span class="m">:free</span> variant we actually call, and they cannot rank a router at all.</li>
+      <li><strong>Nothing tests real models.</strong> 157 assertions run against stubs. Whether a given
+      free model can follow a spec is not assertable — only observable.</li>
+    </ul>
+  </div>
+</section>
+
+<footer>
+  <p>Drawn from the code at <span class="m">bin/{fa,buckets,run,plan,orch}.sh</span> and
+  <span class="m">bin/lib/classify.sh</span>. Every state, exit code and journal event above was read
+  out of the source, not recalled.</p>
+</footer>
+</div>

@@ -20,6 +20,7 @@ bash bin/lib/classify.sh --self-test   # the error taxonomy, ~1s
 | `test_metered.sh` | Metered wallets are opt-in, counted only when allowed, and always ranked last |
 | `test_plan.sh` | A goal becomes a valid graph; JSON buried in prose is extracted; a model returning no plan is retried rather than fatal; boundary-violating plans are rejected |
 | `test_discover.sh` | Models are attributed to the credential that pays for them; the SAME key in two agents collapses to one lane; no secret is ever stored |
+| `test_handoff.sh` | A task with dependents is asked for a handoff and a task without one is not; the dependency's note reaches its dependents and leaks into nothing else; a missing handoff degrades to the old behaviour; every run reports an estimated prompt size and oversized prompts are called out |
 | `test_concurrency.sh` | Under a 12-task fan-out over 3 lanes: every task finishes, no two tasks ever share a credential, lanes genuinely overlap, and no churn appears even when width is forced above the lane count |
 | `test_helpers.sh` | `kilo-add-openrouter.sh` preserves the credential it depends on, merges rather than replaces, registers only zero-priced models behind an explicit whitelist, and refuses a commented jsonc; `find-free-providers.sh` ranks by free-model count and omits paid-only providers |
 | `test_bootstrap.sh` | `fa bootstrap` builds a registry from real credentials, installs skills into the project, stores no secret, and is idempotent; `fa doctor` refuses before bootstrap, passes after, and warns when only one lane exists |

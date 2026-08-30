@@ -51,6 +51,22 @@ HERMES_ENV="${HERMES_ENV:-$HOME/.hermes/.env}"
 # Observed to HANG rather than error, burning a full attempt timeout every time
 # they are tried. A hang is the worst failure mode here because it costs the most
 # and teaches the least, so these are kept out of the registry entirely.
+# A model must be able to do the job before quality is even a question. These
+# rules are about SUITABILITY, not skill, and they are answered entirely by
+# metadata the provider already hands us - no leaderboard could supply them.
+CONTEXT_FLOOR="${CONTEXT_FLOOR:-200000}"
+
+# The `models --verbose` listings publish no modality, so a metadata-only check
+# lets audio and image models through: google/lyria-* generates MUSIC and sat in
+# the schedulable free set with a 1M context, which no context floor would catch.
+# Matched on the family name, which is the only signal those listings give.
+NONTEXT_FAMILIES="${NONTEXT_FAMILIES:-lyria|whisper|dall-?e|imagen|stable-?diffusion|flux|sora|veo|tts|音|voyage-(multimodal|code|[0-9])}"
+
+# Seed of last resort for cold ordering. Optional, absent by default, and NEVER
+# fetched at runtime: it is a place to park human or leaderboard opinion where it
+# cannot break a run and is overridden the moment real results exist.
+MODEL_SEED="${MODEL_SEED:-${_FA_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}/data/model-seed.json}"
+
 BLOCKLIST_DEFAULT="opencode/big-pickle opencode/mimo-v2.5-free opencode/hy3-free opencode/muse-spark-1.2-contributor-free"
 BLOCKLIST="${BUCKETS_BLOCKLIST:-$BLOCKLIST_DEFAULT}"
 
@@ -229,14 +245,20 @@ models_from_verbose() { # $1=cli  -> provider<TAB>model_arg<TAB>upstream<TAB>fre
   | while IFS=$'\x1f' read -r id json; do
       [[ -z "$id" ]] && continue
       blocked "$id" && continue
-      local provider upstream free
+      local provider upstream free ctx maxout
       provider="$(printf '%s' "$json" | jq -r '.providerID // empty' 2>/dev/null)"
       upstream="$(printf '%s' "$json" | jq -r '.id // empty' 2>/dev/null)"
       free="$(printf '%s' "$json" | jq -r '
                 if (.cost.input // 1) == 0 and (.cost.output // 1) == 0
                 then "true" else "false" end' 2>/dev/null)"
+      # Already in the JSON we parse; previously discarded. A model too small to
+      # hold a real task, or that cannot emit a whole file, fails every time it
+      # is drawn - and each draw costs a request on the resource that is scarce.
+      ctx="$(printf '%s' "$json" | jq -r '.limit.context // 0' 2>/dev/null)"
+      maxout="$(printf '%s' "$json" | jq -r '.limit.output // 0' 2>/dev/null)"
       [[ -z "$provider" || -z "$upstream" ]] && continue
-      printf '%s\t%s\t%s\t%s\n' "$provider" "$id" "$upstream" "${free:-false}"
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t\n' \
+        "$provider" "$id" "$upstream" "${free:-false}" "${ctx:-0}" "${maxout:-0}"
     done
 }
 
@@ -281,6 +303,9 @@ models_hermes() { # -> provider<TAB>model_arg<TAB>upstream<TAB>free
     curl -sS --max-time 45 -H "Authorization: Bearer ${tok}" \
       "${base%/}/models" -o "$out" 2>/dev/null || continue
     jq -e '.data | type == "array"' "$out" >/dev/null 2>&1 || continue
+    # These gateways publish far more than price: context, output budget, and
+    # crucially output MODALITY - which is the only way to tell that a model in
+    # the free set generates audio rather than text.
     jq -r --arg p "$provider" '.data[]
            | . as $m
            | (if ($m.isFree != null) then $m.isFree
@@ -289,7 +314,11 @@ models_hermes() { # -> provider<TAB>model_arg<TAB>upstream<TAB>free
                     and ($m.pricing.completion|tonumber?) == 0) then true
               else ($m.id | test(":free$")) end) as $free
            | select($free)
-           | [$p, $m.id, $m.id, "true"] | @tsv' "$out" 2>/dev/null
+           | [$p, $m.id, $m.id, "true",
+              ($m.context_length // 0),
+              ($m.top_provider.max_completion_tokens // 0),
+              (($m.architecture.output_modalities // []) | join("+"))]
+           | @tsv' "$out" 2>/dev/null
   done < <(hermes_endpoints)
 }
 
@@ -371,8 +400,9 @@ cmd_discover() {
   fi
   # Auto-routed agents expose no model list - the vendor picks per request. One
   # pseudo-model each, so the scheduler has something to address.
-  have copilot     && printf 'copilot\tcopilot\tauto\tauto\ttrue\n' >> "$modfile"
-  have cursor-agent && printf 'cursor\tcursor\tauto\tauto\ttrue\n' >> "$modfile"
+  # Vendor-routed: no model list, no published context. Unknown is kept.
+  have copilot      && printf 'copilot\tcopilot\tauto\tauto\ttrue\t0\t0\t\n' >> "$modfile"
+  have cursor-agent && printf 'cursor\tcursor\tauto\tauto\ttrue\t0\t0\t\n' >> "$modfile"
   log "identities: $(wc -l < "$idfile"), model rows: $(wc -l < "$modfile")"
 
   # Join models to buckets by (agent, provider). A model with no matching
@@ -387,7 +417,10 @@ cmd_discover() {
                        source:.[4], extra:(.[5] // "{}" | fromjson)})) as $ids
   | ($models | split("\n") | map(select(length>0) | split("\t"))
       | map({agent:.[0], provider:.[1], model_arg:.[2],
-             upstream:.[3], free:(.[4]=="true")})) as $models
+             upstream:.[3], free:(.[4]=="true"),
+             context:((.[5] // "0")|tonumber? // 0),
+             max_output:((.[6] // "0")|tonumber? // 0),
+             modality:(.[7] // "")})) as $models
   | ($ids | map({key:(.agent+"|"+.provider), value:.}) | from_entries) as $byap
 
   # CANONICAL WALLET NAME PER FINGERPRINT.
@@ -400,6 +433,18 @@ cmd_discover() {
   # seen (longest, which is the host form when a host is known).
   # "anon" is excluded - it means "no credential", and two unauthenticated
   # gateways are NOT the same wallet.
+  # The context and modality of a model belong to the MODEL, not to whichever
+  # wallet lists it. One source may publish them and another not: the kilo
+  # verbose listing gives no context for its openai provider, while the same
+  # model on the kilocode gateway reports 65K. Without pooling, the identical
+  # model is filtered on one lane and schedulable on another.
+  | ($models | group_by(.upstream)
+      | map({ key: .[0].upstream,
+              value: { context:    (map(.context)    | max),
+                       max_output: (map(.max_output) | max),
+                       modality:   (map(.modality) | map(select(. != "")) | first // "") } })
+      | from_entries) as $meta
+
   | ($ids | group_by(.ident)
       | map({ key: .[0].ident,
               value: (if .[0].ident == "anon" then null
@@ -432,6 +477,32 @@ cmd_discover() {
               models: ([ .[] | . as $m | {
                   upstream: $m.upstream,
                   free: $m.free,
+                  context: (if $m.context > 0 then $m.context else ($meta[$m.upstream].context // 0) end),
+                  max_output: (if $m.max_output > 0 then $m.max_output else ($meta[$m.upstream].max_output // 0) end),
+                  modality: (if $m.modality != "" then $m.modality else ($meta[$m.upstream].modality // "") end),
+                  # A vendor router works, but the model behind it changes per
+                  # request - so it can never be ranked, only tolerated.
+                  router: ($m.upstream | test("(^|/)auto(-beta)?$|^kilo-auto/|^openrouter/auto")),
+                  seed_tier: ($seed[$m.upstream].tier // null),
+                  # First rule that fires wins. Unknown context is KEPT.
+                  suitable: (
+                    ($meta[$m.upstream] // {}) as $x
+                    | (if $m.modality != "" then $m.modality else ($x.modality // "") end) as $mod
+                    | (if $m.context > 0 then $m.context else ($x.context // 0) end) as $ctx
+                    | if ($mod != "" and ($mod | test("text") | not)) then false
+                    elif ($m.upstream | test($nontext)) then false
+                    elif ($m.upstream | test("content-safety|guard|moderation|embedding|^embed|rerank")) then false
+                    elif ($ctx > 0 and $ctx < ($floor|tonumber)) then false
+                    else true end),
+                  unsuitable_reason: (
+                    ($meta[$m.upstream] // {}) as $x
+                    | (if $m.modality != "" then $m.modality else ($x.modality // "") end) as $mod
+                    | (if $m.context > 0 then $m.context else ($x.context // 0) end) as $ctx
+                    | if ($mod != "" and ($mod | test("text") | not)) then "non_text_output"
+                    elif ($m.upstream | test($nontext)) then "non_text_output"
+                    elif ($m.upstream | test("content-safety|guard|moderation|embedding|^embed|rerank")) then "not_a_generalist"
+                    elif ($ctx > 0 and $ctx < ($floor|tonumber)) then "context_too_small"
+                    else null end),
                   routes: [{agent:$m.agent, model_arg:$m.model_arg,
                             provider:$m.provider}],
                   probe: (($old[$bid].models // []
@@ -441,16 +512,22 @@ cmd_discover() {
                     | map(.[0] + {routes: (map(.routes[0]) | unique)}) )
             } } ) | from_entries) as $buckets
 
-  | { schema: 1,
+  | { schema: 2,
       generated_at: (now | todate),
+      context_floor: ($floor|tonumber),
       buckets: $buckets,
       phantom_routes: ($phantom | map({agent, provider, model_arg})),
       counts: {
         buckets: ($buckets | length),
         free_models: ([$buckets[].models[] | select(.free)] | length),
+        usable_models: ([$buckets[].models[] | select(.free and .suitable)] | length),
         phantom: ($phantom | length)
       } }
-  ' > "${REGISTRY}.tmp" || die "failed to build registry"
+  ' --arg floor "$CONTEXT_FLOOR" --arg nontext "$NONTEXT_FAMILIES" \
+    --argjson seed "$( [[ -f "$MODEL_SEED" ]] \
+        && jq -c 'with_entries(select(.key | startswith("_") | not))' "$MODEL_SEED" 2>/dev/null \
+        || echo '{}' )" \
+    > "${REGISTRY}.tmp" || die "failed to build registry"
 
   mv "${REGISTRY}.tmp" "$REGISTRY"
   log "wrote ${REGISTRY}"
@@ -569,7 +646,10 @@ cmd_lanes() {
          and $b.health.state != "no_credits" and $b.health.state != "auth_error"
          and ($metered == "1" or ($b.metered // false) == false)
          and $usable > 0) as $live
-      | "  \(if $live then "LANE    " elif ($b.metered // false) then "metered " else "unusable" end) \($b.id)  \($b.preferred_agent)  \($usable) free  health=\($b.health.state)"' \
+      | ([$b.models[] | select(.free and .suitable == false)] | group_by(.unsuitable_reason)
+         | map("\(length) \(.[0].unsuitable_reason)") | join(" · ")) as $cut
+      | ([$b.models[] | select(.free and .suitable != false)] | length) as $ok
+      | "  \(if $live then "LANE    " elif ($b.metered // false) then "metered " else "unusable" end) \($b.id)  \($b.preferred_agent)  \($ok) usable\(if $cut != "" then " (\($cut) filtered)" else "" end)  health=\($b.health.state)"' \
       --arg now "$now" --arg metered "${FA_ALLOW_METERED:-0}"
   else
     printf '%s\n' "$n"

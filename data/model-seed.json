@@ -1,0 +1,9 @@
+{
+  "_README": "OPTIONAL cold-start opinion. Never fetched at runtime - edit by hand, or generate from a leaderboard whenever you like. tier 0=avoid, 1=neutral (default), 2=good, 3=preferred. It only breaks ties between models nothing is yet known about: one observed success outweighs the best possible tier, so this can never override real results. Delete this file and nothing breaks.",
+  "nvidia/nemotron-3-ultra-550b-a55b:free": { "tier": 3, "note": "largest free model reachable here" },
+  "z-ai/glm-5.2:free":                      { "tier": 3, "note": "strong on code" },
+  "cohere/north-mini-code:free":            { "tier": 2, "note": "code-tuned, proven on this machine" },
+  "meituan/longcat-2.0:free":               { "tier": 2, "note": "proven on the nous lane" },
+  "kilo-auto/free":                         { "tier": 1, "note": "router - unpredictable but reliable" },
+  "liquid/lfm-2.5-2.6b:free":               { "tier": 0, "note": "2.6B params, too small for real tasks" }
+}

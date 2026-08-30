@@ -156,6 +156,31 @@ Oversized prompts are the usual upstream cause of `context_overflow` and of
 free-model calls that are slow or wrong for no visible reason. One call in this
 project's own history sent ~31,875 input tokens unnoticed.
 
+## What gets scheduled, and what does not
+
+A model must be able to do the job before quality is even a question. Discovery now
+records what the providers already publish — context size, output budget, output
+modality — and excludes what cannot work:
+
+| Excluded | Why |
+|---|---|
+| `non_text_output` | generates audio or images. `google/lyria-3-*` sat in the free set with a **1M context**, so no context floor would have caught it |
+| `context_too_small` | below `CONTEXT_FLOOR` (200000, configurable) |
+| `not_a_generalist` | classifiers, moderation, embedding and rerank models |
+
+Nothing is deleted — the reason is recorded, and `fa lanes -v` shows it:
+
+```
+kilo:anon  kilo  22 usable (2 context_too_small filtered)  health=ok
+```
+
+**Unknown context is kept.** Where a provider does not publish it, the model is
+accepted as-is. Metadata is also pooled per model across lanes: context belongs to the
+model, not to whichever wallet happens to list it.
+
+Vendor routers (`kilo-auto/free`, `openrouter/auto`, …) are kept and flagged. They work;
+they just cannot be ranked, because the model behind them changes per request.
+
 ## Model ranking (learned, per category)
 
 There is no static "best model" list — free models change too often for one to
@@ -183,6 +208,22 @@ Two rules keep the ranking honest:
 
 Rankings live in `state/buckets.json` under each model's `stats` and `cat_stats`,
 and accumulate as you use the tool.
+
+### Cold start
+
+A fresh registry has stats for nothing, so ordering would otherwise be arbitrary. Models
+with **no observed results at all** are ordered by a prior built from the same metadata:
+context size, output budget, a parameter hint in the id, and an optional tier from
+`data/model-seed.json`.
+
+The prior applies **only** while a model has no stats. Clamping it below the value of one
+success is not enough — the *spread* between two priors can still offset an evidence gap —
+so it is gated on absence of evidence outright. Opinion orders the unknown; evidence orders
+everything else; the two never compete.
+
+`data/model-seed.json` is optional, absent by default, and **never fetched at runtime**.
+It is where leaderboard opinion belongs: edit it by hand or generate it whenever you like.
+It cannot break a run and cannot override a real result. Delete it and nothing changes.
 
 ## Prompts the tool injects for you
 

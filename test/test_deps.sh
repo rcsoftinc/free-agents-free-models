@@ -95,5 +95,34 @@ assert_ne "a self-dependency does not exit 0" "$rc" "0"
 assert_ne "and does not hang (124)" "$rc" "124"
 assert_eq "it never starts" "$(started "$P" selfdep)" "0"
 
+# --- 6. a task blocked on something no agent can supply --------------------
+# Third-party credentials, an unprovisioned service, a decision only the user can
+# make. Dispatching it wastes lane attempts, fails verification, then deadlocks
+# everything downstream. It is a pause, not a failure, and must not fail the run.
+P="$(mkproj '{"tasks":[
+  {"id":"ok1","prompt":"x","deps":[],"files":[]},
+  {"id":"gated","prompt":"y","deps":[],"files":["never.txt"],"blocked":"waiting on a third-party API key"},
+  {"id":"downstream","prompt":"z","deps":["gated"],"files":[]},
+  {"id":"ok2","prompt":"w","deps":[],"files":[]}]}')"
+rc="$(run_orch "$P")"
+assert_eq "a blocked task does not fail the run" "$rc" "0"
+assert_eq "unrelated work still completes" "$(ev "$P" done ok1)" "ok1"
+assert_eq "and so does the other" "$(ev "$P" done ok2)" "ok2"
+assert_eq "the blocked task is never dispatched" "$(started "$P" gated)" "0"
+assert_eq "nor is anything downstream of it" "$(started "$P" downstream)" "0"
+assert_eq "the blocked task is not marked failed" "$(ev "$P" failed gated)" ""
+assert_contains "the run says what it is waiting on" "$(cat "$P/out.log")" "third-party API key"
+assert_contains "and names the downstream task too" "$(cat "$P/out.log")" "downstream"
+st="$( cd "$P" && timeout 30 "$REPO/bin/orch.sh" status 2>&1 )"
+assert_contains "status reports it as WAITING, not failed" "$st" "WAITING"
+assert_not_contains "and not as merely pending" "$st" "pending gated"
+
+# Unblocking it must let a resume pick it up, without re-running finished work.
+jq 'del(.tasks[] | select(.id=="gated") | .blocked)' "$P/.orch/tasks.json" > "$P/t" \
+  && mv "$P/t" "$P/.orch/tasks.json"
+( cd "$P" && TASK_RETRIES=0 timeout 90 "$REPO/bin/orch.sh" resume ) >>"$P/out.log" 2>&1
+assert_true "unblocking lets resume attempt it" '[[ $(started "$P" gated) -ge 1 ]]'
+assert_eq "already-finished work is not re-run" "$(started "$P" ok1)" "1"
+
 end_suite
 final_report

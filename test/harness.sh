@@ -11,6 +11,19 @@ BIN_DIR="${REPO_DIR}/bin"
 STUBS_DIR="${HARNESS_DIR}/stubs"
 ROOT_LOG="${HARNESS_DIR}/test.log"
 
+# SAFETY BY DEFAULT, not by remembering. State went machine-wide, so any suite
+# that simply does not set FREE_AGENTS_STATE now points at the developer's real
+# registry - and one did, bootstrapping fabricated credentials over a live
+# 419-model registry. Sourcing this file redirects state to a throwaway directory
+# immediately, before any suite body runs. fixture_registry then overrides it
+# with its own; a suite that sets it explicitly wins over both.
+#
+# This is placed here rather than in begin_suite because suites call
+# begin_suite BEFORE fixture_registry - a guard at that point fires before the
+# fixture exists and aborts everything.
+export FREE_AGENTS_STATE="${FREE_AGENTS_STATE:-$(mktemp -d)/state}"
+mkdir -p "$FREE_AGENTS_STATE"
+
 # Offline test settings: stub agents only, short timeouts, no real credentials.
 export BACKOFF_BASE=0 BACKOFF_CAP=0 RUNNER_SKIP_PREFLIGHT=1
 export ATTEMPT_TIMEOUT="${ATTEMPT_TIMEOUT:-10}" PROBE_TIMEOUT=10
@@ -118,7 +131,29 @@ stub_log_cat() { [[ -n "${STUB_LOG_FILE:-}" ]] && cat "$STUB_LOG_FILE"; }
 # does not depend on a live machine's credentials.
 
 # ---- reporting ----
-begin_suite() { TT_CURRENT="$1"; echo "========================================"; echo "SUITE: $1"; echo "========================================"; }
+# A test must never be able to write the developer's real registry. This became
+# possible the moment state defaulted to a machine-wide path: any suite that
+# simply does not set FREE_AGENTS_STATE now points at live state, and
+# test_bootstrap.sh did exactly that - bootstrapping FABRICATED credentials over
+# a real 419-model registry.
+#
+# fixture_registry already guards its own path; this guards every suite,
+# including the ones that never call it. It resolves STATE_DIR the way the engine
+# does and refuses to run if the answer is not disposable.
+assert_state_is_disposable() {
+  local resolved
+  resolved="$(bash -c '. '"${REPO_DIR}"'/bin/lib/common.sh; printf "%s" "$STATE_DIR"' 2>/dev/null)"
+  case "$resolved" in
+    /tmp/*|/var/tmp/*) return 0 ;;
+    *)
+      echo "REFUSING TO RUN: this suite would use real state at" >&2
+      echo "  $resolved" >&2
+      echo "Set FREE_AGENTS_STATE to a temp dir, or call fixture_registry first." >&2
+      exit 3 ;;
+  esac
+}
+
+begin_suite() { assert_state_is_disposable; TT_CURRENT="$1"; echo "========================================"; echo "SUITE: $1"; echo "========================================"; }
 end_suite() { echo "----------------------------------------"; echo "SUITE $TT_CURRENT: passed=$TT_PASSED failed=$TT_FAILED"; echo; }
 final_report() {
   echo "========================================"

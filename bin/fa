@@ -29,8 +29,11 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 ROOT="$(cd "${HERE}/.." && pwd)"
-# Must match lib/common.sh: state lives inside this clone unless overridden.
-STATE="${FREE_AGENTS_STATE:-${ROOT}/state}"
+# Do NOT recompute this. Sourcing the engine's own resolution is the only way the
+# two cannot drift - a lesson this project has now learned four times
+# (lanes -v vs lanes, identify vs discover, setup.sh vs the engine, and this).
+. "${HERE}/lib/common.sh"
+STATE="$STATE_DIR"
 
 usage() { sed -n '6,26p' "$0" >&2; exit 3; }
 cmd="${1:-}"; shift || true

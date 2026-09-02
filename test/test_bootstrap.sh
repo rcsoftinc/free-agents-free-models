@@ -29,8 +29,19 @@ cat > "$KILO_CONFIG" <<EOF
 {"provider":{"openai":{"options":{"apiKey":"sk-or-v1-OTHER222","baseURL":"https://openrouter.ai/api/v1"}}}}
 EOF
 echo '{"credential_pool":{}}' > "$HERMES_AUTH"; : > "$HERMES_ENV"
-unset FREE_AGENTS_STATE          # let it default to <clone>/state
-REG="$TOOL/state/buckets.json"
+# Point explicitly at the clone. This suite tests "a fresh clone bootstraps
+# correctly", NOT "the default path is X" - and since the default became
+# machine-wide, unsetting this made the suite bootstrap FABRICATED credentials
+# over the developer's real registry. Never leave it unset in a test.
+export FREE_AGENTS_STATE="$TOOL/state"
+REG="$FREE_AGENTS_STATE/buckets.json"
+
+# The new default is machine-wide. Assert it by RESOLVING it, never by running
+# anything that would write there.
+resolved="$(HOME=/tmp/fake-home env -u FREE_AGENTS_STATE -u XDG_STATE_HOME \
+  bash -c '. '"$REPO"'/bin/lib/common.sh; printf "%s" "$STATE_DIR"')"
+assert_eq "with no override, state resolves machine-wide" \
+          "$resolved" "/tmp/fake-home/.local/state/free-agents"
 
 # --- doctor BEFORE bootstrap: must refuse, not pretend ----------------------
 out="$(timeout 90 "$FA" doctor 2>&1)"; rc=$?

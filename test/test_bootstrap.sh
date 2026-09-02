@@ -47,7 +47,7 @@ assert_eq "with no override, state resolves machine-wide" \
 out="$(timeout 90 "$FA" doctor 2>&1)"; rc=$?
 assert_ne "doctor fails when there is no registry" "$rc" "0"
 assert_contains "doctor says the registry is missing" "$out" "MISSING"
-assert_contains "doctor tells you how to fix it" "$out" "discover"
+assert_contains "doctor tells you how to fix it" "$out" "fa bootstrap"
 assert_contains "doctor does not claim readiness" "$out" "NOT READY"
 
 # --- bootstrap ---------------------------------------------------------------
@@ -89,7 +89,8 @@ assert_contains "doctor reports the lane count" "$out" "healthy lane"
 first="$(jq -r '[.buckets[] | select((.metered // false) == false)
                  | select([.models[] | select(.free)] | length > 0)][0].id' "$REG")"
 assert_true "a usable bucket exists to trim down to" '[[ -n "$first" && "$first" != "null" ]]'
-jq --arg k "$first" '{schema:1, buckets: {($k): .buckets[$k]}, phantom_routes: [], counts:{}}' \
+jq --arg k "$first" '{schema:1, identified, examined_agents, generated_at,
+                      buckets: {($k): .buckets[$k]}, phantom_routes: [], counts:{}}' \
    "$REG" > "$REG.one" && mv "$REG.one" "$REG"
 assert_eq "the trimmed registry has exactly one lane" \
           "$(FREE_AGENTS_STATE="$TOOL/state" "$TOOL/bin/buckets.sh" lanes)" "1"
@@ -100,6 +101,65 @@ assert_contains "doctor warns that one lane cannot parallelise" "$out" "only ONE
 out="$(timeout 300 "$FA" bootstrap 2>&1)"; rc=$?
 assert_eq "bootstrap can be re-run safely" "$rc" "0"
 assert_json_valid "the registry survives a second bootstrap" "$REG"
+
+
+# --- registry freshness ------------------------------------------------------
+# The question this answers is "do I need to refresh?", and the honest signal is
+# whether the CREDENTIALS or AGENTS changed - not how old the file is. Time only
+# hints at provider model-list drift; it says nothing about the key you added an
+# hour ago, which is the case that actually costs you a lane.
+FRESH="$PROJ/fresh"; mkdir -p "$FRESH"
+st() { FREE_AGENTS_STATE="$FRESH" REGISTRY_MAX_AGE_DAYS="${1:-14}" \
+       bash -c '. '"$TOOL"'/bin/lib/common.sh; registry_status'; }
+save() { cp "$FRESH/keep.json" "$FRESH/buckets.json"; }
+
+assert_eq "no registry at all reads as missing" \
+  "$(FREE_AGENTS_STATE="$PROJ/nowhere" bash -c '. '"$TOOL"'/bin/lib/common.sh; registry_status')" \
+  "missing"
+
+timeout 300 env FREE_AGENTS_STATE="$FRESH" "$FA" bootstrap >/dev/null 2>&1
+cp "$FRESH/buckets.json" "$FRESH/keep.json"
+assert_true "discovery records the credentials it examined" \
+  '[[ "$(jq -r ".identified|length" "$FRESH/keep.json")" -gt 0 ]]'
+assert_eq "a registry just built from these credentials reads as current" "$(st)" "current"
+
+# THE false-positive test, and the reason this is not an mtime check: the nous
+# OAuth token rotates hourly and kilo rewrites its db on every invocation, so
+# both config files look "changed" on any second look. Fingerprints do not move.
+assert_eq "a second look at unchanged credentials is still current" "$(st)" "current"
+
+# A credential that reached no free model produces no bucket. It must not read as
+# new forever - that was the first version of this check, and it cried wolf.
+assert_true "some examined credential produced no bucket (the false-alarm case)" \
+  '[[ "$(jq -r "(.identified|length) - (.buckets|length)" "$FRESH/keep.json")" -ge 0 ]]'
+
+# A key you swapped is invisible until rediscovery - the case worth catching.
+jq '.identified |= map(. + "x")
+    | .buckets |= with_entries(.key = (.key + "x") | .value.id = .key)' \
+   "$FRESH/keep.json" > "$FRESH/buckets.json"
+assert_eq "changed credentials read as stale" "$(st)" "stale:credentials"
+out="$(FREE_AGENTS_STATE="$FRESH" timeout 90 "$FA" doctor 2>&1)"
+assert_contains "doctor names the one command that fixes it" "$out" "fa refresh"
+
+# An agent installed since discovery has no lane, so it is unreachable.
+save
+jq '.examined_agents |= map(select(. != "opencode"))' \
+   "$FRESH/keep.json" > "$FRESH/buckets.json"
+assert_eq "an agent never examined reads as stale" "$(st)" "stale:new-agent"
+
+# ...but an agent that WAS examined and reached nothing is a known fact.
+jq '.examined_agents = ["opencode","kilo","hermes","copilot","cursor"]
+    | .buckets |= with_entries(.value.models |= map(.routes |= map(select(.agent != "kilo"))))' \
+   "$FRESH/keep.json" > "$FRESH/buckets.json"
+assert_eq "an examined agent that reached nothing is not stale news" "$(st)" "current"
+
+# Age is advisory ONLY: it hints at provider drift, never proves anything.
+jq --arg d "$(date -u -d '40 days ago' +%Y-%m-%dT%H:%M:%SZ)" '.generated_at = $d' \
+   "$FRESH/keep.json" > "$FRESH/buckets.json"
+assert_eq "a registry past the age hint reports its age" "$(st)" "aged:40"
+out="$(FREE_AGENTS_STATE="$FRESH" timeout 90 "$FA" doctor 2>&1)"
+assert_contains "age is a soft note, not a failure" "$out" "refresh when convenient"
+assert_true "age alone never reports STALE" '[[ "$out" != *"STALE"* ]]'
 
 end_suite
 final_report

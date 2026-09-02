@@ -5,17 +5,29 @@ Work normally — read, edit, debug, explain, answer questions. The only thing t
 changes is that you have several **independent free-model lanes** available, and
 you decide when to use them.
 
-## First, once per project
+## First, before anything else
 
-If `.free-agents/state/buckets.json` does not exist, run:
+Run this once and read it:
 
 ```
-.free-agents/bin/fa bootstrap
+.free-agents/bin/fa doctor
 ```
 
-It finds the credentials this machine's agents already hold, proves each one
-answers, installs the skill cards, and reports the lane count. Takes a couple of
-minutes. It stores no secrets — only fingerprints.
+It checks the machine and reports the registry's state. Act on what it says:
+
+- **`MISSING`** — run `.free-agents/bin/fa bootstrap`. It finds the credentials
+  this machine's agents already hold, proves each one answers, installs the skill
+  cards, and reports the lane count. A couple of minutes. It stores no secrets —
+  only fingerprints.
+- **`STALE`** — run `.free-agents/bin/fa refresh`. The user added a credential or
+  installed an agent since the registry was built, so a lane is invisible.
+- **`note ... days old`** — advisory only. Carry on; mention it once, do not
+  refresh unless asked.
+- **`ok`** — carry on. Never re-bootstrap a healthy registry to "be safe": it
+  costs the user two minutes and a request against every provider.
+
+The registry is machine-wide, so on a machine that has run this before there is
+nothing to do here.
 
 ## Then: decide what I'm asking for, and act
 

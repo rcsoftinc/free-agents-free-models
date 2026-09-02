@@ -380,6 +380,10 @@ cmd_identify() {
 }
 
 cmd_discover() {
+  # One identify pass, reused: it names both the credentials and the agents this
+  # discovery actually looked at, which is what staleness is measured against.
+  local _ident; _ident="$(cmd_identify 2>/dev/null || true)"
+
   local do_probe=0
   [[ "${1:-}" == "--probe" ]] && do_probe=1
 
@@ -515,6 +519,17 @@ cmd_discover() {
   | { schema: 2,
       generated_at: (now | todate),
       context_floor: ($floor|tonumber),
+      # Every credential this pass LOOKED at, including the ones that reached no
+      # model and so produced no bucket. Without this a genuinely new key is
+      # indistinguishable from a known-empty one, and staleness checks either
+      # cry wolf forever or never fire at all.
+      identified: $identified,
+      # Every agent this pass INSPECTED - installed-but-unauthenticated included,
+      # since "looked, found no key" is a finding, not an omission. An agent
+      # missing from here has never been looked at, and only that warrants a
+      # refresh; one present but on no route was looked at and reached nothing,
+      # which refreshing will not change.
+      examined_agents: $examined,
       buckets: $buckets,
       phantom_routes: ($phantom | map({agent, provider, model_arg})),
       counts: {
@@ -524,6 +539,12 @@ cmd_discover() {
         phantom: ($phantom | length)
       } }
   ' --arg floor "$CONTEXT_FLOOR" --arg nontext "$NONTEXT_FAMILIES" \
+    --argjson identified "$(printf '%s\n' "$_ident" \
+        | grep -oE 'bucket=[^ ]+' | sed 's/bucket=//' | sort -u | jq -R . | jq -sc . )" \
+    --argjson examined "$( { printf '%s\n' "$_ident" | awk 'NF{print $1}'
+        for _a in opencode kilo hermes copilot cursor; do
+          command -v "$_a" >/dev/null 2>&1 && printf '%s\n' "$_a"
+        done; } | sort -u | jq -R . | jq -sc . )" \
     --argjson seed "$( [[ -f "$MODEL_SEED" ]] \
         && jq -c 'with_entries(select(.key | startswith("_") | not))' "$MODEL_SEED" 2>/dev/null \
         || echo '{}' )" \

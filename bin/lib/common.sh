@@ -40,6 +40,59 @@ registry_txn() { # $1=jq program; remaining args passed to jq
   ) 9>"$REGISTRY_LOCK"
 }
 
+# Is the registry worth trusting? Age is the WRONG question - health and rankings
+# self-correct at runtime and never go stale, while a credential you added is
+# invisible until rediscovery no matter how recent the file is.
+#
+# So compare FINGERPRINTS, not timestamps. mtime is unusable here: the nous OAuth
+# token rotates hourly and kilo writes session rows on every invocation, so both
+# config files look "changed" constantly. Fingerprints are immune - the nous one
+# is the JWT subject claim, stable across rotation.
+#
+# Echoes: missing | stale:credentials | stale:new-agent | aged:<days> | current
+REGISTRY_MAX_AGE_DAYS="${REGISTRY_MAX_AGE_DAYS:-14}"
+
+registry_status() {
+  [[ -f "$REGISTRY" ]] || { printf 'missing'; return; }
+
+  # Compare against every credential the last pass EXAMINED, not against the
+  # buckets it produced: a key that reached no free model yields no bucket, and
+  # would otherwise look new forever. Older registries predate `identified` and
+  # fall back to bucket keys.
+  local live reg
+  live="$("$(dirname "${BASH_SOURCE[0]}")/../buckets.sh" identify 2>/dev/null \
+          | grep -oE 'bucket=[^ ]+' | sed 's/bucket=//' | sort -u)"
+  reg="$(jq -r '(.identified // (.buckets|keys))[]' "$REGISTRY" 2>/dev/null | sort -u)"
+  if [[ -n "$live" ]] && [[ -n "$(comm -23 <(printf '%s\n' "$live") <(printf '%s\n' "$reg"))" ]]; then
+    printf 'stale:credentials'; return
+  fi
+
+  # An agent installed since the last discovery contributes no lane until refresh.
+  # Only an agent that was never EXAMINED is a reason to refresh. One that was
+  # examined and reached nothing (no key for it) is a known fact, not stale news.
+  local a seen
+  seen="$(jq -r '(.examined_agents // [.buckets[].models[].routes[].agent])|unique[]' \
+          "$REGISTRY" 2>/dev/null)"
+  for a in opencode kilo hermes copilot cursor; do
+    command -v "$a" >/dev/null 2>&1 || continue
+    printf '%s\n' "$seen" | grep -qx "$a" || { printf 'stale:new-agent'; return; }
+  done
+
+  local built age
+  built="$(jq -r '.generated_at // empty' "$REGISTRY" 2>/dev/null)"
+  if [[ -n "$built" ]]; then
+    age=$(( ( $(date +%s) - $(date -d "$built" +%s 2>/dev/null || echo 0) ) / 86400 ))
+    [[ "$age" -gt "$REGISTRY_MAX_AGE_DAYS" ]] && { printf 'aged:%s' "$age"; return; }
+  fi
+  printf 'current'
+}
+
+registry_age_days() {
+  local built; built="$(jq -r '.generated_at // empty' "$REGISTRY" 2>/dev/null)"
+  [[ -z "$built" ]] && { printf '?'; return; }
+  printf '%s' $(( ( $(date +%s) - $(date -d "$built" +%s 2>/dev/null || echo 0) ) / 86400 ))
+}
+
 registry_read() { # $1=jq program; remaining args passed to jq
   local prog="$1"; shift
   [[ -f "$REGISTRY" ]] || die "no registry; run: bin/buckets.sh discover"

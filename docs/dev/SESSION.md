@@ -1,6 +1,6 @@
 # SESSION STATE — read this first on resume
 
-**Last updated:** 2026-08-30
+**Last updated:** 2026-09-02
 
 ---
 
@@ -8,7 +8,7 @@
 
 **Complete, working, and proven on a real project.** Published privately at
 `github.com/noonelifecoach/free-agents-free-models`. Full suite green:
-**185 assertions, 14 suites, ~95s, offline.**
+**210 assertions, 14 suites, ~4m, offline.**
 
 **It has built real software unattended, three times.** All on 2026-08-30, all
 independently verified against what the code does rather than what the agents
@@ -68,9 +68,28 @@ opencode                                    # or kilo / hermes / cursor / copilo
 > paste .free-agents/prompts/coordinator.md # one prompt; it routes on intent
 ```
 
-The agent runs `fa bootstrap` itself. Everything lives in `.free-agents/` (tool +
-`state/`) and `.orch/` (run journal). State is per-project by default;
-`FREE_AGENTS_STATE` shares one registry across projects.
+`setup.sh` bootstraps by itself when the machine has no registry — it announces
+the ~2 min network step first, and `--no-bootstrap` skips it. On a machine that
+has already run it, setup just reports the registry's state and there is nothing
+to do. The tool lives in `.free-agents/`, this project's run journal in `.orch/`,
+and the registry + leases are **machine-wide** at
+`~/.local/state/free-agents` (override with `FREE_AGENTS_STATE`).
+
+**Refreshing is event-driven, never scheduled.** `setup.sh` and `fa doctor` both
+report `current` / `STALE` / `aged:<days>` / `MISSING`, and `fa refresh` (alias
+for `bootstrap`) is the fix. Staleness is measured by **credential fingerprint**,
+because that is what actually invalidates a registry:
+
+| Cause | Detected |
+|---|---|
+| credential added or swapped | exactly — live fingerprints vs `identified` |
+| agent installed | exactly — installed but absent from `examined_agents` |
+| provider changed its free-model list | only a soft age note (default 14 days) |
+| health, cooldowns, rankings | never stale; self-correcting at runtime |
+
+`mtime` was the obvious implementation and is wrong: the nous OAuth token rotates
+hourly and kilo rewrites its db every run, so both configs read as "changed"
+constantly. Fingerprints do not move — the nous one is the token's `sub` claim.
 
 ## What the real run showed
 
@@ -137,6 +156,13 @@ Metered wallets need `FA_ALLOW_METERED=1`. They cannot bill you
 - **Containment differs per agent**: `opencode --dir`, `kilo --dir`, hermes via
   `HOME` (it honours neither `cwd` nor `--in`). There is no uniform flag.
 - **These CLIs exit 0 on hard failures.** Classify on output, never on rc.
+- **Staleness is measured against what discovery EXAMINED, not what it produced.**
+  The registry records `identified` (every credential inspected) and
+  `examined_agents` (every agent inspected, unauthenticated ones included).
+  Comparing against buckets instead would report a key that reached no free
+  model, or an agent with no login, as "new" forever.
+- **Age never fails `doctor`.** It is advisory. Only credential and agent changes
+  are hard staleness.
 
 ## Bugs the test suite found (all fixed)
 
@@ -153,6 +179,11 @@ Metered wallets need `FA_ALLOW_METERED=1`. They cannot bill you
 6. Stub `curl` ignored `-o`, making downloads look like network failures.
 7. `lanes -v` disagreed with `lanes` (twice — display and count now share a
    predicate).
+8. **The freshness check cried wolf twice while being built** — first by comparing
+   live fingerprints to bucket keys (a credential that reached no model has no
+   bucket, so it looked new on every run), then by treating an installed-but-
+   unauthenticated agent as never examined. Both fixed by recording what the
+   discovery pass *looked at*, which is a different set from what it *produced*.
 
 ## What is deliberately NOT tested
 
@@ -167,10 +198,12 @@ Metered wallets need `FA_ALLOW_METERED=1`. They cannot bill you
 Nothing is outstanding and the tool has been proven on a real project. Options,
 roughly in order of value:
 
-0. **IN PROGRESS: a half-built real project.** The first run against an existing
-   codebase rather than a greenfield one. Watch for: tasks that declare a file and
-   leave it unchanged (now caught), specs that assume context the worker does not
-   have, and any findings the run produces.
+0. **IN PROGRESS: a half-built real project**, on another server (no SSH from
+   here). Bring back: `fa findings --issue` output, any task that repeats as
+   `unverified`, and whether a real rate limit finally lands mid-build. This is
+   the first run against an existing codebase rather than a greenfield one. Watch
+   for: tasks that declare a file and leave it unchanged (now caught), specs that
+   assume context the worker does not have, and any findings the run produces.
 1. **A real provider failure mid-build — still unobserved.** Three projects,
    19 tasks, and not one genuine mid-flight failure. coldrun was built to force
    one by starving the scheduler to a single lane; it completed 5/5 anyway. The

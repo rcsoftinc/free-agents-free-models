@@ -102,7 +102,19 @@ Neither exposes a model list — both route through a vendor "Auto" selector —
 each is a single-model bucket. That is fine: the scheduler addresses wallets, not
 models.
 
-## Bootstrap (once per project)
+## Bootstrap (once per machine)
+
+```sh
+.free-agents/setup.sh            # bootstraps automatically if the machine has no registry
+```
+
+That is the whole first run. `setup.sh` builds the registry itself rather than
+printing a command for you to copy, because there was only ever one thing to do
+next. It says so before it starts — that step is the only part of setup that
+leaves the machine (~2 min, one call per provider). `--no-bootstrap` skips it if
+you are scripting setup offline.
+
+You can still drive the pieces yourself:
 
 ```sh
 .free-agents/bin/fa bootstrap    # discover credentials, probe wallets, install skills
@@ -119,6 +131,43 @@ serves every project on the box, and — the reason it is not per-project —
 **leases live there too**, so two projects running at once can see each other's
 locks and will not double-book a wallet. A per-clone registry could not, which
 made simultaneous projects a real collision hazard.
+
+### When to refresh — and why it is not a schedule
+
+```sh
+.free-agents/bin/fa refresh      # same as bootstrap; the word you look for later
+```
+
+Both `setup.sh` and `fa doctor` tell you when you need this, so you should never
+have to guess. What they check is what actually goes out of date:
+
+| What changed | How it is detected |
+|---|---|
+| You added or swapped a credential | **Exactly** — the live fingerprints no longer match the ones discovery recorded |
+| You installed another agent | **Exactly** — the agent is present and was never examined |
+| A provider changed its free-model list | Only time can hint: after 14 days doctor adds a soft note |
+| Health, cooldowns, rankings | Never stale — those self-correct on every run |
+
+There is deliberately **no timer**. A daily "registry is 1 day old" nag would fire
+about the third row, which almost never matters, and stay silent about the first
+two, which cost you a lane the moment they happen.
+
+Nor is it an mtime check, which was the obvious implementation and is wrong here:
+`~/.hermes/auth.json` rewrites hourly when the OAuth token rotates, and kilo
+writes to its database on every invocation, so both files look "changed" on any
+second look. Fingerprints are stable across exactly those events — the nous
+fingerprint is the token's `sub` claim, not the token.
+
+Two distinctions the check has to make, or it cries wolf:
+
+- A credential that was examined but reached no free model produces no bucket.
+  It is not new. Discovery records every credential it *examined*, not only the
+  ones that yielded a lane.
+- An agent installed but not logged in was still examined. Only an agent that
+  discovery has never seen is a reason to refresh.
+
+Age never fails `doctor`; it is advisory. Raise or lower the hint with
+`REGISTRY_MAX_AGE_DAYS` (default 14).
 
 The trade-off: deleting a project's `.free-agents/` no longer removes every
 trace. For a genuinely self-contained project, opt back in:

@@ -79,12 +79,38 @@ Produces `{"<provider>": {"type":"api","key":"..."}}`. Providers seen here:
 
 ## 3. Build the registry and verify
 
+`.free-agents/setup.sh` does this for you on a machine with no registry — it runs
+bootstrap rather than printing the command. Run the pieces by hand only if you
+want to see them individually:
+
 ```sh
 fa discover      # enumerate models per credential actually held
 fa probe         # prove each wallet answers
 fa doctor        # dependencies, agents, taxonomy self-test, lanes
 fa lanes -v
 ```
+
+Later, when you add a key or install another agent:
+
+```sh
+fa refresh       # alias for bootstrap
+```
+
+`fa doctor` tells you when that is needed, so you do not have to track it. It
+reports one of:
+
+| Status | Meaning |
+|---|---|
+| `ok ... credentials unchanged` | the registry matches what this machine holds |
+| `STALE  your credentials changed` | a key was added or swapped — it is invisible until you refresh |
+| `STALE  an agent ... has no lane yet` | an agent was installed after discovery |
+| `note  N days old` | advisory only, never a failure; provider model lists drift |
+| `MISSING` | no registry — run `fa bootstrap` |
+
+Staleness is measured by **credential fingerprint**, not file timestamps. The
+nous OAuth token rotates hourly and kilo writes its database on every run, so
+mtimes report both as changed constantly; the fingerprints do not move. See
+README, "When to refresh".
 
 `fa discover` reads each CLI's own model list per credential — never third-party
 metadata, which produced 7 unreachable routes and missed an entire wallet.

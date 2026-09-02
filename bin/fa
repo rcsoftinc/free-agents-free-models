@@ -9,6 +9,7 @@ set -euo pipefail
 # A project gets only its routing rules and its own run journal.
 #
 #   fa bootstrap       FIRST RUN: build the registry, probe wallets, install skills
+#   fa refresh         same thing, run later (credentials or agents changed)
 #   fa install-skills  put the skill cards where the agent runtimes look
 #   fa init            set up the current directory (same as .free-agents/setup.sh)
 #   fa lanes [-v]      how many independent credential lanes are healthy
@@ -43,6 +44,12 @@ case "$cmd" in
     # setup.sh owns project setup; keep `fa init` as an alias so either works.
     exec bash "${ROOT}/setup.sh" "$(pwd)"
     ;;
+  refresh)
+    # Same path as bootstrap. Named separately because "refresh" is the word
+    # people look for once the thing is already set up.
+    exec "${ROOT}/bin/fa" bootstrap "$@"
+    ;;
+
   bootstrap)
     # One command for an agent to run on first use: build the registry, prove the
     # wallets answer, put the skills where runtimes look, and report.
@@ -153,14 +160,24 @@ case "$cmd" in
     else echo "  FAILED  bash bin/lib/classify.sh --self-test"; rc=1; fi
     echo
     echo "credential registry"
-    if [[ -f "${STATE}/buckets.json" ]]; then
-      n="$("${HERE}/buckets.sh" lanes 2>/dev/null || echo 0)"
-      printf '  ok      %s healthy lane(s)\n' "$n"
-      [[ "$n" -lt 1 ]] && { echo "  ERROR: no usable lane - check keys, then: fa discover && fa probe"; rc=1; }
-      [[ "$n" -eq 1 ]] && echo "  note    only ONE lane: parallel work will not help; direct mode is correct"
-    else
-      echo "  MISSING no registry - run: fa discover && fa probe"; rc=1
-    fi
+    case "$(registry_status)" in
+      missing)
+        echo "  MISSING no registry - run: fa bootstrap"; rc=1 ;;
+      stale:credentials)
+        echo "  STALE   your credentials changed since the registry was built."
+        echo "          a key you added is invisible until: fa refresh"; rc=1 ;;
+      stale:new-agent)
+        echo "  STALE   an agent is installed with no lane yet - run: fa refresh"; rc=1 ;;
+      aged:*)
+        printf '  note    %s lane(s), %s days old - refresh when convenient: fa refresh\n' \
+          "$("${HERE}/buckets.sh" lanes 2>/dev/null || echo 0)" "$(registry_age_days)" ;;
+      *)
+        n="$("${HERE}/buckets.sh" lanes 2>/dev/null || echo 0)"
+        printf '  ok      %s healthy lane(s), %s days old, credentials unchanged\n' \
+          "$n" "$(registry_age_days)"
+        [[ "$n" -lt 1 ]] && { echo "  ERROR: no usable lane - check keys, then: fa refresh"; rc=1; }
+        [[ "$n" -eq 1 ]] && echo "  note    only ONE lane: parallel work will not help; direct mode is correct" ;;
+    esac
     echo
     echo "findings"
     ( . "${HERE}/lib/common.sh"; . "${HERE}/lib/findings.sh"

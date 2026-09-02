@@ -161,5 +161,33 @@ out="$(FREE_AGENTS_STATE="$FRESH" timeout 90 "$FA" doctor 2>&1)"
 assert_contains "age is a soft note, not a failure" "$out" "refresh when convenient"
 assert_true "age alone never reports STALE" '[[ "$out" != *"STALE"* ]]'
 
+# --- repo hygiene ------------------------------------------------------------
+# What a clone GIVES you is part of setup, so it is asserted here. All three of
+# these caught something real: 12.3 MB of this dev machine's npm cache tracked in
+# the repo (96% of the tree), a symlink to a directory deleted months earlier
+# that landed broken in every clone, and a stale duplicate of the coordinator
+# playbook under .opencode/ - which opencode loads in preference to the real one
+# when started inside the clone.
+if git -C "$REPO" rev-parse --git-dir >/dev/null 2>&1; then
+  tracked="$(git -C "$REPO" ls-files)"
+
+  assert_true "no machine-local opencode config or npm cache is tracked" \
+    '[[ -z "$(printf "%s\n" "$tracked" | grep -E "^\.(opencode|npm)/")" ]]'
+
+  # A tracked symlink that does not resolve is broken for everyone who clones,
+  # and nothing else in the suite would notice.
+  broken=""
+  while IFS= read -r f; do
+    [[ -z "$f" ]] && continue
+    [[ -L "$REPO/$f" ]] && { readlink -e "$REPO/$f" >/dev/null || broken="$broken $f"; }
+  done <<< "$tracked"
+  assert_eq "every tracked symlink resolves" "$broken" ""
+
+  # The tool is ~0.5 MB of shell and markdown. A cap catches build debris before
+  # it becomes history that everyone downloads forever.
+  mb="$(git -C "$REPO" ls-tree -r -l HEAD | awk '{s+=$4} END {print int(s/1048576)}')"
+  assert_true "the tracked tree stays under 2 MB (is ${mb}MB)" '[[ "$mb" -lt 2 ]]'
+fi
+
 end_suite
 final_report

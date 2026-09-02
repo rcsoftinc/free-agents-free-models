@@ -119,18 +119,25 @@ metadata, which produced 7 unreachable routes and missed an entire wallet.
 
 ```
 myproject/
-├── .free-agents/          the tool clone                    ~316 KB
-│   ├── bin/ prompts/ skills/ docs/ test/ AGENTS.md setup.sh
+├── .free-agents/          the tool clone                    ~458 KB
+│   ├── bin/ prompts/ skills/ data/ docs/ test/ AGENTS.md setup.sh
 │   └── (no state/ — the registry is machine-wide, see below)
 ├── .orch/                 this project's run state
 │   ├── tasks.json         THE SPEC — commit this
 │   ├── journal.ndjson     what happened here                gitignored
 │   ├── results/           raw agent output                  gitignored
 │   └── handoffs/          one line per task                 gitignored
-├── .opencode/skills/      symlinks to the skill cards
-├── .gitignore             gains `.free-agents/`
+├── .opencode/skills/      ABSOLUTE symlinks to the skill cards in the clone
+├── .gitignore             gains `.free-agents/` — only if this is a git repo
 └── ...your code
 ```
+
+`skills/` inside the clone is the **only** copy. A second one under
+`.opencode/skills/` is not merely redundant: opencode reads `.opencode/skills/`
+relative to the directory it is started in, so a stale duplicate in the clone
+silently outranks the real one. The repo tracked exactly that for a while — the
+pre-cleanup coordinator playbook, with the superseded orchestrate gate — until a
+test was added to keep it out.
 
 **Credentials are always outside the project, under every configuration.** The
 tool only ever *reads* these — it never writes them and never copies them in:
@@ -170,14 +177,27 @@ Two consequences:
 
 ## 4. Per machine vs per project
 
+What you actually run, and how often:
+
+| | Once per machine | Once per project |
+|---|---|---|
+| clone the repo into `.free-agents/` | | ✓ |
+| `.free-agents/setup.sh` | | ✓ |
+| `fa bootstrap` (~2 min, network) | ✓ | |
+| `fa refresh` | when a credential or agent changes | |
+
+`setup.sh` runs bootstrap itself when the machine has no registry, so from the
+second project onward there is nothing to wait for — it reports the registry
+state and finishes.
+
 The split is deliberate, and it is the same one `docker login`, `aws`, and `gh`
 make: you reproduce **capability** per machine and **specification** per project.
 
 | | Lives in | Travels with |
 |---|---|---|
-| The tool | `~/.local/share/free-agents-free-models` | this repo |
+| The tool | `.free-agents/` in each project (a clone) | this repo |
 | Credentials | each agent's own config | **nothing — set up per machine** |
-| Learned wallet health | `~/.local/state/free-agents/buckets.json` | nothing (rebuilt by `fa discover && fa probe`) |
+| Learned wallet health | `~/.local/state/free-agents/buckets.json` | nothing (rebuilt by `fa bootstrap`) |
 | Routing rules | `AGENTS.md`, `CLAUDE.md`, `.opencode/skills/` | **your project's git** |
 | Task graph | `.orch/tasks.json` | **your project's git** |
 | Run journal | `.orch/journal.ndjson` | nothing (gitignored) |

@@ -89,6 +89,53 @@ fa lanes -v
 `fa discover` reads each CLI's own model list per credential — never third-party
 metadata, which produced 7 unreachable routes and missed an entire wallet.
 
+## 3b. Where every file lives
+
+```
+myproject/
+├── .free-agents/          the tool clone                    ~316 KB
+│   ├── bin/ prompts/ skills/ docs/ test/ AGENTS.md setup.sh
+│   └── state/             THE REGISTRY                      gitignored
+│       ├── buckets.json   wallets, models, health, rankings  ~260 KB
+│       ├── findings.ndjson
+│       └── leases/        one lock file per wallet
+├── .orch/                 this project's run state
+│   ├── tasks.json         THE SPEC — commit this
+│   ├── journal.ndjson     what happened here                gitignored
+│   ├── results/           raw agent output                  gitignored
+│   └── handoffs/          one line per task                 gitignored
+├── .opencode/skills/      symlinks to the skill cards
+├── .gitignore             gains `.free-agents/`
+└── ...your code
+```
+
+**Credentials are always outside the project, under every configuration.** The
+tool only ever *reads* these — it never writes them and never copies them in:
+
+```
+~/.local/share/opencode/auth.json
+~/.config/kilo/kilo.jsonc      ~/.local/share/kilo/kilo.db
+~/.hermes/auth.json   ~/.hermes/.env   ~/.hermes/config.yaml
+```
+
+### Making the registry global later
+
+Set `FREE_AGENTS_STATE=$HOME/.local/state/free-agents`. Only `state/` moves:
+
+| Moves out | Stays in the project |
+|---|---|
+| `buckets.json`, `findings.ndjson` | `.orch/tasks.json` — the spec |
+| `leases/` | `.orch/journal.ndjson`, `results/`, `handoffs/` |
+| | `.opencode/skills/`, the `.gitignore` entry |
+
+`.orch/` never moves — it records what happened *here*.
+
+Two consequences:
+
+- **Gain:** leases become machine-wide, so two projects running simultaneously
+  stop double-booking a wallet. Today they cannot see each other's leases.
+- **Cost:** deleting `.free-agents/` no longer removes everything.
+
 ## 4. Per machine vs per project
 
 The split is deliberate, and it is the same one `docker login`, `aws`, and `gh`

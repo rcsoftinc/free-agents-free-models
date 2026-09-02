@@ -14,7 +14,14 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT="${1:-$(cd "${HERE}/.." && pwd)}"
-STATE="${FREE_AGENTS_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/free-agents}"
+# Resolve state EXACTLY as the engine does, by sourcing the same file rather than
+# recomputing the path. The two had drifted: this recomputed a machine-wide path
+# while the engine used <clone>/state, so the registry line printed a path and a
+# lane count that came from different places. Sourcing makes that impossible
+# rather than merely fixing it once.
+# shellcheck source=bin/lib/common.sh
+. "${HERE}/bin/lib/common.sh"
+STATE="$STATE_DIR"
 
 say() { printf '[fa] %s\n' "$*"; }
 
@@ -40,13 +47,14 @@ if [[ -d .git ]] && ! grep -qs '^\.free-agents/' .gitignore 2>/dev/null; then
   say "added .free-agents/ to your .gitignore"
 fi
 
-# The credential registry is MACHINE state, shared by every project on this box.
-# Cloning per project does not mean rediscovering credentials per project.
+# The registry lives wherever the engine says it does - inside this clone by
+# default, or at FREE_AGENTS_STATE if set, in which case projects share it.
 if [[ -f "${STATE}/buckets.json" ]]; then
-  say "registry: $("${HERE}/bin/buckets.sh" lanes 2>/dev/null || echo '?') healthy lane(s) (shared, ${STATE})"
+  say "registry: $("${HERE}/bin/buckets.sh" lanes 2>/dev/null || echo '?') healthy lane(s)"
+  say "          ${STATE}"
 else
-  say "no registry yet - run once per MACHINE:"
-  say "    .free-agents/bin/fa discover && .free-agents/bin/fa probe"
+  say "no registry yet - run once for this project:"
+  say "    .free-agents/bin/fa bootstrap"
 fi
 
 cat <<EOF

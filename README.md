@@ -111,14 +111,20 @@ models.
 ```
 
 `bootstrap` reads whatever credentials your agents already hold — it never asks
-for keys and never stores one. `state/` lives inside `.free-agents/`, so deleting
-that folder removes every trace of this tool. The agents stay logged in; their
-keys are their own.
+for keys and never stores one. The agents stay logged in; their keys are their
+own, in their own config files.
 
-Sharing one registry across projects instead (skips re-probing per project):
+The registry is **machine-wide**, at `~/.local/state/free-agents`. One bootstrap
+serves every project on the box, and — the reason it is not per-project —
+**leases live there too**, so two projects running at once can see each other's
+locks and will not double-book a wallet. A per-clone registry could not, which
+made simultaneous projects a real collision hazard.
+
+The trade-off: deleting a project's `.free-agents/` no longer removes every
+trace. For a genuinely self-contained project, opt back in:
 
 ```sh
-export FREE_AGENTS_STATE="$HOME/.local/state/free-agents"
+export FREE_AGENTS_STATE="$PWD/.free-agents/state"   # per-project isolation
 ```
 
 Where each agent keeps its keys, and how to add more: `docs/SETUP.md`.

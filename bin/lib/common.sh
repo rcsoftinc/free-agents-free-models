@@ -1,16 +1,22 @@
 # common.sh - shared paths, logging and registry access.
 # Source, do not execute.
 
-# State lives INSIDE this clone by default, so a project is self-contained: delete
-# the folder and nothing of this tool is left on the machine. Set
-# FREE_AGENTS_STATE to share one registry across projects instead (it costs an
-# extra discover+probe per project not to).
+# State is MACHINE-WIDE by default: one registry serves every project on this box.
+#
+# It lived inside the clone for a while, which made a project self-contained but
+# had a real hazard: leases are files in this directory, so two projects running
+# at once could not see each other's locks and could dispatch onto the SAME
+# wallet simultaneously - exactly the collision this design exists to prevent.
+# A machine-wide directory makes leasing work across projects, and stops every
+# new project re-probing credentials it already knew about.
+#
+# The trade: deleting a project's .free-agents/ no longer removes everything.
+# Set FREE_AGENTS_STATE=<clone>/state to go back to per-project isolation.
 #
 # NOTE: no secrets are stored here. Credentials stay in each agent's own config;
-# the registry keeps only sha256 FINGERPRINTS of them, which is what lets it tell
-# two wallets apart without ever holding a key.
-_FA_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-STATE_DIR="${FREE_AGENTS_STATE:-$(cd "${_FA_LIB_DIR}/../.." && pwd)/state}"
+# this keeps only sha256 FINGERPRINTS, which is what lets it tell two wallets
+# apart without ever holding a key.
+STATE_DIR="${FREE_AGENTS_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/free-agents}"
 REGISTRY="${STATE_DIR}/buckets.json"
 REGISTRY_LOCK="${STATE_DIR}/.registry.lock"
 

@@ -95,10 +95,7 @@ metadata, which produced 7 unreachable routes and missed an entire wallet.
 myproject/
 ├── .free-agents/          the tool clone                    ~316 KB
 │   ├── bin/ prompts/ skills/ docs/ test/ AGENTS.md setup.sh
-│   └── state/             THE REGISTRY                      gitignored
-│       ├── buckets.json   wallets, models, health, rankings  ~260 KB
-│       ├── findings.ndjson
-│       └── leases/        one lock file per wallet
+│   └── (no state/ — the registry is machine-wide, see below)
 ├── .orch/                 this project's run state
 │   ├── tasks.json         THE SPEC — commit this
 │   ├── journal.ndjson     what happened here                gitignored
@@ -113,14 +110,20 @@ myproject/
 tool only ever *reads* these — it never writes them and never copies them in:
 
 ```
-~/.local/share/opencode/auth.json
+~/.local/state/free-agents/       THE REGISTRY — shared by every project
+  ├── buckets.json                wallets, models, health, rankings  ~260 KB
+  ├── findings.ndjson
+  └── leases/                     one lock per wallet, machine-wide
+
+~/.local/share/opencode/auth.json      credentials — read only, never written
 ~/.config/kilo/kilo.jsonc      ~/.local/share/kilo/kilo.db
 ~/.hermes/auth.json   ~/.hermes/.env   ~/.hermes/config.yaml
 ```
 
-### Making the registry global later
+### The registry is global by default
 
-Set `FREE_AGENTS_STATE=$HOME/.local/state/free-agents`. Only `state/` moves:
+It lives at `~/.local/state/free-agents`, **not** inside the clone. Only `state/`
+sits outside the project:
 
 | Moves out | Stays in the project |
 |---|---|
@@ -132,9 +135,12 @@ Set `FREE_AGENTS_STATE=$HOME/.local/state/free-agents`. Only `state/` moves:
 
 Two consequences:
 
-- **Gain:** leases become machine-wide, so two projects running simultaneously
-  stop double-booking a wallet. Today they cannot see each other's leases.
-- **Cost:** deleting `.free-agents/` no longer removes everything.
+- **Why:** leases live in the registry, so a machine-wide one lets two projects
+  running at the same time see each other's locks. Per-clone registries could
+  not, making simultaneous projects a real collision hazard — the exact thing
+  this design exists to prevent.
+- **Cost:** deleting `.free-agents/` no longer removes everything. Set
+  `FREE_AGENTS_STATE="$PWD/.free-agents/state"` for per-project isolation.
 
 ## 4. Per machine vs per project
 

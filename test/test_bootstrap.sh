@@ -161,6 +161,30 @@ out="$(FREE_AGENTS_STATE="$FRESH" timeout 90 "$FA" doctor 2>&1)"
 assert_contains "age is a soft note, not a failure" "$out" "refresh when convenient"
 assert_true "age alone never reports STALE" '[[ "$out" != *"STALE"* ]]'
 
+# --- what setup leaves in .orch -----------------------------------------------
+# `.orch/.gitignore` had two writers that disagreed: setup.sh open-coded a copy
+# that omitted handoffs/ and ran first, and orch.sh's own writer no-ops when the
+# file exists - so every project silently committed its handoffs. One writer now.
+SP="$PROJ/setup-orch"; mkdir -p "$SP"
+cp "$REPO/setup.sh" "$TOOL/setup.sh"
+FREE_AGENTS_STATE="$PROJ/nostate" bash "$TOOL/setup.sh" --no-bootstrap "$SP" >/dev/null 2>&1
+assert_true "setup seeds .orch/tasks.json" '[[ -f "$SP/.orch/tasks.json" ]]'
+for pat in journal.ndjson results/ handoffs/ '*.lock'; do
+  assert_contains "setup's .orch/.gitignore excludes $pat" \
+    "$(cat "$SP/.orch/.gitignore" 2>/dev/null)" "$pat"
+done
+assert_true "the ignore body is defined in orch.sh alone, not copied into setup.sh" \
+  '[[ "$(grep -c "journal.ndjson" "$TOOL/setup.sh")" -eq 0 ]]'
+
+# An older project keeps its incomplete file; repair the one missing line without
+# clobbering anything the user added by hand.
+printf 'journal.ndjson\nresults/\nmine.txt\n' > "$SP/.orch/.gitignore"
+ORCH_PROJECT="$SP" bash "$TOOL/bin/orch.sh" init >/dev/null 2>&1
+assert_contains "an older .orch/.gitignore gains handoffs/" \
+  "$(cat "$SP/.orch/.gitignore")" "handoffs/"
+assert_contains "a hand-added ignore line survives the repair" \
+  "$(cat "$SP/.orch/.gitignore")" "mine.txt"
+
 # --- repo hygiene ------------------------------------------------------------
 # What a clone GIVES you is part of setup, so it is asserted here. All three of
 # these caught something real: 12.3 MB of this dev machine's npm cache tracked in

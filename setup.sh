@@ -41,15 +41,11 @@ say "tool:    $HERE"
 
 chmod +x "${HERE}"/bin/*.sh "${HERE}"/bin/lib/*.sh "${HERE}/bin/fa" \
          "${HERE}/setup.sh" 2>/dev/null || true
-mkdir -p .orch
-[[ -f .orch/tasks.json ]] || echo '{"tasks":[]}' > .orch/tasks.json
-cat > .orch/.gitignore <<'EOF'
-# Commit tasks.json - it is the specification and travels between machines.
-# Everything else here records one machine's run.
-journal.ndjson
-results/
-*.lock
-EOF
+# Let orch.sh define what .orch/ contains. This used to be open-coded here, and
+# the copy drifted: it omitted handoffs/, ran first, and orch.sh's own writer
+# no-ops when the file already exists - so every project committed its handoffs.
+# One writer, no drift.
+ORCH_PROJECT="$PROJECT" "${HERE}/bin/orch.sh" init >/dev/null
 
 # Keep the tool out of the project's git unless the user decides otherwise.
 if [[ -d .git ]] && ! grep -qs '^\.free-agents/' .gitignore 2>/dev/null; then

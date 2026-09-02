@@ -480,7 +480,13 @@ cmd_status() {
 #   results/        NO  - raw agent transcripts.
 write_orch_gitignore() {
   mkdir -p "$ORCH_DIR"
-  [[ -f "${ORCH_DIR}/.gitignore" ]] && return 0
+  # Never clobber a hand-edited file - but do repair the one line that an older
+  # setup.sh left out, or those handoffs stay tracked forever.
+  if [[ -f "${ORCH_DIR}/.gitignore" ]]; then
+    grep -qx 'handoffs/' "${ORCH_DIR}/.gitignore" \
+      || printf 'handoffs/\n' >> "${ORCH_DIR}/.gitignore"
+    return 0
+  fi
   cat > "${ORCH_DIR}/.gitignore" <<'EOF'
 # Commit tasks.json - it is the specification, and it travels between machines.
 # Everything else here is a record of one machine's run.

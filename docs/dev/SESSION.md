@@ -163,6 +163,12 @@ Metered wallets need `FA_ALLOW_METERED=1`. They cannot bill you
   model, or an agent with no login, as "new" forever.
 - **Age never fails `doctor`.** It is advisory. Only credential and agent changes
   are hard staleness.
+- **`skills/` at the repo root is the ONLY copy.** opencode reads
+  `.opencode/skills/` relative to the directory it is started in, so a duplicate
+  inside the clone silently outranks the real one. The repo tracked exactly that
+  — the Aug-27 pre-cleanup coordinator playbook, with the superseded orchestrate
+  gate — for five days. `.opencode/` and `.npm/` are now gitignored and a test
+  asserts neither is tracked.
 
 ## Bugs the test suite found (all fixed)
 
@@ -179,7 +185,14 @@ Metered wallets need `FA_ALLOW_METERED=1`. They cannot bill you
 6. Stub `curl` ignored `-o`, making downloads look like network failures.
 7. `lanes -v` disagreed with `lanes` (twice — display and count now share a
    predicate).
-8. **The freshness check cried wolf twice while being built** — first by comparing
+8. **12.3 MB of npm cache and a broken symlink were committed** — found while
+   recapping what a fresh clone gives you, before cloning on the second server.
+   `.npm/_cacache` was 96% of the tracked tree, and
+   `.opencode/skills/opencode-free-agents` pointed at a directory deleted in the
+   Aug-28 cleanup, landing broken in every clone. History rewritten
+   (`filter-branch`, force-pushed): 217 files / 12.8 MB → 52 files / 458 KB,
+   `.git` 9.8 MB → 588 KB. Three hygiene assertions now guard it.
+9. **The freshness check cried wolf twice while being built** — first by comparing
    live fingerprints to bucket keys (a credential that reached no model has no
    bucket, so it looked new on every run), then by treating an installed-but-
    unauthenticated agent as never examined. Both fixed by recording what the

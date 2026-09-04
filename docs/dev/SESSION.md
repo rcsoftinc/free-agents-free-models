@@ -7,7 +7,8 @@
 ## Where we are
 
 **Complete, working, and proven on a real project.** Published privately at
-`github.com/noonelifecoach/free-agents-free-models`. Full suite green:
+`github.com/rcsoftinc/free-agents-free-models` (moved from `noonelifecoach`
+on 2026-09-04; the three run-record projects below stayed put). Full suite green:
 **210 assertions, 14 suites, ~4m, offline.**
 
 **It has built real software unattended, three times.** All on 2026-08-30, all
@@ -62,7 +63,7 @@ collapses automatically.
 
 ```sh
 cd myproject
-gh repo clone noonelifecoach/free-agents-free-models .free-agents
+gh repo clone rcsoftinc/free-agents-free-models .free-agents
 .free-agents/setup.sh
 opencode                                    # or kilo / hermes / cursor / copilot
 > paste .free-agents/prompts/coordinator.md # one prompt; it routes on intent

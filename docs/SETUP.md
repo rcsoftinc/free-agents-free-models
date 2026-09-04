@@ -16,7 +16,7 @@ GitHub account — it does not by default.
 
 ```sh
 gh auth login                                    # once per machine
-gh repo clone noonelifecoach/free-agents-free-models \
+gh repo clone rcsoftinc/free-agents-free-models \
    ~/.local/share/free-agents-free-models
 ~/.local/share/free-agents-free-models/install.sh
 ```

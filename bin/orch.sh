@@ -176,7 +176,17 @@ capture_handoff() { # $1=task id
   line="$(grep -a "^${HANDOFF_MARK}" "$out" 2>/dev/null | tail -1 || true)"
   line="${line#"$HANDOFF_MARK"}"
   line="$(printf '%s' "$line" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-  [[ -z "$line" ]] && return 0
+  if [[ -z "$line" ]]; then
+    # It was asked for one and did not write it, so every task depending on this
+    # one now starts blind. Nothing fails, the work just quietly gets worse - the
+    # exact shape of problem a test suite cannot see and a real project can.
+    if [[ -n "$(dependents_of "$id")" ]]; then
+      record_finding missing_handoff \
+        "a task with dependents ended without the handoff line it was asked for" \
+        "task=${id} dependents=$(dependents_of "$id" | tr '\n' ' ')" "task=${id}"
+    fi
+    return 0
+  fi
   mkdir -p "$HANDOFFS"
   printf '%.'"$HANDOFF_MAX_CHARS"'s' "$line" > "${HANDOFFS}/${id}.txt"
   journal handoff "$id" "chars=${#line}"
@@ -254,7 +264,7 @@ run_task() { # $1=task id ; runs in a subshell as a background job
 
   journal started "$id"
   set +e
-  "$RUN_SH" -c "$category" -w "$PROJECT" "$prompt" \
+  FA_TASK_ID="$id" "$RUN_SH" -c "$category" -w "$PROJECT" "$prompt" \
     >"$out" 2>"${RESULTS}/${id}.err"
   rc=$?
   set -e

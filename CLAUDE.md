@@ -23,7 +23,7 @@ buckets, nothing else.
 3. **`README.md`** — the user-facing story, and when a registry refresh is needed.
 4. **`docs/SETUP.md`** — install, where each agent hides its credentials, and the
    full file layout (project side vs machine-wide).
-5. **`test/`** — 221 assertions, 14 suites, offline against stubs. The most
+5. **`test/`** — 245 assertions, 15 suites, offline against stubs. The most
    reliable specification here; prose can drift, these cannot.
 
 `docs/dev/ANALYSIS.md` is historical — the original three-layer survey. Useful
@@ -77,16 +77,37 @@ test must also never write into the checkout it is testing.
 
 ## How real usage feeds back
 
-Heavy use surfaces things the taxonomy has not seen. That output is **kept, not
-swallowed** by the classifier's default:
+Heavy use surfaces things no test suite can invent. Findings are how they get
+back here:
 
 ```sh
-fa findings              # what the tool noticed it handled badly
-fa findings --issue      # format one as a GitHub issue
-fa findings --ack        # mark as seen
+fa findings                    # what the tool noticed it handled badly
+fa findings --note "..."       # something only you or the coordinator saw
+fa findings --issue            # format them as GitHub issues
+fa findings --ack              # mark as seen
 ```
 
+Six kinds, and the split matters:
+
+| kind | what it means |
+|---|---|
+| `unclassified` | provider output no taxonomy rule matched — handled as `dead`, but the text is kept |
+| `all_lanes_failed` | every healthy lane failed on one task, so the **task** is the suspect, not the credentials |
+| `unverified_repeat` | a task claimed success without producing its files, more than once |
+| `missing_handoff` | a task with dependents wrote no handoff line, so they ran blind. Nothing failed; the work quietly got worse |
+| `deadlock` | a task graph could not progress |
+| `note` | recorded by hand — the channel for what no heuristic reaches |
+
+The first five are the tool noticing something about itself. **`note` is the one
+that catches "the spec was ambiguous" or "the plan split this wrong"** — real
+failures that no detector will ever see. If you are the coordinator and you
+notice one, record it; otherwise it dies with the terminal session.
+
 Findings are never auto-filed — the coordinator reports, the human decides.
+Everything is redacted on the way in (keys, JWTs, bearer tokens, emails) so a
+finding is safe to paste into a public issue. Repeats collapse by fingerprint,
+so twenty occurrences are one row with a count.
+
 **Real provider error text is the only source of truth for the taxonomy**: two of
 the first four real messages we saw were misclassified, and no amount of invented
 test data would have caught either.

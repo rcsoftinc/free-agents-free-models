@@ -23,6 +23,7 @@ set -euo pipefail
 #   fa resume          continue after any interruption
 #   fa update          git pull the tool
 #   fa findings        things the tool noticed it handled badly
+#   fa findings --note "..."   record something only you or the coordinator saw
 #                        --new    only ones not yet acknowledged
 #                        --issue  emit a ready-to-file GitHub issue
 #                        --ack    mark all as seen
@@ -102,6 +103,27 @@ case "$cmd" in
   findings)
     . "${HERE}/lib/common.sh"; . "${HERE}/lib/findings.sh"
     case "${1:-}" in
+      --note)
+        # Everything else here is something the tool detected about itself. This
+        # is the one channel for what only a person or the coordinator can see:
+        # the spec was ambiguous, the plan split the work wrong, the result
+        # compiled but missed the point. No heuristic reaches those, and without
+        # a way to write them down they are lost when the terminal closes.
+        [[ -n "${2:-}" ]] || { echo "fa findings --note \"what went wrong\" [detail...] [key=value ...]" >&2; exit 3; }
+        note="$2"; shift 2
+        # Anything shaped like key=value becomes a structured field (so `task=t3`
+        # groups and filters like the automatic findings do); the rest is prose.
+        detail=""; kv=()
+        for a in "$@"; do
+          case "$a" in
+            [a-z_]*=*) kv+=("$a") ;;
+            *) detail+="${detail:+ }$a" ;;
+          esac
+        done
+        record_finding note "$note" "${detail:-no further detail}" \
+          "source=manual" ${kv+"${kv[@]}"}
+        echo "[fa] noted. See it with: fa findings"
+        ;;
       --issue) findings_issue "${2:-all}" ;;
       --ack)   findings_ack; echo "[fa] findings marked as seen" ;;
       --new)   findings_show new ;;

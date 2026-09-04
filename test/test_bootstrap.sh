@@ -185,6 +185,29 @@ assert_contains "an older .orch/.gitignore gains handoffs/" \
 assert_contains "a hand-added ignore line survives the repair" \
   "$(cat "$SP/.orch/.gitignore")" "mine.txt"
 
+# --- CLAUDE.md points at files that exist ------------------------------------
+# CLAUDE.md is the entry point an agent reads automatically on landing in this
+# repo, so a dead pointer there is the most expensive kind. It had six: the docs
+# moved to docs/dev/ in the Aug-28 cleanup and the links never followed, and two
+# named a workflow-kit/ directory that was never shipped at all.
+if [[ -f "$REPO/CLAUDE.md" ]]; then
+  missing=""
+  while IFS= read -r ref; do
+    [[ -z "$ref" ]] && continue
+    [[ -e "$REPO/$ref" ]] || missing="$missing $ref"
+  done < <(
+    { grep -oE '`[A-Za-z0-9_./-]+`' "$REPO/CLAUDE.md" | tr -d '`' \
+        | grep -E '\.(md|sh)$|^(bin|docs|test|prompts|skills)/'
+      grep -oE '^bin/[A-Za-z0-9_./-]+' "$REPO/CLAUDE.md"
+    } | sort -u
+  )
+  assert_eq "every path CLAUDE.md names exists" "$missing" ""
+
+  # The two commands it tells a contributor to run before committing.
+  assert_true "CLAUDE.md names the test runner" \
+    '[[ -x "$REPO/test/run_all.sh" || -f "$REPO/test/run_all.sh" ]]'
+fi
+
 # --- repo hygiene ------------------------------------------------------------
 # What a clone GIVES you is part of setup, so it is asserted here. All three of
 # these caught something real: 12.3 MB of this dev machine's npm cache tracked in

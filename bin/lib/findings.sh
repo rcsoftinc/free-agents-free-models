@@ -66,7 +66,15 @@ _grouped() { # $1 = "new" to show only unacknowledged
     | sort_by(-.count)' "$FINDINGS" 2>/dev/null
 }
 
-findings_count() { _grouped "${1:-all}" | jq -r 'length // 0' 2>/dev/null || echo 0; }
+# Always a number. An empty store produced empty output, so anything comparing
+# `fa findings --count` against 0 saw a blank instead of a zero.
+findings_count() {
+  local g n
+  g="$(_grouped "${1:-all}")"
+  [[ -z "$g" ]] && { echo 0; return 0; }
+  n="$(jq -r 'length' <<<"$g" 2>/dev/null)"
+  printf '%s\n' "${n:-0}"
+}
 
 findings_show() {
   local g; g="$(_grouped "${1:-all}")"
@@ -85,6 +93,19 @@ findings_issue() {
     "## \(.kind): \(.summary)\n\n" +
     "Seen **\(.count)x** (first \(.first), last \(.last)).\n\n" +
     "```\n\(.evidence)\n```\n\n" +
+    (if .kind == "all_lanes_failed" then
+       "Every healthy lane failed on this same task, so the credentials are not\n" +
+       "the suspect - the task is. Usually a spec too large or too vague for a\n" +
+       "free model. Check the prompt above against what a worker actually needs:\n" +
+       "a self-contained instruction, not inherited context.\n\n"
+     elif .kind == "missing_handoff" then
+       "This task had dependents and did not end with the handoff line, so those\n" +
+       "tasks ran without knowing what it decided. Nothing failed; the work just\n" +
+       "got quietly worse. Consider whether the handoff request is reaching the\n" +
+       "worker at all, or whether the model is dropping it.\n\n"
+     elif .kind == "note" then
+       "Recorded by hand - the tool could not have detected this one.\n\n"
+     else "" end) +
     (if .assigned then
        "Classified as `\(.assigned)`" +
        (if .kind == "unclassified" then

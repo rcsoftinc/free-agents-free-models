@@ -137,3 +137,37 @@ quota · never blames a model for your network dropping · verifies that a task'
 declared files exist before calling it done.
 
 An agent reporting success is **not** evidence the work happened. Check the files.
+
+## When something goes wrong in a way the tool cannot see
+
+The tool records what it notices about itself: provider output it could not
+classify, a task that claimed success without writing its files, every lane
+failing on one task, a graph that could not progress. Those need nothing from you.
+
+What it **cannot** see is judgement. The spec was ambiguous. The plan split one
+piece of work across two tasks that then fought over the same file. The result
+compiled and missed the point. A worker needed context nobody gave it. You are
+the only one who notices those, and they are lost the moment this session closes.
+
+So write them down as you go:
+
+```
+.free-agents/bin/fa findings --note "what went wrong" [detail...] [task=<id>]
+```
+
+One line, no ceremony, no permission needed. Examples:
+
+```
+fa findings --note "spec for t3 assumed the DB schema from t1 but never said so" task=t3
+fa findings --note "split auth across t4 and t5; both edited login.py and collided" task=t4
+fa findings --note "worker wrote the tests but never ran them" task=t7
+```
+
+At the end of a run, tell me what accumulated:
+
+```
+.free-agents/bin/fa findings
+```
+
+Do **not** file anything anywhere. Report what is there and let me decide — a
+finding is a note to the tool's author, and I am the one who talks to them.

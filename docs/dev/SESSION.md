@@ -9,7 +9,7 @@
 **Complete, working, and proven on a real project.** Published privately at
 `github.com/rcsoftinc/free-agents-free-models` (moved from `noonelifecoach`
 on 2026-09-04; the three run-record projects below stayed put). Full suite green:
-**210 assertions, 14 suites, ~4m, offline.**
+**245 assertions, 15 suites, ~5m, offline.**
 
 **It has built real software unattended, three times.** All on 2026-08-30, all
 independently verified against what the code does rather than what the agents
@@ -151,9 +151,13 @@ Metered wallets need `FA_ALLOW_METERED=1`. They cannot bill you
 - **Verify, do not trust.** A task's declared `files` must exist afterwards AND,
   on an existing codebase, must have **changed** — a file left byte-identical is
   as unverified as one never written. An agent reporting success is not evidence.
-- **Findings are the feedback path.** Unrecognised provider output is kept rather
-  than swallowed by the taxonomy default. Never auto-filed; the coordinator
-  reports, the user decides.
+- **Findings are the feedback path**, and cover six kinds: `unclassified`,
+  `all_lanes_failed`, `unverified_repeat`, `missing_handoff`, `deadlock`, `note`.
+  The first five are the tool noticing something about itself; **`note` is the
+  manual channel** for what no heuristic reaches (an ambiguous spec, a plan that
+  split the work wrong) — without it that class of failure dies with the
+  terminal session. Never auto-filed; the coordinator reports, the user decides.
+  Everything is redacted on the way in, and repeats collapse by fingerprint.
 - **Containment differs per agent**: `opencode --dir`, `kilo --dir`, hermes via
   `HOME` (it honours neither `cwd` nor `--in`). There is no uniform flag.
 - **These CLIs exit 0 on hard failures.** Classify on output, never on rc.

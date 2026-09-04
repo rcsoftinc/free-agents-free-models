@@ -402,6 +402,19 @@ if [[ $attempt -eq 0 ]]; then
   fi
 fi
 
+# Every healthy lane was tried and every one failed on this same task. A wallet
+# fault would have moved us to the next lane and succeeded there; failing on all
+# of them points at the task, not the credentials - usually a spec too big or too
+# vague for a free model. That judgement is invisible in the journal, which
+# records each attempt separately and never says "and none of them worked".
+if [[ $attempt -gt 1 ]]; then
+  record_finding all_lanes_failed \
+    "every available lane failed on the same task" \
+    "$(printf '%s' "$PROMPT" | head -c 300)" \
+    "attempts=${attempt}" "prompt_tokens=${est:-?}" "category=${CATEGORY}" \
+    "task=${FA_TASK_ID:-}"
+fi
+
 log "exhausted after ${attempt} attempt(s)"
 printf '%s %s\n' '---RUN-META---' \
   "$(jq -cn --argjson n "$attempt" '{attempts:$n, state:"exhausted"}')" >&2

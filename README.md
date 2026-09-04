@@ -47,7 +47,7 @@ Go into your project — empty or existing — and clone the tool into it:
 
 ```sh
 cd ~/projects/thing
-gh repo clone noonelifecoach/free-agents-free-models .free-agents
+gh repo clone rcsoftinc/free-agents-free-models .free-agents
 .free-agents/setup.sh
 ```
 

@@ -193,7 +193,13 @@ Metered wallets need `FA_ALLOW_METERED=1`. They cannot bill you
    Aug-28 cleanup, landing broken in every clone. History rewritten
    (`filter-branch`, force-pushed): 217 files / 12.8 MB → 52 files / 458 KB,
    `.git` 9.8 MB → 588 KB. Three hygiene assertions now guard it.
-9. **The freshness check cried wolf twice while being built** — first by comparing
+9. **`CLAUDE.md` pointed at six files that do not exist** — the entry point an
+   agent reads automatically on landing in the repo. Four docs moved to
+   `docs/dev/` in the Aug-28 cleanup and the links never followed; two named a
+   `workflow-kit/` directory that was never shipped. Rewritten as the contributor
+   entry point (distinct from `prompts/coordinator.md`, which is for an agent
+   *using* the tool), with a test asserting every path it names resolves.
+10. **The freshness check cried wolf twice while being built** — first by comparing
    live fingerprints to bucket keys (a credential that reached no model has no
    bucket, so it looked new on every run), then by treating an installed-but-
    unauthenticated agent as never examined. Both fixed by recording what the

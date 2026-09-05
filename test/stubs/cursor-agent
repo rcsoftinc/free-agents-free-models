@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Stub cursor-agent for offline tests. The real `cursor-agent --version` prints
+# a build stamp like "2026.09.02-c22c1a3"; runs (-p ... --output-format text -f)
+# are answered with a cheap success so metered probes terminate.
+if [[ "${1:-}" == "--version" ]]; then
+  printf '2026.09.02-c22c1a3\n'
+  exit 0
+fi
+printf '%s\n' '{"ok":true,"agent":"cursor","summary":"stub success"}'
+exit 0

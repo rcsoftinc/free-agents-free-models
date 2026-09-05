@@ -35,6 +35,16 @@ STATE="$STATE_DIR"
 
 say() { printf '[fa] %s\n' "$*"; }
 
+# The tool cannot talk to a provider without the system tools - setup previously
+# swallowed a missing jq and declared "Ready." with a silent half-install. Fail
+# loudly (with the apt line) before anything else runs.
+_miss="$(missing_deps)"
+if [[ -n "$_miss" ]]; then
+  say "missing system dependencies: $(tr '\n' ' ' <<<"$_miss")"
+  say "  install them first, e.g.:  sudo apt-get install -y $(tr '\n' ' ' <<<"$_miss")"
+  exit 3
+fi
+
 cd "$PROJECT"
 say "project: $PROJECT"
 say "tool:    $HERE"
@@ -84,7 +94,7 @@ cat <<EOF
 
 Ready.
 
-  1. Start any agent from here:  opencode | kilo | hermes | claude
+  1. Start any agent from here:  opencode | kilo | hermes | copilot | cursor
   2. Paste this into it:         .free-agents/prompts/coordinator.md
   3. Then just talk normally - it picks the mode itself.
 

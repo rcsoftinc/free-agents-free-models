@@ -85,5 +85,12 @@ pos_a=$(printf '%s\n' "$out" | grep -n 'alpha' | head -1 | cut -d: -f1)
 pos_b=$(printf '%s\n' "$out" | grep -n 'beta'  | head -1 | cut -d: -f1)
 assert_true "the provider with MORE free models ranks first" '[[ $pos_a -lt $pos_b ]]'
 
+# --- 8. its "next steps" must point at real commands -------------------------
+# This used to say `bash scripts/bootstrap.sh` (a script that never existed) and
+# `.env` (a file nothing reads). Pinned so the pointers can't rot again.
+assert_not_contains "no reference to the nonexistent scripts/bootstrap.sh" "$out" "scripts/bootstrap.sh"
+assert_contains "the follow-up command is the real one" "$out" "fa refresh"
+assert_contains "the credential locations are real" "$out" "auth.json"
+
 end_suite
 final_report

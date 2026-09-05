@@ -39,13 +39,6 @@ LOG_TAG=buckets
 PROBE_TIMEOUT="${PROBE_TIMEOUT:-90}"
 PROBE_PROMPT='reply with exactly: OK'
 
-OPENCODE_AUTH="${OPENCODE_AUTH:-$HOME/.local/share/opencode/auth.json}"
-HERMES_AUTH="${HERMES_AUTH:-$HOME/.hermes/auth.json}"
-HERMES_CONFIG="${HERMES_CONFIG:-$HOME/.hermes/config.yaml}"
-KILO_DB="${KILO_DB:-$HOME/.local/share/kilo/kilo.db}"
-KILO_CONFIG="${KILO_CONFIG:-$HOME/.config/kilo/kilo.jsonc}"
-HERMES_ENV="${HERMES_ENV:-$HOME/.hermes/.env}"
-
 # Models that are reachable but pathological (hang instead of erroring, so they
 # burn a full attempt timeout on every try). Kept out of the registry entirely.
 # Observed to HANG rather than error, burning a full attempt timeout every time
@@ -76,29 +69,6 @@ trap 'rm -rf "${TEMP_DIR}"' EXIT
 have jq   || die "jq is required"
 have curl || die "curl is required"
 
-# Wallet namespace: the API host the credential actually talks to, so two agents
-# naming the same vendor differently still land in one bucket.
-host_of() { # $1=base_url $2=fallback
-  local h; h="$(printf '%s' "${1:-}" | sed -E 's|^https?://||; s|/.*$||')"
-  printf '%s' "${h:-$2}"
-}
-
-fp() { # stable 12-char fingerprint; never prints the input
-  local v="${1:-}"
-  [[ -z "$v" ]] && { printf 'anon'; return; }
-  printf '%s' "$v" | sha256sum | cut -c1-12
-}
-
-# Subject claim out of a JWT payload, without verifying it (identity only).
-jwt_subject() {
-  local tok="${1:-}" payload
-  [[ -z "$tok" || "$tok" != *.*.* ]] && return 1
-  payload="$(printf '%s' "$tok" | cut -d. -f2 | tr '_-' '/+')"
-  case $(( ${#payload} % 4 )) in 2) payload+='==' ;; 3) payload+='=' ;; esac
-  printf '%s' "$payload" | base64 -d 2>/dev/null \
-    | jq -er '.sub // .email // empty' 2>/dev/null
-}
-
 # ---------------------------------------------------------------- identities --
 # Each line (\x1f-separated):
 #   agent | local_provider | wallet_ns | identity_fp | source | extra_json
@@ -109,122 +79,17 @@ jwt_subject() {
 # protocol rather than its vendor: kilo calls OpenRouter "openai". Keeping them
 # apart is what lets the same key in two agents collapse to one bucket even when
 # each agent labels it differently.
-
-identities_opencode() {
-  have opencode || return 0
-  [[ -f "$OPENCODE_AUTH" ]] || return 0
-  local provider key
-  while IFS=$'\x1f' read -r provider key; do
-    [[ -z "$provider" ]] && continue
-    printf 'opencode\x1f%s\x1f%s\x1f%s\x1f%s\x1f{}\n' \
-      "$provider" "$provider" "$(fp "$key")" "opencode:auth.json"
-  done < <(jq -r 'to_entries[]
-                  | [.key, (.value.key // .value.apiKey // .value.access // "")]
-                  | join("\u001f")' "$OPENCODE_AUTH" 2>/dev/null)
-}
-
-identities_hermes() {
-  have hermes || return 0
-  [[ -f "$HERMES_AUTH" ]] || return 0
-  local provider tok base subj ident
-  while IFS=$'\x1f' read -r provider tok base; do
-    # OAuth access tokens rotate hourly - identify by the subject they carry.
-    subj="$(jwt_subject "$tok" || true)"
-    ident="$(fp "${subj:-$tok}")"
-    printf 'hermes\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\n' \
-      "$provider" "$provider" "$ident" "hermes:auth.json" \
-      "$(jq -cn --arg b "$base" --argjson l "$(jwt_limits "$tok")" \
-          '{base_url:$b, limits:$l}')"
-  done < <(hermes_endpoints)
-}
-
-# Free-tier providers often publish their own limits inside the token.
-jwt_limits() {
-  local tok="${1:-}" payload
-  [[ -z "$tok" || "$tok" != *.*.* ]] && { printf '{}'; return; }
-  payload="$(printf '%s' "$tok" | cut -d. -f2 | tr '_-' '/+')"
-  case $(( ${#payload} % 4 )) in 2) payload+='==' ;; 3) payload+='=' ;; esac
-  printf '%s' "$payload" | base64 -d 2>/dev/null | jq -c '
-    { rpm: .rate_limit_rpm, tpm: .rate_limit_tpm,
-      rph: .rate_limit_rph, tph: .rate_limit_tph,
-      paid: .paid_access, source: .rate_limit_source }
-    | with_entries(select(.value != null))' 2>/dev/null || printf '{}'
-}
-
-identities_kilo() {
-  have kilo || return 0
-  local key=""
-  # kilo keeps its own gateway credential in sqlite; an empty store means the
-  # gateway is serving this machine unauthenticated, which is still a distinct
-  # wallet from any account-backed one.
-  if [[ -f "$KILO_DB" ]] && have sqlite3; then
-    key="$(sqlite3 "$KILO_DB" \
-      "SELECT COALESCE(access_token,'') FROM account LIMIT 1;" 2>/dev/null || true)"
-  fi
-  printf 'kilo\x1fkilo\x1fkilo\x1f%s\x1f%s\x1f{}\n' "$(fp "$key")" \
-    "$([[ -n "$key" ]] && echo 'kilo:kilo.db' || echo 'kilo:unauthenticated')"
-
-  # Extra OpenAI-compatible providers configured in kilo.jsonc (e.g. OpenRouter).
-  # The provider NAME is local config ("openai"); the wallet is the base URL's
-  # host plus the key, so the same key in another agent still collapses to one
-  # bucket regardless of what each agent calls the provider.
-  [[ -f "$KILO_CONFIG" ]] || return 0
-  jq -e . "$KILO_CONFIG" >/dev/null 2>&1 || {
-    log "warning: $KILO_CONFIG is not plain JSON (comments?) - skipping its providers"
-    return 0
-  }
-  local name pkey base
-  while IFS=$'\x1f' read -r name pkey base; do
-    [[ -z "$name" || -z "$pkey" ]] && continue
-    printf 'kilo\x1f%s\x1f%s\x1f%s\x1f%s\x1f{}\n' \
-      "$name" "$(host_of "$base" "$name")" "$(fp "$pkey")" "kilo:kilo.jsonc[$name]"
-  done < <(jq -r '.provider // {} | to_entries[]
-                  | [.key, (.value.options.apiKey // ""), (.value.options.baseURL // "")]
-                  | join("\u001f")' "$KILO_CONFIG" 2>/dev/null)
-}
-
-# METERED agents: copilot and cursor route through an "Auto" model chosen by the
-# vendor, so there is no model list to enumerate - each is one bucket with a
-# single pseudo-model. Their free tiers are a DEPLETING ALLOWANCE rather than an
-# unlimited free pool, so they are marked metered and are excluded from
-# scheduling unless explicitly allowed. They cannot overspend into a bill
-# (GitHub reports overage_permitted:false) - the cost of using them carelessly is
-# exhausting a small monthly budget, not money.
-identities_copilot() {
-  have copilot || return 0
-  local ident="anon" extra='{"metered":true}'
-  if have gh; then
-    local info
-    info="$(gh api /copilot_internal/user 2>/dev/null || true)"
-    if [[ -n "$info" ]]; then
-      ident="$(fp "$(printf '%s' "$info" | jq -r '.login // ""')")"
-      extra="$(printf '%s' "$info" | jq -c '{metered:true,
-        plan: .access_type_sku,
-        renews: .quota_reset_date,
-        overage_permitted: (.quota_snapshots.chat.overage_permitted // false),
-        credits_remaining: (.quota_snapshots.chat.remaining // null),
-        credits_entitlement: (.quota_snapshots.chat.entitlement // null)}' 2>/dev/null || echo '{"metered":true}')"
-    fi
-  fi
-  printf 'copilot\x1fcopilot\x1fcopilot\x1f%s\x1f%s\x1f%s\n' \
-    "$ident" "copilot:github" "$extra"
-}
-
-identities_cursor() {
-  have cursor-agent || return 0
-  local ident="anon" who
-  who="$(timeout 20 cursor-agent status 2>/dev/null | grep -oE '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+' | head -1 || true)"
-  [[ -n "$who" ]] && ident="$(fp "$who")"
-  printf 'cursor\x1fcursor\x1fcursor\x1f%s\x1f%s\x1f{"metered":true}\n' \
-    "$ident" "cursor:status"
-}
+#
+# The harnesses are enumerated by the adapter list (bin/lib/adapters.sh); each
+# adapter knows where its own credentials live and how to fingerprint them. The
+# hardcoded `identities_<agent>` functions that used to live here are now the
+# `<agent>_identify` functions in bin/lib/adapters/.
 
 collect_identities() {
-  identities_opencode
-  identities_hermes
-  identities_kilo
-  identities_copilot
-  identities_cursor
+  local a
+  for a in "${FA_AGENTS[@]}"; do
+    ${a}_identify 2>/dev/null || true
+  done
 }
 
 # ------------------------------------------------------------------- models --
@@ -262,97 +127,19 @@ models_from_verbose() { # $1=cli  -> provider<TAB>model_arg<TAB>upstream<TAB>fre
     done
 }
 
-# hermes reaches several gateways. Emit (provider, token, base_url) triples from
-# BOTH sources: OAuth entries carry their own token; env-var-backed entries carry
-# only a base_url and point at a key in ~/.hermes/.env.
-hermes_endpoints() { # -> provider<TAB>token<TAB>base_url
-  [[ -f "$HERMES_AUTH" ]] || return 0
-  local provider tok base envvar val
-  # NOTE: IFS=$'\t' would COLLAPSE consecutive tabs (tab is IFS whitespace), so a
-  # row with an empty token silently shifts base_url into tok. Use a
-  # non-whitespace separator wherever a field may legitimately be empty.
-  while IFS=$'\x1f' read -r provider tok base; do
-    [[ -z "$provider" || -z "$base" ]] && continue
-    if [[ -z "$tok" && -f "$HERMES_ENV" ]]; then
-      envvar="$(printf '%s' "$provider" | tr '[:lower:]' '[:upper:]')_API_KEY"
-      val="$(grep -oP "(?<=^${envvar}=).*" "$HERMES_ENV" 2>/dev/null | head -1)"
-      val="${val%\"}"; val="${val#\"}"; val="${val%\'}"; val="${val#\'}"
-      tok="$val"
-    fi
-    [[ -z "$tok" ]] && continue
-    printf '%s\x1f%s\x1f%s\n' "$provider" "$tok" "$base"
-  done < <(jq -r '.credential_pool // {} | to_entries[]
-                  | . as $e | ($e.value[0] // {})
-                  | [$e.key, (.access_token // .api_key // ""),
-                     (.inference_base_url // .base_url // "")]
-                  | join("\u001f")' "$HERMES_AUTH" 2>/dev/null)
-}
-
-# Ask each gateway what THIS credential can actually see, and use whichever free
-# signal that gateway publishes:
-#   isFree            authoritative when present (kilo gateway)
-#   pricing == 0      OpenAI-style catalogues
-#   ":free" suffix    naming convention; last resort (nous prices nothing)
-# Pricing alone is not enough - the kilo gateway reports "-1" for models whose
-# price is dynamic, which would read as non-zero and hide genuinely free models.
-models_hermes() { # -> provider<TAB>model_arg<TAB>upstream<TAB>free
-  have hermes || return 0
-  local provider tok base out
-  while IFS=$'\x1f' read -r provider tok base; do
-    out="${TEMP_DIR}/hermes.${provider}.models"
-    curl -sS --max-time 45 -H "Authorization: Bearer ${tok}" \
-      "${base%/}/models" -o "$out" 2>/dev/null || continue
-    jq -e '.data | type == "array"' "$out" >/dev/null 2>&1 || continue
-    # These gateways publish far more than price: context, output budget, and
-    # crucially output MODALITY - which is the only way to tell that a model in
-    # the free set generates audio rather than text.
-    jq -r --arg p "$provider" '.data[]
-           | . as $m
-           | (if ($m.isFree != null) then $m.isFree
-              elif ($m.pricing.prompt != null and $m.pricing.completion != null
-                    and ($m.pricing.prompt|tonumber?) == 0
-                    and ($m.pricing.completion|tonumber?) == 0) then true
-              else ($m.id | test(":free$")) end) as $free
-           | select($free)
-           | [$p, $m.id, $m.id, "true",
-              ($m.context_length // 0),
-              ($m.top_provider.max_completion_tokens // 0),
-              (($m.architecture.output_modalities // []) | join("+"))]
-           | @tsv' "$out" 2>/dev/null
-  done < <(hermes_endpoints)
-}
-
 # ------------------------------------------------------------------- probing --
 
-# Invoke one model through one agent. Echoes output, returns rc.
+# Invoke one model through one harness. The adapter list owns the invocation
+# shape (bin/lib/adapters.sh) - buckets.sh and run.sh share one dispatcher, so a
+# harness added later needs no edit here.
 # stdin is closed: these CLIs read stdin, and would otherwise drain the caller's
 # loop input (a read-loop over probes would run exactly once).
 # NOTE: exit codes are unreliable (hermes returns 0 on HTTP 404 and on billing
 # refusal), so callers MUST classify on content, not on rc alone.
-invoke() { # $1=agent $2=model_arg $3=prompt $4=provider(optional)
-  local agent="$1" model="$2" prompt="$3" provider="${4:-}" rc=0 out=""
-  case "$agent" in
-    opencode) out="$(timeout "$PROBE_TIMEOUT" opencode run -m "$model" "$prompt" </dev/null 2>&1)" || rc=$? ;;
-    kilo)     out="$(timeout "$PROBE_TIMEOUT" kilo run -m "$model" --auto "$prompt" </dev/null 2>&1)" || rc=$? ;;
-    hermes)
-      # hermes resolves a bare -m against its ACTIVE provider only, so a model
-      # from any other configured gateway 404s unless --provider names it.
-      if [[ -n "$provider" ]]; then
-        out="$(timeout "$PROBE_TIMEOUT" hermes --provider "$provider" -m "$model" -z "$prompt" </dev/null 2>&1)" || rc=$?
-      else
-        out="$(timeout "$PROBE_TIMEOUT" hermes -m "$model" -z "$prompt" </dev/null 2>&1)" || rc=$?
-      fi
-      ;;
-    *) return 3 ;;
-  esac
-  printf '%s' "$out"
-  return $rc
-}
-
 probe_one() { # $1=agent $2=model_arg $3=provider -> "state<TAB>ms"
   local agent="$1" model="$2" provider="${3:-}" out rc=0 t0 t1
   t0=$(date +%s%3N)
-  out="$(invoke "$agent" "$model" "$PROBE_PROMPT" "$provider")" || rc=$?
+  out="$(adapter_invoke "$agent" "$model" "$provider" "$PROBE_PROMPT")" || rc=$?
   t1=$(date +%s%3N)
   printf '%s\t%s\n' "$(classify "$rc" "$out")" "$((t1 - t0))"
 }
@@ -393,20 +180,14 @@ cmd_discover() {
   [[ -s "$idfile" ]] || die "no agents or credentials found"
 
   : > "$modfile"
-  if have opencode; then
-    models_from_verbose opencode | sed 's/^/opencode\t/' >> "$modfile" || true
-  fi
-  if have kilo; then
-    models_from_verbose kilo | sed 's/^/kilo\t/' >> "$modfile" || true
-  fi
-  if have hermes; then
-    models_hermes | sed 's/^/hermes\t/' >> "$modfile" || true
-  fi
-  # Auto-routed agents expose no model list - the vendor picks per request. One
-  # pseudo-model each, so the scheduler has something to address.
-  # Vendor-routed: no model list, no published context. Unknown is kept.
-  have copilot      && printf 'copilot\tcopilot\tauto\tauto\ttrue\t0\t0\t\n' >> "$modfile"
-  have cursor-agent && printf 'cursor\tcursor\tauto\tauto\ttrue\t0\t0\t\n' >> "$modfile"
+  # Every harness in the adapter list enumerates its own models (opencode and
+  # kilo via `models --verbose`, hermes per gateway, copilot/cursor as a single
+  # vendor-routed pseudo-model each). A harness added to the list needs no edit
+  # here - `<agent>_models` already emits agent-prefixed rows.
+  local a
+  for a in "${FA_AGENTS[@]}"; do
+    ${a}_models 2>/dev/null >> "$modfile" || true
+  done
   log "identities: $(wc -l < "$idfile"), model rows: $(wc -l < "$modfile")"
 
   # Join models to buckets by (agent, provider). A model with no matching
@@ -542,9 +323,7 @@ cmd_discover() {
     --argjson identified "$(printf '%s\n' "$_ident" \
         | grep -oE 'bucket=[^ ]+' | sed 's/bucket=//' | sort -u | jq -R . | jq -sc . )" \
     --argjson examined "$( { printf '%s\n' "$_ident" | awk 'NF{print $1}'
-        for _a in opencode kilo hermes copilot cursor; do
-          command -v "$_a" >/dev/null 2>&1 && printf '%s\n' "$_a"
-        done; } | sort -u | jq -R . | jq -sc . )" \
+        adapters_installed; } | sort -u | jq -R . | jq -sc . )" \
     --argjson seed "$( [[ -f "$MODEL_SEED" ]] \
         && jq -c 'with_entries(select(.key | startswith("_") | not))' "$MODEL_SEED" 2>/dev/null \
         || echo '{}' )" \
@@ -647,31 +426,35 @@ cmd_probe() {
 # touch the network - it reads recorded health only.
 cmd_lanes() {
   [[ -f "$REGISTRY" ]] || { echo 0; return 0; }
-  local now; now="$(now_epoch)"
+  local now nowq metered_include live
+  now="$(now_epoch)"
+  nowq="$(printf '%s' "$now" | jq -R @json)"
+  metered_include="$(metered_include_pred)"
+  # Single-quoted jq with the metered predicate and the timestamp injected. The
+  # count and the -v listing both come from THIS same expression, so they can
+  # never disagree about who is a lane.
+  live='. as $b |
+      ( ( '"$metered_include"' )
+        and (($b.health.cooldown_until // 0) <= '"$nowq"')
+        and $b.health.state != "no_credits" and $b.health.state != "auth_error"
+        and ([$b.models[] | select(.free)
+                 | select((.cooldown_until // 0) <= '"$nowq"')] | length > 0) )'
   local n
-  n="$(registry_read '[ .buckets[]
-        | select($metered == "1" or (.metered // false) == false)
-        | select((.health.cooldown_until // 0) <= ($now|tonumber))
-        | select(.health.state != "no_credits" and .health.state != "auth_error")
-        | select([.models[] | select(.free)
-                  | select((.cooldown_until // 0) <= ($now|tonumber))] | length > 0)
-      ] | length' --arg now "$now" --arg metered "${FA_ALLOW_METERED:-0}")"
+  n="$(registry_read "[ .buckets[] | select(${live}) ] | length")"
   if [[ "${1:-}" == "-v" ]]; then
     printf 'healthy lanes: %s\n' "$n"
-    # Same predicate as the count, so the listing can never disagree with it.
     registry_read '.buckets[]
       | . as $b
       | ([$b.models[] | select(.free)
-          | select((.cooldown_until // 0) <= ($now|tonumber))] | length) as $usable
-      | (($b.health.cooldown_until // 0) <= ($now|tonumber)
+          | select((.cooldown_until // 0) <= '"$nowq"')] | length) as $usable
+      | ( ( '"$metered_include"' )
+         and (($b.health.cooldown_until // 0) <= '"$nowq"')
          and $b.health.state != "no_credits" and $b.health.state != "auth_error"
-         and ($metered == "1" or ($b.metered // false) == false)
          and $usable > 0) as $live
       | ([$b.models[] | select(.free and .suitable == false)] | group_by(.unsuitable_reason)
          | map("\(length) \(.[0].unsuitable_reason)") | join(" · ")) as $cut
       | ([$b.models[] | select(.free and .suitable != false)] | length) as $ok
-      | "  \(if $live then "LANE    " elif ($b.metered // false) then "metered " else "unusable" end) \($b.id)  \($b.preferred_agent)  \($ok) usable\(if $cut != "" then " (\($cut) filtered)" else "" end)  health=\($b.health.state)"' \
-      --arg now "$now" --arg metered "${FA_ALLOW_METERED:-0}"
+      | "  \(if $live then "LANE    " elif ($b.metered // false) then "metered " else "unusable" end) \($b.id)  \($b.preferred_agent)  \($ok) usable\(if $cut != "" then " (\($cut) filtered)" else "" end)  health=\($b.health.state)"'
   else
     printf '%s\n' "$n"
   fi
@@ -688,7 +471,7 @@ cmd_show() {
       "   free models: \([$b.models[] | select(.free)] | length)   probed ok: \([$b.models[] | select(.probe.state=="ok")] | length)",
       (if ($b.limits | length) > 0 then "   limits: \($b.limits | to_entries | map("\(.key)=\(.value)") | join(" "))" else empty end),
       (if ($b.metered // false) then
-        "   METERED - a depleting monthly allowance, not an unlimited pool. Off unless FA_ALLOW_METERED=1, and always tried last."
+        "   METERED - a depleting monthly allowance, not an unlimited pool. In auto mode it counts as a lane only when a token was detected and credits remain; always tried last. FA_METERED=0 disables, =1 forces it."
         + (if $b.meter.credits_remaining != null then
              "\n   credits: \($b.meter.credits_remaining)/\($b.meter.entitlement // $b.meter.credits_entitlement) - renews \($b.meter.renews // "?") - overage \(if $b.meter.overage_permitted then "PERMITTED" else "blocked (it stops, it cannot bill you)" end)"
            else "" end)

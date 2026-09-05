@@ -24,6 +24,16 @@ log()  { printf '[%s] %s\n' "${LOG_TAG:-free-agents}" "$*" >&2; }
 die()  { printf '[%s] ERROR: %s\n' "${LOG_TAG:-free-agents}" "$*" >&2; exit 3; }
 have() { command -v "$1" >/dev/null 2>&1; }
 
+# The system dependencies every entry point needs, and the SINGLE canonical list
+# of harnesses the tool can drive. Both are sourced here so setup.sh, fa,
+# buckets.sh and run.sh ask the same question and can never drift apart.
+_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/deps.sh
+. "${_LIB_DIR}/deps.sh"
+# shellcheck source=lib/adapters.sh
+. "${_LIB_DIR}/adapters.sh"
+unset _LIB_DIR
+
 now_epoch() { date +%s; }
 iso_now()   { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
@@ -70,11 +80,12 @@ registry_status() {
   # An agent installed since the last discovery contributes no lane until refresh.
   # Only an agent that was never EXAMINED is a reason to refresh. One that was
   # examined and reached nothing (no key for it) is a known fact, not stale news.
+  # Iterates the adapter list - a new harness must never be invisible here.
   local a seen
   seen="$(jq -r '(.examined_agents // [.buckets[].models[].routes[].agent])|unique[]' \
           "$REGISTRY" 2>/dev/null)"
-  for a in opencode kilo hermes copilot cursor; do
-    command -v "$a" >/dev/null 2>&1 || continue
+  for a in "${FA_AGENTS[@]}"; do
+    adapter_installed "$a" || continue
     printf '%s\n' "$seen" | grep -qx "$a" || { printf 'stale:new-agent'; return; }
   done
 

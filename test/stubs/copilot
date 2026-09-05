@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Stub copilot for offline tests. The real `copilot --version` prints
+# "GitHub Copilot CLI 1.0.83."; anything else being invoked (by a run on a
+# metered lane) is answered with a cheap success so the probe terminates.
+if [[ "${1:-}" == "--version" ]]; then
+  printf 'GitHub Copilot CLI 1.0.83.\n'
+  exit 0
+fi
+printf '%s\n' '{"ok":true,"agent":"copilot","summary":"stub success"}'
+exit 0

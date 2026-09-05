@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Presence-broom stub: exists solely so the sandbox can prove `fa doctor`
+# notices a harness that has no adapter. It is never dispatched, so the answer
+# to a --version probe is the only behaviour that matters.
+if [[ "${1:-}" == "--version" ]]; then
+  printf 'Claude Code 2.9.0\n'
+  exit 0
+fi
+printf 'ok\n'
+exit 0

@@ -15,10 +15,13 @@ set -euo pipefail
 #   -w, --workdir DIR     run the agent in DIR (default: cwd)
 #   -b, --bucket ID       pin to one bucket (used by the scheduler to hold a lane)
 #   -x, --exclude ID      skip a bucket (repeatable)
-#       --allow-metered   also use metered wallets (copilot, cursor). They spend a
-#                         small MONTHLY ALLOWANCE, not money - GitHub reports
-#                         overage_permitted:false, so they stop rather than bill.
-#                         Off by default; when on they are tried LAST.
+#       --allow-metered   force-include metered wallets (copilot, cursor). They
+#                         spend a small MONTHLY ALLOWANCE, not money - GitHub
+#                         reports overage_permitted:false, so they stop rather
+#                         than bill. Default (FA_METERED=auto) is to include them
+#                         only when a token was detected and credits remain.
+#                         When included they are tried LAST.
+#       --no-metered      force-exclude metered wallets (FA_METERED=0)
 #       --max-attempts N  default 6
 #       --timeout SEC     per-attempt timeout (default 300)
 #       --dry-run         print the candidate chain and exit
@@ -58,6 +61,7 @@ while [[ $# -gt 0 ]]; do
     --timeout)     ATTEMPT_TIMEOUT="$2"; shift 2 ;;
     --dry-run)     DRY_RUN=1; shift ;;
     --allow-metered) export FA_ALLOW_METERED=1; shift ;;
+    --no-metered)    export FA_METERED=0; shift ;;
     -h|--help)     sed -n '6,26p' "$0"; exit 0 ;;
     -)             PROMPT="$(cat)"; shift ;;
     -*)            die "unknown option: $1" ;;
@@ -89,6 +93,9 @@ have flock || die "flock is required"
 [[ $DRY_RUN -eq 1 || -n "$PROMPT" ]] || die "no prompt given"
 [[ -d "$WORKDIR" ]] || die "workdir does not exist: $WORKDIR"
 
+# The adapters apply each harness's own containment flag when they see a workdir.
+export FA_WORKDIR="$WORKDIR"
+
 LEASE_DIR="${STATE_DIR}/leases"
 mkdir -p "$LEASE_DIR"
 
@@ -104,14 +111,17 @@ mkdir -p "$LEASE_DIR"
 candidates() {
   local now; now="$(now_epoch)"
   local ex_json; ex_json="$(printf '%s\n' "${EXCLUDES[@]:-}" | jq -R . | jq -sc 'map(select(length>0))')"
+  local metered_include; metered_include="$(metered_include_pred)"
   registry_read '
     [ .buckets[]
       | select(($pin == "") or (.id == $pin))
       | select((.health.cooldown_until // 0) <= ($now|tonumber))
       | select((.id | IN($ex[])) | not)
       # A metered wallet spends a small monthly allowance rather than an
-      # unlimited free pool, so it is invisible unless explicitly allowed.
-      | select($metered == "1" or (.metered // false) == false)
+      # unlimited free pool. In auto mode it appears only when a token was
+      # detected and credits are not spent; it still sorts LAST (below) and is
+      # marked, so it never crowds out genuinely free capacity.
+      | select( '"$metered_include"' )
       | . as $b
       | .models[]
       | select(.free)
@@ -169,7 +179,7 @@ candidates() {
     | sort_by(.metered, .bucket_last_used, -.score)
     | .[] | [.bucket, .agent, .model, .provider] | @tsv
   ' --arg pin "$PIN_BUCKET" --arg now "$now" --argjson ex "$ex_json" \
-    --arg cat "$CATEGORY" --arg metered "${FA_ALLOW_METERED:-0}"
+    --arg cat "$CATEGORY"
 }
 
 # ------------------------------------------------------------------- leasing --
@@ -199,45 +209,11 @@ trap lease_release EXIT
 # A route is (agent, model, PROVIDER). hermes resolves a bare -m against its
 # active provider only, so omitting --provider turns every model from another
 # gateway into a 404 that looks exactly like a dead model.
+# The invocation shape for each harness lives in the adapter list
+# (bin/lib/adapters.sh) - the container flag, the timeout, the `--auto`/`--yolo`
+# requirements are all per-adapter and all in one file per harness.
 invoke() { # $1=agent $2=model $3=provider $4=prompt
-  local agent="$1" model="$2" provider="$3" prompt="$4" rc=0 out=""
-  # WORKDIR MUST BE PASSED EXPLICITLY. `cd` alone does not contain these agents:
-  # kilo, launched from a temp dir with cwd set, still wrote its file to $HOME.
-  # Each CLI has its own flag (opencode/kilo --dir, hermes --in) and that is the
-  # only thing that actually decides where the agent works. This is defect B1,
-  # and it is why an orchestrator run once left JWT_AUTH_GUIDE.md in this repo.
-  case "$agent" in
-    opencode)
-      out="$(timeout "$ATTEMPT_TIMEOUT" opencode run --dir "$WORKDIR" -m "$model" "$prompt" \
-        </dev/null 2>&1)" || rc=$? ;;
-    kilo)
-      out="$(timeout "$ATTEMPT_TIMEOUT" kilo run --dir "$WORKDIR" -m "$model" --auto "$prompt" \
-        </dev/null 2>&1)" || rc=$? ;;
-    hermes)
-      # hermes honours NEITHER cwd NOR --in: it resolves relative paths against
-      # $HOME, so both forms wrote to /root in testing. HOME is what actually
-      # contains it - and HERMES_HOME keeps its config and credentials where they
-      # really live, so nothing is symlinked into the user's project.
-      local henv=(env "HOME=$WORKDIR" "HERMES_HOME=${HERMES_HOME:-$HOME/.hermes}")
-      if [[ -n "$provider" ]]; then
-        out="$(timeout "$ATTEMPT_TIMEOUT" "${henv[@]}" hermes --provider "$provider" \
-          -m "$model" --in "$WORKDIR" --yolo -z "$prompt" </dev/null 2>&1)" || rc=$?
-      else
-        out="$(timeout "$ATTEMPT_TIMEOUT" "${henv[@]}" hermes -m "$model" \
-          --in "$WORKDIR" --yolo -z "$prompt" </dev/null 2>&1)" || rc=$?
-      fi ;;
-    copilot)
-      # --allow-all is required for unattended use; --add-dir is what contains it.
-      out="$(timeout "$ATTEMPT_TIMEOUT" copilot -p "$prompt" --allow-all \
-        --add-dir "$WORKDIR" </dev/null 2>&1)" || rc=$? ;;
-    cursor)
-      # -f trusts the directory (it refuses to run headless otherwise).
-      out="$(cd "$WORKDIR" && timeout "$ATTEMPT_TIMEOUT" cursor-agent -p "$prompt" \
-        --output-format text -f </dev/null 2>&1)" || rc=$? ;;
-    *) return 3 ;;
-  esac
-  printf '%s' "$out"
-  return $rc
+  adapter_invoke "$@"
 }
 
 # -------------------------------------------------------------------- record --

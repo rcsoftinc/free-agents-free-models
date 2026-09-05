@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Fake crontab for test_schedule.sh. State lives in $FAKE_CRONTAB (a file), so
+# the suite never touches the real user crontab.
+set -euo pipefail
+case "${1:-}" in
+  -l) cat "${FAKE_CRONTAB:-/?nonexistent}" 2>/dev/null || true ;;
+  -r) rm -f "${FAKE_CRONTAB:-/?nonexistent}" ;;
+  -)  cat > "${FAKE_CRONTAB:-/?nonexistent}" ;;
+  *)  echo "unexpected crontab arg: $*" >&2; exit 2 ;;
+esac

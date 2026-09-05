@@ -17,7 +17,7 @@ bash bin/lib/classify.sh --self-test   # the error taxonomy, ~1s
 | `test_requeue.sh` | "All lanes busy" (exit 5) is distinguished from "everything failed" (exit 2) |
 | `test_resume.sh` | Resume replays the journal, respects dependency order, never re-runs a completed task |
 | `test_verify.sh` | A task that claims success without producing its declared files is failed |
-| `test_metered.sh` | Metered wallets are opt-in, counted only when allowed, and always ranked last |
+| `test_metered.sh` | Metered wallets are auto-included only when detected with a token and credits remain, hidden when anon or spent, force-off at `FA_METERED=0`, force-on at `=1`/`--allow-metered`, and always ranked last |
 | `test_plan.sh` | A goal becomes a valid graph; JSON buried in prose is extracted; a model returning no plan is retried rather than fatal; boundary-violating plans are rejected |
 | `test_discover.sh` | Models are attributed to the credential that pays for them; the SAME key in two agents collapses to one lane; no secret is ever stored |
 | `test_handoff.sh` | A task with dependents is asked for a handoff and a task without one is not; the dependency's note reaches its dependents and leaks into nothing else; a missing handoff degrades to the old behaviour; every run reports an estimated prompt size and oversized prompts are called out |
@@ -26,6 +26,8 @@ bash bin/lib/classify.sh --self-test   # the error taxonomy, ~1s
 | `test_bootstrap.sh` | `fa bootstrap` builds a registry from real credentials, installs skills into the project, stores no secret, and is idempotent; `fa doctor` refuses before bootstrap, passes after, and warns when only one lane exists |
 | `test_deps.sh` | Cycles and unknown dependency ids terminate rather than hang; a task behind a failed dependency never starts while unrelated work still completes; diamonds run in order; the stall is recorded and surfaced |
 | `test_breaker.sh` | A wallet fault cools the whole wallet; a model hang does not; a first cooldown is short; a cooled wallet is skipped; success resets the count |
+| `test_adapters.sh` | The harness roster is single-sourced in `bin/lib/adapters.sh` (appears exactly once under `bin/`); each adapter's invoke contract loads; the dispatcher refuses an unknown harness; `fa doctor` version-checks the metered harnesses (copilot 1.0.83, cursor 2026.09.02) and the presence broom surfaces installed-but-unadapted CLIs (claude); `missing_deps()` and setup's `exit 3` guard work |
+| `test_schedule.sh` | `fa schedule` installs a daily `fa refresh` cron idempotently with the tool's absolute path and state-dir log, `unschedule` removes only its own line, foreign crons survive both, `FA_NO_SCHEDULE=1` opts out safely, a missing crontab is a graceful note — and `fa bootstrap` wires it in automatically so a fresh clone needs no manual refresh step |
 
 **Every suite has been mutation-tested** — the corresponding behaviour was
 deliberately broken in `bin/` and each suite caught it. A passing test that does

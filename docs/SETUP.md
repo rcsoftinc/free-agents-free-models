@@ -28,11 +28,13 @@ give it a DIFFERENT credential** — the same key in two agents is one lane, not
 
 Known-good versions (the ones this was built and verified against):
 
-| Agent | Verified | Why it matters |
-|---|---|---|
-| opencode | 1.17.20 | `--dir` contains it; `run -m provider/model` |
-| kilo | 7.5.5 | `--dir` contains it; needs `--auto` to act unattended |
-| hermes | 0.20.5 | `-z`/`-m` are TOP-LEVEL flags, not `chat` args; needs `--provider` for non-active providers |
+| Agent | Verified | Metered | Why it matters |
+|---|---|---|---|
+| opencode | 1.17.20 | | `--dir` contains it; `run -m provider/model` |
+| kilo | 7.5.5 | | `--dir` contains it; needs `--auto` to act unattended |
+| hermes | 0.20.5 | | `-z`/`-m` are TOP-LEVEL flags, not `chat` args; needs `--provider` for non-active providers |
+| copilot | 1.0.83 | yes | allowance-based: auto-included once a token is detected, tried last; `FA_METERED=0/1` forces off/on |
+| cursor | 2026.09.02 | yes | allowance-based: auto-included once a token is detected, tried last; `FA_METERED=0/1` forces off/on |
 
 `fa doctor` warns if a version differs. These CLIs have already changed invocation
 shape once during this project (`hermes chat -m X -z P` was a usage error), and a

@@ -9,6 +9,10 @@ REPO="$(cd "$HERE/.." && pwd)"
 source "$HERE/harness.sh"
 begin_suite "fa bootstrap and fa doctor"
 sandbox_on
+# bootstrap auto-installs the daily refresh; keep it off the REAL crontab by
+# pointing the installer at the stub (which writes $FAKE_CRONTAB). This also
+# turns the "fresh clone needs no manual step" claim into a live assertion.
+export FA_CRONTAB_CMD=crontab FAKE_CRONTAB="$(mktemp)"
 
 # A realistic layout: the tool cloned INTO a project as .free-agents/, so
 # install-skills links into the project rather than the developer's home.
@@ -57,6 +61,7 @@ assert_true "bootstrap wrote a registry inside the clone" '[[ -s "$REG" ]]'
 assert_json_valid "the registry is valid JSON" "$REG"
 assert_true "it found at least one bucket" '[[ $(jq -r ".buckets | length" "$REG") -ge 1 ]]'
 assert_contains "it reports a lane count" "$out" "healthy lane"
+assert_contains "bootstrap self-installs the daily refresh cron" "$(cat "${FAKE_CRONTAB}")" "$TOOL/bin/fa refresh"
 
 # The registry must never contain a key, only fingerprints of one.
 assert_not_contains "no API key is stored" "$(cat "$REG")" "$SECRET"

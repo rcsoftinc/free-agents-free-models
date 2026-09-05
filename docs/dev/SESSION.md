@@ -76,9 +76,12 @@ to do. The tool lives in `.free-agents/`, this project's run journal in `.orch/`
 and the registry + leases are **machine-wide** at
 `~/.local/state/free-agents` (override with `FREE_AGENTS_STATE`).
 
-**Refreshing is event-driven, never scheduled.** `setup.sh` and `fa doctor` both
-report `current` / `STALE` / `aged:<days>` / `MISSING`, and `fa refresh` (alias
-for `bootstrap`) is the fix. Staleness is measured by **credential fingerprint**,
+**Refreshing is event-driven AND self-maintained.** `setup.sh` and `fa doctor`
+both report `current` / `STALE` / `aged:<days>` / `MISSING`, and `fa refresh`
+(alias for `bootstrap`) is the fix. `bootstrap` also installs a **daily cron**
+(`fa schedule` / `fa unschedule`, idempotent, `FA_NO_SCHEDULE=1` opts out) so a
+fresh clone + `setup.sh` needs no manual refresh step and a spent copilot budget
+drops off on its own. Staleness is measured by **credential fingerprint**,
 because that is what actually invalidates a registry:
 
 | Cause | Detected |
@@ -120,10 +123,10 @@ bin/buckets.sh    credential registry      lanes | discover | probe | show
 bin/run.sh        dispatch engine          fallback chain, bucket lease, breaker
 bin/plan.sh       goal -> task graph       planning itself has fallback
 bin/orch.sh       per-project task graph   run | status | resume (journal replay)
-bin/lib/          common.sh (paths, flock) + classify.sh (taxonomy + self-test)
+bin/lib/          common.sh, deps.sh, adapters.sh, classify.sh + adapters/ (one file per harness)
 prompts/          coordinator.md - the single pasted prompt
 skills/           skill cards, linked into the project by bootstrap
-test/             13 suites, stub agents, fixture registry - fully offline
+test/             16 suites, stub agents, fixture registry - fully offline
 ```
 
 ## Lanes on this machine
@@ -138,8 +141,10 @@ test/             13 suites, stub agents, fixture registry - fully offline
 | `copilot:*` / `cursor:*` | copilot / cursor | METERED — opt-in, tried last |
 | `freemodel:40d72418` | opencode | 0 — advertises PAID models, excluded |
 
-Metered wallets need `FA_ALLOW_METERED=1`. They cannot bill you
-(`overage_permitted: false`) and renew monthly; `fa lanes -v` shows credits left.
+Metered wallets are auto-included once detected with a token and credits remain;
+`FA_METERED=0/1` forces them off/on (`--no-metered` / `--allow-metered`). They
+cannot bill you (`overage_permitted: false`) and renew monthly; `fa lanes -v`
+shows credits left, and a spent allowance drops off the lane list on its own.
 
 ## Invariants that must not regress
 
@@ -246,3 +251,27 @@ roughly in order of value:
 **Do not** add: token budgets on unmetered lanes, live leaderboard fetching (see
 ALIGNMENT for why gateway metadata beats it), or a summariser-based handoff — each
 was evaluated and rejected with reasons recorded.
+
+## This session: the adapter list
+
+The harness roster was copied in six places ("opencode kilo hermes copilot cursor"
+was open-coded in buckets.sh, common.sh, run.sh and fa), so copilot and cursor were
+never version-checked and a machine with claude/aider/goose installed was reported
+healthy while those harnesses could never run.
+
+Fixed by making `bin/lib/adapters.sh` the single source: one list, one loader that
+sources one file per harness in `bin/lib/adapters/`, one dispatcher
+(`adapter_invoke`) shared by run and probe. The presence broom in `fa doctor` now
+surfaces installed-but-unadapted harnesses. Two more gaps closed in passing:
+
+- `setup.sh` swallowed a missing `jq` and declared "Ready." with a silent
+  half-install; it now fails loudly (`exit 3`) with the apt line. `missing_deps()`
+  in `bin/lib/deps.sh` is consulted by setup, `fa bootstrap` and `fa doctor`.
+- `find-free-providers.sh` pointed at `scripts/bootstrap.sh` (never existed) and
+  `.env` (nothing reads it); it now names the real credential locations and `fa
+  refresh`.
+
+`fa doctor` checks all five harnesses against their pins (opencode 1.17.20,
+kilo 7.5.5, hermes 0.20.5, copilot 1.0.83, cursor 2026.09.02); metered lanes are
+marked. New `test/test_adapters.sh` pins the single-source invariant and the
+broom; full suite is 16 suites / 269 assertions, offline.

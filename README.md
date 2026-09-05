@@ -1,8 +1,8 @@
 # free-agents
 
 Run real coding work on **free models** across several agent CLIs (opencode, kilo,
-hermes) without a rate limit ever stopping you, and without two workers fighting
-over the same API key.
+hermes — and, as opt-in metered lanes, copilot and cursor) without a rate limit
+ever stopping you, and without two workers fighting over the same API key.
 
 ## The idea
 
@@ -56,7 +56,7 @@ Everything the tool owns lives in **two hidden directories**: `.free-agents/`
 `.free-agents/` to your `.gitignore`, so the tool never becomes part of your repo.
 
 Then **start any agent's TUI** from that directory — `opencode`, `kilo`, `hermes`,
-`claude` — and paste a prompt:
+`copilot`, `cursor` — and paste a prompt:
 
 ```
 .free-agents/prompts/coordinator.md
@@ -81,18 +81,26 @@ You can also drive it directly, without an agent:
 .free-agents/bin/fa resume            # safe after ANY interruption
 ```
 
-## Metered lanes (copilot, cursor) — opt-in
+## Metered lanes (copilot, cursor) — auto-include when detected
 
 `copilot` and `cursor-agent` work as lanes, but their free tiers are a **depleting
-monthly allowance**, not an unlimited pool. They are therefore **off by default**,
-and when enabled they are always tried **last** — after every genuinely free lane
-is busy or cold.
+monthly allowance**, not an unlimited pool. They are **in by default the moment
+they are detected with a token** — the cost is not money, only a finite budget,
+and a detected token means a real user on the machine wants to use it. They are
+always tried **last**, after every genuinely free lane is busy or cold.
 
 ```sh
-fa lanes -v                              # shows credits remaining + renewal date
-FA_ALLOW_METERED=1 fa orch run           # opt in for this run
-fa run --allow-metered "task"
+fa lanes -v                                  # shows credits remaining + renewal date
+fa run --no-metered "task"                   # force them off for this run
+FA_METERED=0 fa orch run                     # same, for the whole run
+fa run --allow-metered "task"                # force them on even when no token was seen
 ```
+
+The one case they sit out is spending a budget nobody is present for: a metered
+wallet with **no token** (`credential_fp = anon`) or a copilot allowance the live
+check reports as **spent** drops off the lane list on its own, and returns when
+the renewal lands. `FA_METERED=1` overrides both; `FA_METERED=0` hides them all.
+(`FA_ALLOW_METERED=1` still works and means the same as `=1`.)
 
 They cannot bill you. GitHub reports `overage_permitted: false` — the allowance
 simply stops, and it renews monthly (`fa lanes -v` prints the reset date). Copilot
@@ -132,14 +140,26 @@ serves every project on the box, and — the reason it is not per-project —
 locks and will not double-book a wallet. A per-clone registry could not, which
 made simultaneous projects a real collision hazard.
 
-### When to refresh — and why it is not a schedule
+### When to refresh — daily, automatically, and never a nag
 
 ```sh
 .free-agents/bin/fa refresh      # same as bootstrap; the word you look for later
 ```
 
-Both `setup.sh` and `fa doctor` tell you when you need this, so you should never
-have to guess. What they check is what actually goes out of date:
+`fa bootstrap` installs a **daily refresh** in your crontab, so a fresh clone
+needs no manual step: `setup.sh` bootstraps, and the machine keeps itself
+current from then on. `fa schedule` / `fa unschedule` manage it (both are
+idempotent), `FA_NO_SCHEDULE=1` opts out, and each run logs quietly to
+`~/.local/state/free-agents/refresh.log`.
+
+What that daily refresh buys is a lag of **hours, not a silent miss**: it
+re-discovers and re-probes, so a key you added or an agent you installed becomes
+a lane within a day on its own, a copilot allowance that ran out drops off on its
+own, and the next renewal brings it back. It is a periodic **re-probe**, not a
+freshness nag.
+
+What both `setup.sh` and `fa doctor` tell you — on demand, the instant you look —
+is what actually went out of date:
 
 | What changed | How it is detected |
 |---|---|
@@ -148,9 +168,11 @@ have to guess. What they check is what actually goes out of date:
 | A provider changed its free-model list | Only time can hint: after 14 days doctor adds a soft note |
 | Health, cooldowns, rankings | Never stale — those self-correct on every run |
 
-There is deliberately **no timer**. A daily "registry is 1 day old" nag would fire
-about the third row, which almost never matters, and stay silent about the first
-two, which cost you a lane the moment they happen.
+Staleness is measured by **credential fingerprint**, not by the clock — a
+"registry is 1 day old" prompt would fire about the third row, which almost
+never matters, and stay silent about the first two, which cost you a lane the
+moment they happen. The cron keeps the fingerprints moving; `doctor` still tells
+you the truth at any moment in between.
 
 Nor is it an mtime check, which was the obvious implementation and is wrong here:
 `~/.hermes/auth.json` rewrites hourly when the OAuth token rotates, and kilo
@@ -388,7 +410,8 @@ those lines.
 │   ├── orch.sh               task graph + journal-based resume
 │   ├── find-free-providers.sh   scan models.dev for new free providers
 │   ├── kilo-add-openrouter.sh   register OpenRouter free models with kilo
-│   └── lib/                  common.sh (paths, locking) - classify.sh (taxonomy)
+│   └── lib/                     common.sh, deps.sh, adapters.sh, classify.sh, findings.sh
+│       └── adapters/            one file per harness (opencode, kilo, hermes, copilot, cursor)
 ├── skills/                   skill cards, linked into the project by `fa bootstrap`
 ├── state/                    the credential registry (gitignored, regenerated)
 ├── docs/                     SETUP.md - dev/ holds the design history
@@ -409,16 +432,17 @@ status field for a crash to leave lying.
 ## Tests
 
 ```sh
-bin/lib/classify.sh --self-test   # error taxonomy, 28 cases, offline, ~1s
-bin/fa doctor                     # deps, agent CLIs+versions, self-test, lanes
-bin/fa lanes                      # smoke check: >0 means credentials work
+bash test/run_all.sh               # 16 offline suites: stub agent CLIs, fixture registry
+bin/lib/classify.sh --self-test    # error taxonomy, 28 cases, offline, ~1s
+bin/fa doctor                      # deps, harness CLIs+versions, presence, self-test, lanes
+bin/fa lanes                       # smoke check: >0 means credentials work
 DRY_RUN_LIMIT=0 bin/run.sh --dry-run   # the full candidate chain, spends nothing
 ```
 
-**`bin/` has no regression suite yet.** The engine is verified by end-to-end runs,
-not by automated tests. `test/` keeps the stub agent CLIs and harness that a suite
-would be built on. The retired Layer B and its 14 suites were removed in the
-cleanup — they tested code that no longer ships; `git log` has them.
+The suite lives in `test/` — `test/test_*.sh` suites over `test/harness.sh`, using
+stub agent CLIs in `test/stubs/`. No suite may touch real state: `harness.sh`
+redirects `FREE_AGENTS_STATE` to a throwaway directory on source and refuses to
+run against a live registry.
 
 ## Visual reference
 

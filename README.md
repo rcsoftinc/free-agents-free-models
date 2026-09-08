@@ -308,15 +308,27 @@ something was**, or that it did the same unhelpful thing twice.
 fa findings          # what has been noticed
 fa findings --issue  # emit a ready-to-file GitHub issue
 fa findings --ack    # mark them seen
+fa analyze           # read the journal, detect cross-task patterns
+fa analyze --learnings  # same + write .orch/learnings.md for next session
 ```
 
-Three things are recorded:
+Three things are recorded at the moment of failure:
 
 | Kind | When |
 |---|---|
 | `unclassified` | provider output no taxonomy rule matched — it is still handled as `dead`, the safe default, but the text is kept |
 | `unverified_repeat` | a task claimed success without producing its files more than once — a signal about the spec or the models |
 | `deadlock` | a task graph that could not progress |
+
+And three more are detected by `fa analyze`, which reads the journal after a run
+and finds patterns spread across tasks that the moment-of-failure findings
+cannot see:
+
+| Kind | When |
+|---|---|
+| `all_lanes_failed` | a task failed on 3+ distinct lanes — the spec is the suspect, not the wallets |
+| `repeated_retries` | a task failed 3+ times — spec too large or not self-contained |
+| `single_lane_did_all` | all completed tasks ran on one lane — others were idle or unhealthy |
 
 `unclassified` is the valuable one. **Every classification bug found in this
 project was invisible for the same reason**: the taxonomy has a silent default and
@@ -408,9 +420,10 @@ those lines.
 │   ├── run.sh                dispatch engine: fallback, lease, breaker
 │   ├── plan.sh               goal -> task graph
 │   ├── orch.sh               task graph + journal-based resume
+│   ├── analyze.sh            post-run journal analysis + learnings
 │   ├── find-free-providers.sh   scan models.dev for new free providers
 │   ├── kilo-add-openrouter.sh   register OpenRouter free models with kilo
-│   └── lib/                     common.sh, deps.sh, adapters.sh, classify.sh, findings.sh
+│   └── lib/                     common.sh, deps.sh, adapters.sh, classify.sh, findings.sh, analyze.sh
 │       └── adapters/            one file per harness (opencode, kilo, hermes, copilot, cursor)
 ├── skills/                   skill cards, linked into the project by `fa bootstrap`
 ├── state/                    the credential registry (gitignored, regenerated)

@@ -36,6 +36,8 @@ LOG_TAG=orch
 . "${HERE}/lib/common.sh"
 # shellcheck source=lib/findings.sh
 . "${HERE}/lib/findings.sh"
+# shellcheck source=lib/analyze.sh
+. "${HERE}/lib/analyze.sh"
 
 RUN_SH="${HERE}/run.sh"
 PROJECT="${ORCH_PROJECT:-$(pwd)}"
@@ -437,6 +439,9 @@ cmd_run() {
   fi
   # Surface anything the tool noticed about ITSELF during this run, so a real
   # project can feed a fix back rather than the observation dying with the run.
+  # Then run the aggregate analysis — patterns spread across tasks that the
+  # per-task findings above (fired at the moment of failure) cannot see.
+  analyze_journal
   local nnew; nnew="$(findings_count new 2>/dev/null || echo 0)"
   if [[ "${nnew:-0}" -gt 0 ]]; then
     log ""

@@ -157,6 +157,22 @@ case "$cmd" in
     exit 0
     ;;
 
+  analyze)
+    . "${HERE}/lib/common.sh"; . "${HERE}/lib/findings.sh"; . "${HERE}/lib/analyze.sh"
+    case "${1:-}" in
+      --learnings)
+        analyze_journal
+        write_learnings
+        ;;
+      *)
+        analyze_journal
+        echo
+        echo "Review with: fa findings"
+        ;;
+    esac
+    exit 0
+    ;;
+
   where)
     printf 'tool:     %s\nstate:    %s\nproject:  %s\n' "$ROOT" "$STATE" "$(pwd)"
     ;;

@@ -127,6 +127,7 @@ myproject/
 ├── .orch/                 this project's run state
 │   ├── tasks.json         THE SPEC — commit this
 │   ├── journal.ndjson     what happened here                gitignored
+│   ├── learnings.md       patterns from past runs           gitignored
 │   ├── results/           raw agent output                  gitignored
 │   └── handoffs/          one line per task                 gitignored
 ├── .opencode/skills/      ABSOLUTE symlinks to the skill cards in the clone

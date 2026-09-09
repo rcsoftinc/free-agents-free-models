@@ -1,7 +1,7 @@
 # opencode.sh - adapter for the opencode CLI.
 #
 # Identity: ~/.local/share/opencode/auth.json (api-key entries, e.g. opencode
-#   account, openrouter, freemodel).
+#   account, openrouter).
 # Models:   `opencode models --verbose` - shared parser with kilo, in
 #   buckets.sh (models_from_verbose), which owns the discovery machinery.
 # Invoke:   opencode run -m model prompt; contained with --dir when a workdir

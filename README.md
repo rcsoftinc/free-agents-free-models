@@ -79,6 +79,8 @@ You can also drive it directly, without an agent:
 .free-agents/bin/fa orch run          # execute across every healthy lane
 .free-agents/bin/fa status            # progress
 .free-agents/bin/fa resume            # safe after ANY interruption
+.free-agents/bin/fa analyze           # read the journal, detect cross-task patterns
+.free-agents/bin/fa analyze --learnings  # same + write .orch/learnings.md
 ```
 
 ## Metered lanes (copilot, cursor) — auto-include when detected
@@ -436,6 +438,7 @@ those lines.
 ```
 ~/.local/state/free-agents/buckets.json   wallets + health   GLOBAL (learned)
 <project>/.orch/journal.ndjson            append-only log    PER PROJECT
+<project>/.orch/learnings.md              patterns from runs PER PROJECT (gitignored)
 ```
 
 Learning is global because a dead wallet is dead everywhere. Run state is local so

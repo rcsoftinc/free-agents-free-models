@@ -49,11 +49,7 @@ opencode auth login          # interactive, per provider
 ```
 
 Produces `{"<provider>": {"type":"api","key":"..."}}`. Providers seen here:
-`opencode` (its own account), `openrouter`, `freemodel`.
-
-> The `freemodel` provider advertises **paid** frontier models (Claude Opus, GPT-5.x
-> at real prices). The registry lists it with 0 free models and will never schedule
-> to it. Leave it that way unless you know the gateway serves them free.
+`opencode` (its own account), `openrouter`.
 
 ### kilo → two separate things
 

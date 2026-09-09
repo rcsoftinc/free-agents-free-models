@@ -9,7 +9,7 @@ ever stopping you, and without two workers fighting over the same API key.
 **Give each agent a different free API key, and you get more lanes.**
 
 opencode, kilo and hermes each ship with their own free models, and each accepts
-additional gateway keys (OpenRouter, Kilo gateway, FreeModel, …). Every *distinct
+additional gateway keys (OpenRouter, Kilo gateway, …). Every *distinct*
 credential* is an independent quota you can run in parallel. Adding a different
 free key to each agent is the whole point — it is how you turn three CLIs into
 five or six independently rate-limited lanes.

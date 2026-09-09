@@ -24,6 +24,8 @@ set -euo pipefail
 #   fa status          progress of the current project
 #   fa resume          continue after any interruption
 #   fa update          git pull the tool
+#   fa analyze         read the journal, detect cross-task patterns
+#                        --learnings  same + write .orch/learnings.md
 #   fa findings        things the tool noticed it handled badly
 #   fa findings --note "..."   record something only you or the coordinator saw
 #                        --new    only ones not yet acknowledged

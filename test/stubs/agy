@@ -1,0 +1,138 @@
+#!/usr/bin/env bash
+# Stub agent (agy) for offline, deterministic testing.
+# Behavior is controlled by env vars:
+#   AGY_STUB_MODE  : success | ratelimit | error   (default: success)
+#   GOOD_MODEL     : if set and equals the --model model_id, force success
+#   STUB_LOG       : if set, append invocations to this file
+# Reproduces the real-world bug: on a credit/rate-limit error the upstream
+# `agy` exits 0 while printing an error message to stdout.
+
+AGENT="agy"
+
+# Parse --model <model_id>
+MODEL_ID=""
+prev=""
+for a in "$@"; do
+  if [[ "$prev" == "--model" ]]; then MODEL_ID="$a"; fi
+  prev="$a"
+done
+
+# agy --version
+for a in "$@"; do
+  if [[ "$a" == "--version" || "$a" == "version" ]]; then
+    printf '1.2.0\n'
+    exit 0
+  fi
+done
+
+# `agy models` - discover parses "id\tname" lines. Two free models
+# (cost 0) and one paid, to prove the free filter actually filters.
+for a in "$@"; do
+  if [[ "$a" == "models" ]]; then
+    printf 'gemini-3.8-flash-high\tGemini 3.8 Flash (High)\n'
+    printf 'gemini-3.8-flash-medium\tGemini 3.8 Flash (Medium)\n'
+    printf 'gemini-3.1-pro-high\tGemini 3.1 Pro (High)\n'
+    exit 0
+  fi
+done
+
+MODE="AGY_STUB_MODE"
+MODE="${!MODE:-success}"
+
+# Concurrency instrumentation. When STUB_CONC_DIR is set the stub records, for
+# every invocation, which LANE it ran on and when. The fixture gives each bucket
+# its own models (m<N>-a, m<N>-b), so the lane is the model prefix.
+if [[ -n "${STUB_CONC_DIR:-}" && -n "$MODEL_ID" ]]; then
+  LANE="${MODEL_ID%%-*}"
+  mkdir -p "$STUB_CONC_DIR"
+  printf 'start %s %s\n' "$LANE" "$(date +%s%N)" >> "$STUB_CONC_DIR/timeline"
+  if ! mkdir "$STUB_CONC_DIR/busy-$LANE" 2>/dev/null; then
+    printf 'OVERLAP on lane %s\n' "$LANE" >> "$STUB_CONC_DIR/violations"
+  fi
+  sleep "${STUB_HOLD:-0.4}"
+  rmdir "$STUB_CONC_DIR/busy-$LANE" 2>/dev/null || true
+  printf 'end %s %s\n' "$LANE" "$(date +%s%N)" >> "$STUB_CONC_DIR/timeline"
+fi
+
+if [[ -n "${STUB_LOG:-}" ]]; then
+  echo "${AGENT} ${MODEL_ID} mode=${MODE}" >> "${STUB_LOG}"
+fi
+
+# Append a one-line trace (agent|model_id|epoch) used by distribution tests to
+# observe which agent/provider each task used and in what order.
+if [[ -n "${STUB_TRACE:-}" ]]; then
+  echo "${AGENT}|${MODEL_ID}|$(date +%s)" >> "${STUB_TRACE}"
+fi
+
+# GOOD_MODEL override: force success for a specific model
+if [[ -n "${GOOD_MODEL:-}" && "$MODEL_ID" == "$GOOD_MODEL" ]]; then
+  MODE="success"
+fi
+
+# If the prompt asks for a handoff line, emit one - and echo any context it was
+# given, so a test can prove the injection actually reached the worker.
+if printf '%s' "$*" | grep -q -- '---HANDOFF---'; then
+  if printf '%s' "$*" | grep -q 'Context from the tasks you depend on'; then
+    printf 'SAW_CONTEXT\n'
+  fi
+  printf 'did the work\n'
+  printf -- '---HANDOFF--- decided: ids are uuid4 strings, store is notes.json\n'
+  exit 0
+fi
+if printf '%s' "$*" | grep -q 'Context from the tasks you depend on'; then
+  printf 'SAW_CONTEXT\ndid the work\n'
+  exit 0
+fi
+
+case "$MODE" in
+  ratelimit)
+    # Exact OpenRouter credit/in-flight message; exits 0 (the bug we reproduce)
+    printf 'Error: This request would exceed your available credits given your in-flight requests. Retry after in-flight requests settle, or add credits.'
+    exit 0
+    ;;
+  error)
+    printf 'generic failure: something went wrong'
+    exit 1
+    ;;
+  hang)
+    # Simulate a combo that never returns (e.g. network stall). The runner's
+    # ATTEMPT_TIMEOUT should kill it and move on.
+    sleep 60
+    printf 'should never be seen'
+    exit 0
+    ;;
+  plan)
+    # A valid task graph in the shape bin/plan.sh expects.
+    printf '{"tasks":[{"id":"one","prompt":"do one","deps":[],"files":["one.txt"],"category":"coding"},{"id":"two","prompt":"do two","deps":["one"],"files":["two.txt"],"category":"coding"}]}'
+    exit 0
+    ;;
+  planprose)
+    # Valid JSON buried in commentary and a fenced block - what small free models
+    # actually return. plan.sh must extract the first balanced object.
+    printf 'Sure! Here is the plan you asked for:\n\n```json\n{"tasks":[{"id":"solo","prompt":"do it","deps":[],"files":["solo.txt"],"category":"coding"}]}\n```\n\nLet me know if you want changes.'
+    exit 0
+    ;;
+  planbad)
+    # No usable JSON at all. This is THIS MODEL failing, not the wallet, so
+    # plan.sh must retry onto another candidate rather than abort the run.
+    printf 'I would start by reviewing the requirements and then writing some code.'
+    exit 0
+    ;;
+  planconflict)
+    # Two tasks with no dependency between them writing the SAME file. plan.sh
+    # must reject this: it is the cheapest place to catch a boundary error.
+    printf '{"tasks":[{"id":"a","prompt":"x","deps":[],"files":["shared.txt"],"category":"coding"},{"id":"b","prompt":"y","deps":[],"files":["shared.txt"],"category":"coding"}]}'
+    exit 0
+    ;;
+  slow)
+    # Like success but sleeps first, so parallel tasks overlap long enough for
+    # agent-distribution assertions.
+    sleep 1
+    printf '{"ok":true,"agent":"%s","model":"%s","summary":"stub slow success"}' "$AGENT" "$MODEL_ID"
+    exit 0
+    ;;
+  success|*)
+    printf '{"ok":true,"agent":"%s","model":"%s","summary":"stub success"}' "$AGENT" "$MODEL_ID"
+    exit 0
+    ;;
+esac

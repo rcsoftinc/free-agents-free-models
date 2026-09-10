@@ -43,7 +43,7 @@ export ATTEMPT_TIMEOUT="${ATTEMPT_TIMEOUT:-10}" PROBE_TIMEOUT=10
 # Bucket i is reachable through a stub agent, so behaviour is deterministic:
 #   b0 -> opencode   b1 -> kilo   b2 -> hermes
 fixture_registry() {
-  local n="${1:-3}" dir agents=(opencode kilo hermes)
+  local n="${1:-3}" dir agents=(opencode kilo hermes agy copilot cursor)
   dir="$(mktemp -d)"
   mkdir -p "$dir"
   {

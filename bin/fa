@@ -19,8 +19,10 @@ set -euo pipefail
 #   fa probe [--all]   prove each wallet answers
 #   fa doctor          verify this machine is set up correctly
 #   fa run "task"      one task, with fallback across every lane
+#                       --validate  run syntax check on result (fail fast)
 #   fa plan "goal"     goal -> .orch/tasks.json
 #   fa go "goal"       plan, then run it
+#                       --validate  validate each task after build
 #   fa status          progress of the current project
 #   fa resume          continue after any interruption
 #   fa update          git pull the tool
@@ -119,7 +121,13 @@ case "$cmd" in
   go)
     [[ $# -gt 0 ]] || { echo "fa go: needs a goal" >&2; exit 3; }
     "${HERE}/plan.sh" -w "$(pwd)" "$1" || exit $?
-    exec "${HERE}/orch.sh" run
+    shift
+    # Pass through --validate if provided
+    if [[ "${1:-}" == "--validate" ]]; then
+      exec "${HERE}/orch.sh" run --validate
+    else
+      exec "${HERE}/orch.sh" run
+    fi
     ;;
 
   findings)

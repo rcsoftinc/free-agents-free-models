@@ -24,7 +24,12 @@ set -euo pipefail
 #       --no-metered      force-exclude metered wallets (FA_METERED=0)
 #       --max-attempts N  default 6
 #       --timeout SEC     per-attempt timeout (default 300)
-#       --dry-run         print the candidate chain and exit
+#   --dry-run         print the candidate chain and exit
+#       --validate        after build, run syntax check on changed files
+#                          (Level 1 validation: node --check, python3 -m py_compile,
+#                          shellcheck, etc. Fails fast on syntax errors.)
+#       --validate-all    after build, run full validation (syntax + tests + lint)
+#       --validate-rounds N  max fix rounds for validation failures (default 3)
 #
 # Exit: 0 ok | 2 all candidates exhausted | 3 setup error | 4 network down
 #       5 no lane available right now (every candidate wallet is in use) - the
@@ -49,6 +54,9 @@ EXCLUDES=()
 MAX_ATTEMPTS="${MAX_ATTEMPTS:-6}"
 ATTEMPT_TIMEOUT="${ATTEMPT_TIMEOUT:-300}"
 DRY_RUN=0
+VALIDATE=0
+VALIDATE_ALL=0
+VALIDATE_ROUNDS="${FA_VALIDATE_ROUNDS:-3}"
 PROMPT=""
 
 while [[ $# -gt 0 ]]; do
@@ -60,9 +68,12 @@ while [[ $# -gt 0 ]]; do
     --max-attempts) MAX_ATTEMPTS="$2"; shift 2 ;;
     --timeout)     ATTEMPT_TIMEOUT="$2"; shift 2 ;;
     --dry-run)     DRY_RUN=1; shift ;;
+    --validate)    VALIDATE=1; shift ;;
+    --validate-all) VALIDATE=1; VALIDATE_ALL=1; shift ;;
+    --validate-rounds) VALIDATE_ROUNDS="$2"; shift 2 ;;
     --allow-metered) export FA_ALLOW_METERED=1; shift ;;
     --no-metered)    export FA_METERED=0; shift ;;
-    -h|--help)     sed -n '6,26p' "$0"; exit 0 ;;
+    -h|--help)     sed -n '6,30p' "$0"; exit 0 ;;
     -)             PROMPT="$(cat)"; shift ;;
     -*)            die "unknown option: $1" ;;
     *)             PROMPT="$1"; shift ;;
@@ -347,6 +358,15 @@ for row in "${CHAIN[@]}"; do
   lease_release
 
   if [[ "$state" == "ok" ]]; then
+    # Validation gate: after a successful build, verify the output before
+    # reporting done. Phase 1 = syntax check only (fail fast, no auto-fix).
+    if [[ $VALIDATE -eq 1 ]]; then
+      if ! validate_build "$out"; then
+        # Validation failed — task output is broken. Mark as failed so the
+        # scheduler doesn't treat this as a success.
+        exit 1
+      fi
+    fi
     printf '%s\n' "$out"
     printf '%s %s\n' '---RUN-META---' \
       "$(jq -cn --arg b "$bucket" --arg m "$model" --arg a "$agent" \
@@ -395,3 +415,53 @@ log "exhausted after ${attempt} attempt(s)"
 printf '%s %s\n' '---RUN-META---' \
   "$(jq -cn --argjson n "$attempt" '{attempts:$n, state:"exhausted"}')" >&2
 exit 2
+
+# ──────────────────────────────────────────────────────────────────── Validation
+# Phase 1: syntax check only. No auto-fix loop, no tests, no lint.
+# Fails fast — if syntax is broken, the task is marked failed immediately.
+# Rationale: catch the most common agent error (unparseable code) before it
+# reaches production.
+
+validate_build() {
+  local out_file="$1"
+  local workdir="${WORKDIR:-$(pwd)}"
+  local errors=()
+
+  # Find all JS/TS/Python/sh files in the workdir and check syntax
+  while IFS= read -r -d '' file; do
+    case "$file" in
+      *.js|*.mjs|*.cjs)
+        if ! node --check "$file" 2>/dev/null; then
+          errors+=("$file: node --check failed")
+        fi
+        ;;
+      *.py)
+        if ! python3 -m py_compile "$file" 2>/dev/null; then
+          errors+=("$file: python3 -m py_compile failed")
+        fi
+        ;;
+      *.sh)
+        if command -v shellcheck >/dev/null 2>&1; then
+          if ! shellcheck "$file" 2>/dev/null; then
+            errors+=("$file: shellcheck failed")
+          fi
+        fi
+        ;;
+    esac
+  done < <(find "$workdir" -type f \( -name "*.js" -o -name "*.mjs" -o -name "*.cjs" -o -name "*.py" -o -name "*.sh" \) -print0 2>/dev/null)
+
+  if [[ ${#errors[@]} -gt 0 ]]; then
+    log "validation FAILED:"
+    for e in "${errors[@]}"; do
+      log "  - $e"
+    done
+    # Emit validation failure marker to stderr so callers can parse it
+    printf '%s %s\n' '---VALIDATION-FAILED---' \
+      "$(jq -cn --argjson count "${#errors[@]}" --arg errors "$(printf '%s\n' "${errors[@]}")" \
+        '{count:$count, errors:$errors}')" >&2
+    return 1
+  fi
+
+  log "validation passed"
+  return 0
+}

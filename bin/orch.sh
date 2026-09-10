@@ -50,6 +50,7 @@ TASKS_FILE="${ORCH_DIR}/tasks.json"
 
 MAX_PARALLEL=""
 DRY_RUN=0
+VALIDATE=0
 TASK_RETRIES="${TASK_RETRIES:-2}"      # retries after a real failure
 LANE_WAIT="${LANE_WAIT:-5}"            # seconds to wait when every lane is busy
 
@@ -266,7 +267,9 @@ run_task() { # $1=task id ; runs in a subshell as a background job
 
   journal started "$id"
   set +e
-  FA_TASK_ID="$id" "$RUN_SH" -c "$category" -w "$PROJECT" "$prompt" \
+  local validate_flag=""
+  [[ $VALIDATE -eq 1 ]] && validate_flag="--validate"
+  FA_TASK_ID="$id" "$RUN_SH" -c "$category" -w "$PROJECT" $validate_flag "$prompt" \
     >"$out" 2>"${RESULTS}/${id}.err"
   rc=$?
   set -e
@@ -306,13 +309,25 @@ run_task() { # $1=task id ; runs in a subshell as a background job
 
   [[ $rc -eq 0 ]] && capture_handoff "$id"
 
+  # Check if this was a validation failure (distinct from build failure)
+  local validation_err=""
+  if [[ $rc -ne 0 && -f "${RESULTS}/${id}.err" ]]; then
+    validation_err="$(grep -a '^---VALIDATION-FAILED---' "${RESULTS}/${id}.err" | tail -1 || true)"
+  fi
+
   case $rc in
     0) journal done "$id" \
-         "bucket=$(jq -r '.bucket // ""' <<<"${meta:-{\}}")" \
-         "model=$(jq -r '.model // ""' <<<"${meta:-{\}}")" \
-         "agent=$(jq -r '.agent // ""' <<<"${meta:-{\}}")" ;;
+         "bucket=$(jq -r '.bucket // ""' <<<"${meta:-{}}")" \
+         "model=$(jq -r '.model // ""' <<<"${meta:-{}}")" \
+         "agent=$(jq -r '.agent // ""' <<<"${meta:-{}}")" ;;
     5) journal no_lane "$id" ;;          # not a failure: requeue
-    *) journal attempt_failed "$id" "rc=$rc" ;;
+    *)
+      if [[ -n "$validation_err" ]]; then
+        journal validation_failed "$id" "${validation_err#---VALIDATION-FAILED--- }"
+      else
+        journal attempt_failed "$id" "rc=$rc"
+      fi
+      ;;
   esac
   return $rc
 }
@@ -462,6 +477,10 @@ cmd_status() {
   jq -r 'select(.event=="done")
          | "  done    \(.task)  <- \(.bucket // "?")  \(.model // "")"' "$JOURNAL" | sort -u
   jq -r 'select(.event=="failed") | "  FAILED  \(.task)"' "$JOURNAL" | sort -u
+  # Validation failures: distinct from build failures — the agent built
+  # something that doesn't parse. Show them prominently.
+  jq -r 'select(.event=="validation_failed")
+         | "  VALIDATION FAILED  \(.task)  \(. // "")"' "$JOURNAL" | sort -u
   # A deadlocked run leaves tasks that will never become runnable. Listing them
   # as "pending" reads as "waiting its turn", which is the wrong thing to
   # believe - nothing is going to move without a change to the graph.
@@ -526,6 +545,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --max-parallel) MAX_PARALLEL="$2"; shift 2 ;;
     --dry-run) DRY_RUN=1; shift ;;
+    --validate) VALIDATE=1; shift ;;
     -*) die "unknown option: $1" ;;
     *) # a positional after `run` is the task graph to install
        if [[ "$CMD" == "run" ]]; then

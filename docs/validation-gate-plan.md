@@ -161,6 +161,54 @@ This feeds into `.orch/learnings.md` — "syntax errors in JS happen 40% of the 
 - Multi-agent consensus (no "3 agents vote")
 - Automatic merging (human always has the final say)
 - Support for non-code tasks (validation is code-specific)
+- Cross-task semantic integration verification (see Future Investigations)
+
+## Future Investigations
+
+These are not on the roadmap now. They are documented as candidate problems to revisit once data shows they are frequent enough to warrant a fix.
+
+### F1: Cross-task semantic consistency (structured handoffs)
+
+**Problem:** In an orchestrated multi-task build, independent tasks can make
+incompatible architectural choices that file boundaries and syntax checks cannot
+catch. Example:
+
+- Task A (data layer) → chooses PostgreSQL
+- Task B (API layer) → builds assuming SQLite
+
+Both tasks succeed. Files exist. Syntax passes. Tests may even pass in isolation.
+But the system is globally inconsistent.
+
+**Current mitigation:** One-line handoffs. Help but are unstructured text — no
+machine-parseable way for a dependent task to verify "the thing I depend on uses
+what I expect."
+
+**Candidate fix:** Structured handoffs (JSON contract) with pre-dispatch
+verification:
+
+```json
+{
+  "provides": { "database": "postgresql", "port": 5432 },
+  "expects": { "database": "postgresql" }
+}
+```
+
+Before dispatching a task, verify that its `expects` match what its dependencies
+`provide`. Mismatch = blocked task with a clear error.
+
+**Scope:** ~50 lines (prompt template change + `jq` verification loop in
+`orch.sh`). Fits naturally as Level 4 of the validation gate (integration
+review), but gated on data showing the problem is frequent.
+
+**Why not now:** This problem is real but narrow. Only happens in orchestrated
+multi-task builds with semantic dependencies. For one-off tasks, greenfield
+projects, or file-isolated work — it does not occur. Without data on how often
+tasks make incompatible choices, building the fix is premature. The validation
+gate gives us the framework to add this later when needed.
+
+**Data to collect:** How often do tasks in orchestrated builds make
+incompatible architectural choices? If `fa analyze` shows a pattern of
+post-hoc integration fixes, that's signal to implement.
 
 ## Open Questions
 

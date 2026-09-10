@@ -1,6 +1,6 @@
 # free-agents-free-models
 
-Run real coding work on **free models** across several agent CLIs (opencode, kilo, hermes, copilot, cursor) without a rate limit ever stopping you, and without two workers fighting over the same API key.
+Run real coding work on **free models** across several agent CLIs (opencode, kilo, hermes, copilot, cursor, agy) without a rate limit ever stopping you, and without two workers fighting over the same API key.
 
 ## What it is
 
@@ -102,7 +102,7 @@ fa lanes -v     # what you ended up with
 │   ├── orch.sh               task graph + journal-based resume
 │   ├── analyze.sh            post-run journal analysis + learnings
 │   └── lib/                     common.sh, deps.sh, adapters.sh, classify.sh, findings.sh, analyze.sh
-│       └── adapters/            one file per harness (opencode, kilo, hermes, copilot, cursor)
+│       └── adapters/            one file per harness (opencode, kilo, hermes, copilot, cursor, agy)
 ├── skills/                   skill cards, linked into the project by `fa bootstrap`
 ├── state/                    the credential registry (gitignored, regenerated)
 ├── docs/                     SETUP.md, design history in dev/

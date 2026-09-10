@@ -231,3 +231,42 @@ served which task is recorded in `.orch/journal.ndjson`.
 The design treats the churn as the normal case rather than an error — which is why
 health is learned and stored globally, and why nothing that cannot be attributed
 (your network dropping) is ever written to it.
+
+## 6. Maintenance — when and how to update
+
+### When to refresh the registry
+
+| Trigger | What to run |
+|---------|-------------|
+| Added or swapped a credential | `fa refresh` |
+| Installed a new agent CLI | `fa refresh` |
+| A model hangs or fails repeatedly | Check `fa findings` — the tool may already have blocklisted it |
+| Provider changed its free-model list | `fa discover && fa probe` (daily cron handles this automatically) |
+
+`fa doctor` reports `current` / `STALE` / `aged:<days>` / `MISSING` — trust it over
+guessing.
+
+### When to add a new agent adapter
+
+If you install a new CLI (claude, goose, aider, etc.), add a file in
+`bin/lib/adapters/` following the existing patterns. The adapter needs:
+
+1. A `detect()` function — checks if the CLI is installed and authenticated
+2. An `invoke()` function — runs the CLI with a prompt and returns output
+3. A `models()` function — lists available models for discovery
+
+Register the adapter in `bin/lib/adapters.sh`. `fa doctor` will then surface it
+as a healthy lane or flag it as installed-but-unadapted.
+
+### When to update the error taxonomy
+
+If a real provider response is misclassified (e.g., a billing refusal read as
+`dead`), the wrong cooldown or ranking update happens. Add the pattern to
+`bin/lib/classify.sh`. Real error text is the only source of truth — invented
+test data won't catch the next surprise.
+
+### When to add a test
+
+If a bug surfaces in real use, add a test case to `test/` first (so it can't
+regress), then fix. No test may touch the real registry — `test/harness.sh`
+redirects state to a temp dir and refuses to run against live data.

@@ -359,13 +359,24 @@ for row in "${CHAIN[@]}"; do
 
   if [[ "$state" == "ok" ]]; then
     # Validation gate: after a successful build, verify the output before
-    # reporting done. Phase 1 = syntax check only (fail fast, no auto-fix).
+    # reporting done. Phase 1 = syntax check only. Phase 2 = auto-fix loop.
     if [[ $VALIDATE -eq 1 ]]; then
-      if ! validate_build "$out"; then
-        # Validation failed — task output is broken. Mark as failed so the
-        # scheduler doesn't treat this as a success.
-        exit 1
-      fi
+      local round=0
+      local errors_file
+      while [[ $round -lt $VALIDATE_ROUNDS ]]; do
+        errors_file="$(validate_build "$out")" && break
+        round=$((round + 1))
+        if [[ $round -ge $VALIDATE_ROUNDS ]]; then
+          log "validation FAILED after ${VALIDATE_ROUNDS} round(s) — exhausted"
+          exit 1
+        fi
+        # Auto-fix loop: send the errors back to the same agent to fix.
+        # Same lane, no extra credential cost.
+        local fix_prompt="VALIDATION FAILED. Fix these errors:\n$(cat "$errors_file")\n\nRe-output the corrected file(s)."
+        log "validation failed, fix round ${round}/${VALIDATE_ROUNDS}"
+        out="$(invoke "$agent" "$model" "$provider" "$fix_prompt")" || true
+        rm -f "$errors_file"
+      done
     fi
     printf '%s\n' "$out"
     printf '%s %s\n' '---RUN-META---' \
@@ -425,6 +436,8 @@ exit 2
 validate_build() {
   local out_file="$1"
   local workdir="${WORKDIR:-$(pwd)}"
+  local errors_file
+  errors_file="$(mktemp)"
   local errors=()
 
   # Find all JS/TS/Python/sh files in the workdir and check syntax
@@ -451,6 +464,7 @@ validate_build() {
   done < <(find "$workdir" -type f \( -name "*.js" -o -name "*.mjs" -o -name "*.cjs" -o -name "*.py" -o -name "*.sh" \) -print0 2>/dev/null)
 
   if [[ ${#errors[@]} -gt 0 ]]; then
+    printf '%s\n' "${errors[@]}" > "$errors_file"
     log "validation FAILED:"
     for e in "${errors[@]}"; do
       log "  - $e"
@@ -459,9 +473,12 @@ validate_build() {
     printf '%s %s\n' '---VALIDATION-FAILED---' \
       "$(jq -cn --argjson count "${#errors[@]}" --arg errors "$(printf '%s\n' "${errors[@]}")" \
         '{count:$count, errors:$errors}')" >&2
+    # Return the errors file path via stdout for the caller
+    printf '%s\n' "$errors_file"
     return 1
   fi
 
+  rm -f "$errors_file"
   log "validation passed"
   return 0
 }

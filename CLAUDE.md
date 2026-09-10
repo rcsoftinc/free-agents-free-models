@@ -123,9 +123,6 @@ test data would have caught either.
 
 ## Working agreements
 
-- The user runs this in **tmux and cannot read long terminal output.** Write any
-  substantial answer, report or plan to a file under `docs/` and give the path.
-  Keep the terminal reply short. (`docs/dev/TMUX-CHEATSHEET.md`)
 - **Update `docs/dev/SESSION.md` whenever the state of the work changes**, so a
   closed window loses nothing.
 - `AGENTS.md` decides *how* to work — direct vs orchestrate — and applies to

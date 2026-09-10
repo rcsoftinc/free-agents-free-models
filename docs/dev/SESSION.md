@@ -1,19 +1,17 @@
 # SESSION STATE — read this first on resume
 
-**Last updated:** 2026-09-02
+**Last updated:** 2026-09-10
 
 ---
 
 ## Where we are
 
 **Complete, working, and proven on a real project.** Published privately at
-`github.com/rcsoftinc/free-agents-free-models` (moved from `noonelifecoach`
-on 2026-09-04; the three run-record projects below stayed put). Full suite green:
+`github.com/rcsoftinc/free-agents-free-models`. Full suite green:
 **245 assertions, 15 suites, ~5m, offline.**
 
-**It has built real software unattended, three times.** All on 2026-08-30, all
-independently verified against what the code does rather than what the agents
-reported:
+**It has built real software unattended.** All independently verified against what
+the code does rather than what the agents reported:
 
 | Project | Shape | Tasks | Peak lanes | Time | Result |
 |---|---|---|---|---|---|
@@ -22,10 +20,6 @@ reported:
 | [coldrun](https://github.com/noonelifecoach/coldrun) | starved | 5 | **1** | — | 5 modules, 9 requeues, 0 failures |
 
 Records: **`docs/dev/RUN-2026-08-30-{mdsite,fmtkit,coldrun}.md`**.
-The three together matter more than any one: mdsite showed the dependency GRAPH
-limiting throughput, fmtkit showed the LANE COUNT limiting it — the healthier
-constraint, since another credential then buys speed directly — and coldrun
-showed that below the gate's threshold the system slows rather than breaks.
 
 ## Documentation map
 
@@ -40,6 +34,7 @@ showed that below the gate's threshold the system slows rather than breaks.
 | `docs/SETUP.md` | Where each agent keeps its credentials (the non-reproducible part) |
 | `README.md` | User-facing: install, use, invariants |
 | `docs/dev/ANALYSIS.md` | Historical — the pre-rebuild survey |
+| `docs/validation-gate-plan.md` | Validation gate design and phases |
 
 Artifact **sources are vendored** in `docs/artifacts/`, because they otherwise
 live only in a session scratchpad. Editing one and republishing to the **same
@@ -222,31 +217,32 @@ shows credits left, and a spent allowance drops off the lane list on its own.
   strings. **Real error text from the user is the only source of truth for this
   layer** — two of four messages they pasted were misclassified.
 
+## Recent additions
+
+**Validation gate (Phase 1 + 2, 2026-09-10):** optional post-build syntax check
+with auto-fix loop. `fa run --validate` runs `node --check`, `python3 -m py_compile`,
+`shellcheck` on changed files; on failure the same agent gets the errors and retries
+(default 3 rounds). Exhaustion fails the task. `fa orch run --validate` applies this
+per task. Flag `--validate-all` reserved for tests + lint (future phases).
+Journal records `validation_failed` events for `fa analyze`. See
+`docs/validation-gate-plan.md`.
+
 ## Next, if resuming
 
 Nothing is outstanding and the tool has been proven on a real project. Options,
 roughly in order of value:
 
-0. **IN PROGRESS: a half-built real project**, on another server (no SSH from
-   here). Bring back: `fa findings --issue` output, any task that repeats as
-   `unverified`, and whether a real rate limit finally lands mid-build. This is
-   the first run against an existing codebase rather than a greenfield one. Watch
-   for: tasks that declare a file and leave it unchanged (now caught), specs that
-   assume context the worker does not have, and any findings the run produces.
-1. **A real provider failure mid-build — still unobserved.** Three projects,
+0. **A real provider failure mid-build — still unobserved.** Three projects,
    19 tasks, and not one genuine mid-flight failure. coldrun was built to force
    one by starving the scheduler to a single lane; it completed 5/5 anyway. The
    breaker, cooldown escalation and cross-wallet rerouting remain verified only by
    the test suite. **Do not force this by hammering providers** — it will close by
    itself during a genuinely large build.
-2. **Token accounting, scoped.** Assessed in `docs/dev/TOKENS-AND-HANDOFFS.md` and
+1. **Token accounting, scoped.** Assessed in `docs/dev/TOKENS-AND-HANDOFFS.md` and
    deliberately not built: worth it only for the two lanes that publish a budget
    (`nous` tph, `copilot` credits), where it turns the reactive breaker into a
    predictive one. A general ledger for the five lanes with no budget changes no
    decision.
-3. **Retire `opencode-free-agents/oc.sh`** — already removed from the tree; its
-   cross-model session-continuity trick was never ported and remains the only
-   capability lost in the rewrite.
 
 **Do not** add: token budgets on unmetered lanes, live leaderboard fetching (see
 ALIGNMENT for why gateway metadata beats it), or a summariser-based handoff — each

@@ -1,95 +1,57 @@
-# free-agents
+# free-agents-free-models
 
-Run real coding work on **free models** across several agent CLIs (opencode, kilo,
-hermes — and, as opt-in metered lanes, copilot and cursor) without a rate limit
-ever stopping you, and without two workers fighting over the same API key.
+Run real coding work on **free models** across several agent CLIs (opencode, kilo, hermes, copilot, cursor) without a rate limit ever stopping you, and without two workers fighting over the same API key.
 
-## The idea
+## What it is
 
-**Give each agent a different free API key, and you get more lanes.**
+A scheduling layer that turns free AI models into parallel build lanes. The core insight: **a bucket is one wallet — one `(provider, credential)` pair — and the wallet is the unit of rate limiting, therefore the unit of scheduling.**
 
-opencode, kilo and hermes each ship with their own free models, and each accepts
-additional gateway keys (OpenRouter, Kilo gateway, …). Every *distinct*
-credential* is an independent quota you can run in parallel. Adding a different
-free key to each agent is the whole point — it is how you turn three CLIs into
-five or six independently rate-limited lanes.
+Give each agent a different free API key, and you get more lanes. opencode, kilo, and hermes each ship with their own free models, and each accepts additional gateway keys. Every distinct credential is an independent quota you can run in parallel.
 
-The scheduling unit is therefore the **credential**, not the agent:
+The scheduling unit is the **credential**, not the agent:
+- **Different keys → real parallelism.** Two agents with different keys are two lanes even when running the same model.
+- **The same key in two agents is ONE lane.** Running both does not go faster — it races that single key into its own rate limit. The tool detects this automatically and flags it as a shared wallet.
 
-> A **bucket** is one wallet: `(provider, credential)`. It is the unit of rate
-> limiting, so it is the unit of scheduling.
-
-This matters in both directions:
-
-- **Different keys → real parallelism.** Two agents with different keys are two
-  lanes even when running the same model. Add keys freely; each one is capacity.
-- **The same key in two agents is ONE lane.** Running both does not go faster — it
-  races that single key into its own rate limit. The tool detects this
-  automatically (bucket ids derive from the credential) and flags it as a shared
-  wallet, so you never mistake it for extra capacity.
-
-A real example from the machine this was built on — three CLIs, six credentials,
-**75 free models across 5 usable lanes**:
-
-| Lane | Reached via | Free models |
-|---|---|---|
-| `kilo` gateway (no key needed) | kilo | 24 |
-| OpenRouter key in kilo | kilo | 21 |
-| Kilo-gateway key in hermes | hermes | 20 |
-| `nous` OAuth free tier | hermes | 6 |
-| opencode account | opencode | 4 |
-
-`docs/SETUP.md` shows where each agent keeps its keys.
-
-## Use it in a project
-
-Go into your project — empty or existing — and clone the tool into it:
+## Quick start
 
 ```sh
-cd ~/projects/thing
+# Clone into your project
+cd myproject
 gh repo clone rcsoftinc/free-agents-free-models .free-agents
 .free-agents/setup.sh
+
+# Check your lanes
+fa lanes -v
+
+# Run a single task
+fa run "add a --json flag to the status command"
+
+# Orchestrate a multi-task build
+fa plan "build a markdown site with search"
+fa orch run
+
+# Check progress
+fa status
 ```
 
-Everything the tool owns lives in **two hidden directories**: `.free-agents/`
-(the clone) and `.orch/` (this project's run state). `setup.sh` adds
-`.free-agents/` to your `.gitignore`, so the tool never becomes part of your repo.
+## Features
 
-Then **start any agent's TUI** from that directory — `opencode`, `kilo`, `hermes`,
-`copilot`, `cursor` — and paste a prompt:
+| Feature | What it does |
+|---------|--------------|
+| **Lane detection** | Discovers every credential your agents hold, attributes each model to its wallet |
+| **Parallel dispatch** | Runs independent tasks on separate lanes simultaneously |
+| **Fallback chain** | Tries the next healthy lane when one fails — no manual intervention |
+| **Bucket circuit breaker** | Freezes a wallet after consecutive failures, skips all its models instantly |
+| **Learned rankings** | Ranks models by observed outcomes per category (coding, reasoning, research) |
+| **Crash-safe resume** | Append-only journal; resume any run after interruption |
+| **Metered lanes** | Auto-includes copilot/cursor when detected with credits, tried last |
+| **Validation gate** | Optional post-build syntax check with auto-fix loop (`--validate`) |
+| **Handoffs** | Tasks pass one-line summaries to dependents; no extra model call |
+| **Findings** | Records what the tool noticed it handled badly; pasteable into issues |
 
-```
-.free-agents/prompts/coordinator.md
-```
+## Metered lanes (copilot, cursor)
 
-**One prompt, pasted once.** After that just talk normally — the coordinator reads
-what you are asking for and picks the mode itself: orienting, researching, one
-bounded task, a parallel build, or resuming after an interruption. You never tell
-it which mode to use.
-
-Pasting is deliberate. Agents do not read `AGENTS.md` consistently — tested here,
-kilo picks it up and quotes the gate exactly, hermes ignores it and falls back to
-its own idea of when to parallelise. A pasted prompt works in all of them.
-
-You can also drive it directly, without an agent:
-
-```sh
-.free-agents/bin/fa lanes -v          # how many independent credential lanes
-.free-agents/bin/fa plan "a goal"     # goal -> .orch/tasks.json
-.free-agents/bin/fa orch run          # execute across every healthy lane
-.free-agents/bin/fa status            # progress
-.free-agents/bin/fa resume            # safe after ANY interruption
-.free-agents/bin/fa analyze           # read the journal, detect cross-task patterns
-.free-agents/bin/fa analyze --learnings  # same + write .orch/learnings.md
-```
-
-## Metered lanes (copilot, cursor) — auto-include when detected
-
-`copilot` and `cursor-agent` work as lanes, but their free tiers are a **depleting
-monthly allowance**, not an unlimited pool. They are **in by default the moment
-they are detected with a token** — the cost is not money, only a finite budget,
-and a detected token means a real user on the machine wants to use it. They are
-always tried **last**, after every genuinely free lane is busy or cold.
+copilot and cursor-agent work as lanes, but their free tiers are a **depleting monthly allowance**, not an unlimited pool. They are **in by default the moment they are detected with a token** — tried **last**, after every genuinely free lane is busy or cold.
 
 ```sh
 fa lanes -v                                  # shows credits remaining + renewal date
@@ -98,315 +60,31 @@ FA_METERED=0 fa orch run                     # same, for the whole run
 fa run --allow-metered "task"                # force them on even when no token was seen
 ```
 
-The one case they sit out is spending a budget nobody is present for: a metered
-wallet with **no token** (`credential_fp = anon`) or a copilot allowance the live
-check reports as **spent** drops off the lane list on its own, and returns when
-the renewal lands. `FA_METERED=1` overrides both; `FA_METERED=0` hides them all.
-(`FA_ALLOW_METERED=1` still works and means the same as `=1`.)
+They cannot bill you. GitHub reports `overage_permitted: false` — the allowance simply stops and renews monthly.
 
-They cannot bill you. GitHub reports `overage_permitted: false` — the allowance
-simply stops, and it renews monthly (`fa lanes -v` prints the reset date). Copilot
-also exposes live credit counts, which the registry records at discovery.
+## Validation gate
 
-Neither exposes a model list — both route through a vendor "Auto" selector — so
-each is a single-model bucket. That is fine: the scheduler addresses wallets, not
-models.
+After a build completes, optionally verify the output before marking the task done:
+
+```sh
+fa run --validate "task"                     # syntax check only (Level 1)
+fa orch run tasks.json --validate            # validate every task in a graph
+fa run --validate --validate-rounds 5 "task" # custom retry count
+```
+
+Phase 1 checks syntax (`node --check`, `python3 -m py_compile`, `shellcheck`). On failure, the same agent gets the errors and retries (default 3 rounds). Exhaustion fails the task.
 
 ## Bootstrap (once per machine)
 
 ```sh
-.free-agents/setup.sh            # bootstraps automatically if the machine has no registry
+fa bootstrap    # discover credentials, probe wallets, install skills
+fa doctor       # verify the machine
+fa lanes -v     # what you ended up with
 ```
 
-That is the whole first run. `setup.sh` builds the registry itself rather than
-printing a command for you to copy, because there was only ever one thing to do
-next. It says so before it starts — that step is the only part of setup that
-leaves the machine (~2 min, one call per provider). `--no-bootstrap` skips it if
-you are scripting setup offline.
+`bootstrap` reads whatever credentials your agents already hold — it never asks for keys and never stores one. The registry is **machine-wide** at `~/.local/state/free-agents`. One bootstrap serves every project on the box.
 
-You can still drive the pieces yourself:
-
-```sh
-.free-agents/bin/fa bootstrap    # discover credentials, probe wallets, install skills
-.free-agents/bin/fa doctor       # verify the machine
-.free-agents/bin/fa lanes -v     # what you ended up with
-```
-
-`bootstrap` reads whatever credentials your agents already hold — it never asks
-for keys and never stores one. The agents stay logged in; their keys are their
-own, in their own config files.
-
-The registry is **machine-wide**, at `~/.local/state/free-agents`. One bootstrap
-serves every project on the box, and — the reason it is not per-project —
-**leases live there too**, so two projects running at once can see each other's
-locks and will not double-book a wallet. A per-clone registry could not, which
-made simultaneous projects a real collision hazard.
-
-### When to refresh — daily, automatically, and never a nag
-
-```sh
-.free-agents/bin/fa refresh      # same as bootstrap; the word you look for later
-```
-
-`fa bootstrap` installs a **daily refresh** in your crontab, so a fresh clone
-needs no manual step: `setup.sh` bootstraps, and the machine keeps itself
-current from then on. `fa schedule` / `fa unschedule` manage it (both are
-idempotent), `FA_NO_SCHEDULE=1` opts out, and each run logs quietly to
-`~/.local/state/free-agents/refresh.log`.
-
-What that daily refresh buys is a lag of **hours, not a silent miss**: it
-re-discovers and re-probes, so a key you added or an agent you installed becomes
-a lane within a day on its own, a copilot allowance that ran out drops off on its
-own, and the next renewal brings it back. It is a periodic **re-probe**, not a
-freshness nag.
-
-What both `setup.sh` and `fa doctor` tell you — on demand, the instant you look —
-is what actually went out of date:
-
-| What changed | How it is detected |
-|---|---|
-| You added or swapped a credential | **Exactly** — the live fingerprints no longer match the ones discovery recorded |
-| You installed another agent | **Exactly** — the agent is present and was never examined |
-| A provider changed its free-model list | Only time can hint: after 14 days doctor adds a soft note |
-| Health, cooldowns, rankings | Never stale — those self-correct on every run |
-
-Staleness is measured by **credential fingerprint**, not by the clock — a
-"registry is 1 day old" prompt would fire about the third row, which almost
-never matters, and stay silent about the first two, which cost you a lane the
-moment they happen. The cron keeps the fingerprints moving; `doctor` still tells
-you the truth at any moment in between.
-
-Nor is it an mtime check, which was the obvious implementation and is wrong here:
-`~/.hermes/auth.json` rewrites hourly when the OAuth token rotates, and kilo
-writes to its database on every invocation, so both files look "changed" on any
-second look. Fingerprints are stable across exactly those events — the nous
-fingerprint is the token's `sub` claim, not the token.
-
-Two distinctions the check has to make, or it cries wolf:
-
-- A credential that was examined but reached no free model produces no bucket.
-  It is not new. Discovery records every credential it *examined*, not only the
-  ones that yielded a lane.
-- An agent installed but not logged in was still examined. Only an agent that
-  discovery has never seen is a reason to refresh.
-
-Age never fails `doctor`; it is advisory. Raise or lower the hint with
-`REGISTRY_MAX_AGE_DAYS` (default 14).
-
-The trade-off: deleting a project's `.free-agents/` no longer removes every
-trace. For a genuinely self-contained project, opt back in:
-
-```sh
-export FREE_AGENTS_STATE="$PWD/.free-agents/state"   # per-project isolation
-```
-
-Where each agent keeps its keys, and how to add more: `docs/SETUP.md`.
-
-## Handoffs between tasks
-
-Workers are isolated: a task sees its own spec and nothing else. That is what makes
-weak models succeed, but it means a task cannot learn what the task it *depends on*
-decided — only what file that task left behind.
-
-So a task that has dependents is asked to end with one line:
-
-```
----HANDOFF--- ids are uuid4 strings; the store is notes.json
-```
-
-That line, and only that line, is given to the tasks that named it in `deps`. Nothing
-else changes: no extra model call, no lane spent, no summariser. A worker that writes
-nothing degrades to the previous behaviour, and a task nothing depends on is never
-asked — the request is a line in every prompt, so it is not free.
-
-Bounded by `HANDOFF_MAX_CHARS` (320). Stored in `.orch/handoffs/`, gitignored.
-
-## Prompt size
-
-Every dispatch estimates its prompt size and reports it in `RUN-META` as
-`est_prompt_tokens`. Above `BLOAT_WARN_TOKENS` (8000) it says so:
-
-```
-[run] prompt is large: ~10035 tokens (warn above 8000).
-[run]   a spec this size usually means a file listing leaked into it
-```
-
-Oversized prompts are the usual upstream cause of `context_overflow` and of
-free-model calls that are slow or wrong for no visible reason. One call in this
-project's own history sent ~31,875 input tokens unnoticed.
-
-## What gets scheduled, and what does not
-
-A model must be able to do the job before quality is even a question. Discovery now
-records what the providers already publish — context size, output budget, output
-modality — and excludes what cannot work:
-
-| Excluded | Why |
-|---|---|
-| `non_text_output` | generates audio or images. `google/lyria-3-*` sat in the free set with a **1M context**, so no context floor would have caught it |
-| `context_too_small` | below `CONTEXT_FLOOR` (200000, configurable) |
-| `not_a_generalist` | classifiers, moderation, embedding and rerank models |
-
-Nothing is deleted — the reason is recorded, and `fa lanes -v` shows it:
-
-```
-kilo:anon  kilo  22 usable (2 context_too_small filtered)  health=ok
-```
-
-**Unknown context is kept.** Where a provider does not publish it, the model is
-accepted as-is. Metadata is also pooled per model across lanes: context belongs to the
-model, not to whichever wallet happens to list it.
-
-Vendor routers (`kilo-auto/free`, `openrouter/auto`, …) are kept and flagged. They work;
-they just cannot be ranked, because the model behind them changes per request.
-
-## Working on an existing codebase
-
-All the guidance above holds, with one difference that matters. On a greenfield
-project a task's declared `files` are checked for **existence**. On an existing
-one that proves nothing — the file is already there — so the runner also
-checksums every declared file before dispatch and requires it to have **changed**.
-
-A task that declares a file and leaves it byte-identical is reported
-`unverified` and retried, exactly like one that wrote nothing at all.
-
-```
-[orch] unverified refactor: declared but not written: src/api.py (unchanged)
-```
-
-If a task legitimately may make no change, give it an empty `files` list and
-verify it another way.
-
-## Work blocked on you
-
-Some tasks need something no agent can supply — third-party credentials, an
-unprovisioned service, a decision only you can make. Mark them:
-
-```json
-{ "id": "payments", "blocked": "waiting on Stripe API credentials", ... }
-```
-
-Never dispatched, never retried, never counted as a failure. Dependents wait with
-it, everything else runs, and the run exits clean:
-
-```
-[orch] complete: 2 done, 0 failed, 2 waiting on you
-[orch] Waiting on you - these were never attempted:
-[orch]   payments — waiting on Stripe API credentials
-[orch]   checkout — blocked by a dependency above
-```
-
-Remove the `blocked` field and `fa resume` picks it up. Without this a blocked
-task burns lane attempts, fails verification, deadlocks its dependents and fails
-the whole run.
-
-## Findings — how a project feeds a fix back
-
-A *finding* is not an error. Errors are handled: a rate limit cools a wallet, a
-hang parks a model. A finding is the tool admitting it **did not know what
-something was**, or that it did the same unhelpful thing twice.
-
-```sh
-fa findings          # what has been noticed
-fa findings --issue  # emit a ready-to-file GitHub issue
-fa findings --ack    # mark them seen
-fa analyze           # read the journal, detect cross-task patterns
-fa analyze --learnings  # same + write .orch/learnings.md for next session
-```
-
-Three things are recorded at the moment of failure:
-
-| Kind | When |
-|---|---|
-| `unclassified` | provider output no taxonomy rule matched — it is still handled as `dead`, the safe default, but the text is kept |
-| `unverified_repeat` | a task claimed success without producing its files more than once — a signal about the spec or the models |
-| `deadlock` | a task graph that could not progress |
-
-And three more are detected by `fa analyze`, which reads the journal after a run
-and finds patterns spread across tasks that the moment-of-failure findings
-cannot see:
-
-| Kind | When |
-|---|---|
-| `all_lanes_failed` | a task failed on 3+ distinct lanes — the spec is the suspect, not the wallets |
-| `repeated_retries` | a task failed 3+ times — spec too large or not self-contained |
-| `single_lane_did_all` | all completed tasks ran on one lane — others were idle or unhealthy |
-
-`unclassified` is the valuable one. **Every classification bug found in this
-project was invisible for the same reason**: the taxonomy has a silent default and
-the text that reached it was discarded. A billing refusal read as `dead`; a model
-404 read as an auth failure that cooled an entire wallet for 24 hours.
-
-After an orchestrated run, `orch.sh` prints any new findings and the coordinator
-reports them to you. Nothing leaves the machine on its own. Evidence is redacted
-before it is stored — keys, JWTs, bearer tokens and email addresses — because a
-finding is meant to be pasteable into a public issue.
-
-## Model ranking (learned, per category)
-
-There is no static "best model" list — free models change too often for one to
-stay true. The engine ranks by **observed outcomes**, per category:
-
-```
-score = 2 x (this category: ok - 2xfail)      evidence from THIS kind of work
-      +      (overall:       ok - 2xfail)      evidence from any work
-      + 5 if the model answered its last probe
-```
-
-Category evidence counts double, because a model that is good at `coding` is not
-automatically good at `reasoning` and free models vary wildly between the two.
-Overall evidence still counts, so a model with no history in a category is not
-stranded at the bottom forever. Categories: `coding | reasoning | research |
-general | fast`.
-
-Two rules keep the ranking honest:
-
-- **A wallet-level failure is never scored against a model.** A rate limit or an
-  exhausted balance says nothing about whether that model is any good, so it
-  updates the *bucket's* health and leaves the model's record untouched.
-- **Nothing that cannot be attributed is recorded at all.** If your network drops,
-  no model and no wallet is blamed. A failure you caused is not evidence.
-
-Rankings live in `state/buckets.json` under each model's `stats` and `cat_stats`,
-and accumulate as you use the tool.
-
-### Cold start
-
-A fresh registry has stats for nothing, so ordering would otherwise be arbitrary. Models
-with **no observed results at all** are ordered by a prior built from the same metadata:
-context size, output budget, a parameter hint in the id, and an optional tier from
-`data/model-seed.json`.
-
-The prior applies **only** while a model has no stats. Clamping it below the value of one
-success is not enough — the *spread* between two priors can still offset an evidence gap —
-so it is gated on absence of evidence outright. Opinion orders the unknown; evidence orders
-everything else; the two never compete.
-
-`data/model-seed.json` is optional, absent by default, and **never fetched at runtime**.
-It is where leaderboard opinion belongs: edit it by hand or generate it whenever you like.
-It cannot break a run and cannot override a real result. Delete it and nothing changes.
-
-## Prompts the tool injects for you
-
-Two prompts are added automatically, because free models reliably get these wrong
-otherwise:
-
-**1. A working-directory contract**, prepended to every dispatched task:
-
-> `Your working directory is <abs path>. Create and edit files only inside it,
-> using paths relative to it. Do not use absolute paths.`
-
-Flags alone are not enough — a model given `--dir` was still observed writing to
-`/gamma.txt`. Stating the contract fixed it. (The runner also *verifies* the
-declared files afterwards, because a model can still ignore both.)
-
-**2. Task-shape rules**, injected when `fa plan` asks a model for a task graph:
-each task must be self-contained, `files` must list everything it touches,
-concurrent tasks must not share a file, and splits go by file boundary rather than
-by phase-of-thought.
-
-Nothing else is injected. Your prompt reaches the model as you wrote it, after
-those lines.
+`bootstrap` installs a **daily refresh** crontab, so a fresh clone needs no manual step. `fa schedule` / `fa unschedule` manage it.
 
 ## Layout
 
@@ -423,13 +101,11 @@ those lines.
 │   ├── plan.sh               goal -> task graph
 │   ├── orch.sh               task graph + journal-based resume
 │   ├── analyze.sh            post-run journal analysis + learnings
-│   ├── find-free-providers.sh   scan models.dev for new free providers
-│   ├── kilo-add-openrouter.sh   register OpenRouter free models with kilo
 │   └── lib/                     common.sh, deps.sh, adapters.sh, classify.sh, findings.sh, analyze.sh
 │       └── adapters/            one file per harness (opencode, kilo, hermes, copilot, cursor)
 ├── skills/                   skill cards, linked into the project by `fa bootstrap`
 ├── state/                    the credential registry (gitignored, regenerated)
-├── docs/                     SETUP.md - dev/ holds the design history
+├── docs/                     SETUP.md, design history in dev/
 └── test/                     stub agent CLIs + harness, for offline testing
 ```
 
@@ -441,9 +117,18 @@ those lines.
 <project>/.orch/learnings.md              patterns from runs PER PROJECT (gitignored)
 ```
 
-Learning is global because a dead wallet is dead everywhere. Run state is local so
-two projects can run at once. Resume replays the journal — there is no mutable
-status field for a crash to leave lying.
+Learning is global because a dead wallet is dead everywhere. Run state is local so two projects can run at once. Resume replays the journal — there is no mutable status field for a crash to leave lying.
+
+## Reproducibility
+
+**Reproducible:** the tool, the install, the routing rules, the error taxonomy, and the *shape* of a run.
+
+**Not reproducible, by nature:**
+- **Model output.** Free models are nondeterministic; the same plan yields different code each run. Tasks declare `files` and the runner verifies them — the *contract* is checked even though the *output* varies.
+- **Which model serves a task.** Depends on live wallet health. The journal records what actually happened; it is not a plan you can replay.
+- **The free-model roster.** Providers add and remove free models constantly. Re-run `fa discover && fa probe` to self-heal.
+
+A **project** is reproducible in the sense that matters: commit the files from `fa init` plus `.orch/tasks.json`, and anyone with their own lanes can run `fa orch run .orch/tasks.json` and get equivalent work.
 
 ## Tests
 
@@ -455,35 +140,19 @@ bin/fa lanes                       # smoke check: >0 means credentials work
 DRY_RUN_LIMIT=0 bin/run.sh --dry-run   # the full candidate chain, spends nothing
 ```
 
-The suite lives in `test/` — `test/test_*.sh` suites over `test/harness.sh`, using
-stub agent CLIs in `test/stubs/`. No suite may touch real state: `harness.sh`
-redirects `FREE_AGENTS_STATE` to a throwaway directory on source and refuses to
-run against a live registry.
-
-## Visual reference
-
-Two published pages, source in `docs/artifacts/`:
-
-- **[Route map](https://claude.ai/code/artifact/68bc7de1-6a06-4242-86f0-957904c09e1f)** — every
-  route the tool can take: discovery, the gate, the dispatch loop, the error taxonomy, and what
-  is deliberately absent.
-- **[One run, end to end](https://claude.ai/code/artifact/727f0341-8a96-4e91-99fd-47ec5cdb7076)** —
-  a real recorded build, compared against a wide run and a deliberately starved one.
+The suite lives in `test/` — `test/test_*.sh` suites over `test/harness.sh`, using stub agent CLIs. No suite may touch real state: `harness.sh` redirects `FREE_AGENTS_STATE` to a throwaway directory on source and refuses to run against a live registry.
 
 ## Docs
 
-- **`docs/ALIGNMENT.md`** — the design, every finding, and the build log. Current.
-- `docs/ANALYSIS.md` — the original survey. Historical.
-- `SESSION.md` — where the work stands and what is next.
-- `AGENTS.md` — when to work directly vs orchestrate (the gate).
+- **`docs/SETUP.md`** — install, where each agent hides its credentials, full file layout
+- **`docs/dev/ALIGNMENT.md`** — the design and every finding (source of truth for contributors)
+- **`docs/dev/SESSION.md`** — current state, invariants, bugs the suite found
+- **`docs/dev/RUN-2026-08-30-*.md`** — real project run records
+- **`docs/validation-gate-plan.md`** — validation gate design and phases
 
 ## Things that cost real debugging time
 
-- These CLIs **exit 0 on hard failures** (hermes returns 0 on HTTP 404 and on a
-  billing refusal). Classify on output, never on exit code.
-- **Containment differs per agent**: `opencode --dir`, `kilo --dir`, and hermes via
-  `HOME` — it honours neither `cwd` nor `--in`.
-- A route is `(agent, model, **provider**)`. `hermes -m X` resolves against its
-  *active* provider only.
-- A model can still write to an absolute path regardless of any flag. **Verify the
-  files; an agent reporting success is not evidence.**
+- These CLIs **exit 0 on hard failures** (hermes returns 0 on HTTP 404 and on a billing refusal). Classify on output, never on exit code.
+- **Containment differs per agent**: `opencode --dir`, `kilo --dir`, and hermes via `HOME` — it honours neither `cwd` nor `--in`.
+- A route is `(agent, model, **provider**)`. `hermes -m X` resolves against its *active* provider only.
+- A model can still write to an absolute path regardless of any flag. **Verify the files; an agent reporting success is not evidence.**

@@ -168,6 +168,8 @@ classify_self_test() {
   _ct 1 "context length exceeded"                              context_overflow || fails=1
   # (D3) hermes exits 0 on an unknown model; (D6) a missing --provider looks identical
   _ct 0 "HTTP 404: Model 'x' not found."                       dead             || fails=1
+  # (D3) hermes: free period ended for a model — model-level, not wallet
+  _ct 0 "HTTP 404: This model's free period has ended. Please select a different model to continue!" dead || fails=1
   # (D2) a malformed invocation must not be mistaken for a dead model's fault
   _ct 2 "hermes: error: unrecognized arguments: list"          dead             || fails=1
   _ct 124 ""                                                   timeout          || fails=1

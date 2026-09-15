@@ -155,6 +155,7 @@ DRY_RUN_LIMIT=0 bin/run.sh --dry-run   # the full candidate chain, spends nothin
 
 ## Docs
 
+- **`docs/VISUAL-GUIDE.md`** — lane anatomy, run flow, orchestrator decision logic, failure handling (ASCII diagrams)
 - **`docs/SETUP.md`** — install, where each agent hides its credentials, full file layout
 - **`docs/dev/ALIGNMENT.md`** — the design and every finding
 - **`docs/dev/SESSION.md`** — current state, invariants, bugs

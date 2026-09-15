@@ -32,7 +32,7 @@ agy_identify() {
       [[ -n "$rt" ]] && fp_val="$(fp "$rt")"
     fi
   fi
-  printf 'agy\x1fantigravity\x1fantigravity\x1f%s\x1f%s\x1f{}\\n' \
+  printf 'agy\x1fantigravity\x1fantigravity\x1f%s\x1f%s\x1f{}\n' \
     "$fp_val" "agy:antigravity-cli"
 }
 
@@ -41,7 +41,9 @@ agy_models() { # -> model rows, agent-prefixed (see buckets.sh)
   local line id name
   while IFS=$'\t' read -r id name; do
     [[ -z "$id" || "$id" == "id" ]] && continue
-    printf 'agy\tantigravity\t%s\t%s\tfree\t{}\n' "$id" "$name"
+    # All agy models are free tier; format must match the 7-field TSV
+    # parser in buckets.sh: agent<TAB>provider<TAB>model_arg<TAB>upstream<TAB>free<TAB>context<TAB>max_output
+    printf 'agy\tantigravity\t%s\t%s\ttrue\t0\t0\n' "$id" "$name"
   done < <(agy models 2>/dev/null | tail -n +1)
 }
 

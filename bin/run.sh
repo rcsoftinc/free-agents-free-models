@@ -88,6 +88,24 @@ workdir_preamble() {
   printf 'Your working directory is %s\nCreate and edit files only inside it, using paths relative to it. Do not use absolute paths.\n\n' "$1"
 }
 
+# Inform the agent it's in an isolated worktree (used by orch.sh --isolate)
+isolation_preamble() {
+  printf 'You are working in an ISOLATED GIT WORKTREE.\nThis is a separate copy of the repository for your task ONLY.\nYour changes will be merged back when you complete successfully.\n'
+  printf 'Do NOT attempt to push, pull, or interact with remote repositories.\n'
+  printf 'Focus ONLY on the task you were given.\n\n'
+}
+
+# Exit report: remind the agent what to report before ending
+exit_report_preamble() {
+  printf '\n\n=== EXIT REPORT REQUIRED ===\n'
+  printf 'Before ending your session, you MUST report:\n'
+  printf '- Files changed: list every file you created or edited\n'
+  printf '- Verification status: did tests/build/lint pass? what was the result?\n'
+  printf '- Remaining work: what is left to do (if anything)\n'
+  printf 'No silent exits.\n'
+  printf '============================\n\n'
+}
+
 # A rough token estimate from character count. Deliberately crude: every runtime
 # tokenises differently and most will not tell us in advance, so an approximation
 # that is always available beats an exact figure that is usually missing.
@@ -325,7 +343,11 @@ for row in "${CHAIN[@]}"; do
   lease_acquire "$bucket" || { log "lane busy: $bucket"; SKIP[$bucket]=busy; continue; }
 
   attempt=$((attempt+1))
-  full_prompt="$(workdir_preamble "$WORKDIR")$PROMPT"
+  full_prompt="$(workdir_preamble "$WORKDIR")${PROMPT}$(exit_report_preamble)"
+  # If invoked with FA_ISOLATE=1, prepend isolation context
+  if [[ "${FA_ISOLATE:-0}" == "1" ]]; then
+    full_prompt="$(isolation_preamble)$full_prompt"
+  fi
   est="$(est_tokens "$full_prompt")"
   if [[ $attempt -eq 1 && "$est" -gt "$BLOAT_WARN_TOKENS" ]]; then
     log "prompt is large: ~${est} tokens (warn above ${BLOAT_WARN_TOKENS})."

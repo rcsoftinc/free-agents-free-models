@@ -4,6 +4,8 @@
 #   account, openrouter).
 # Models:   `opencode models --verbose` - shared parser with kilo, in
 #   buckets.sh (models_from_verbose), which owns the discovery machinery.
+#   Opencode also hosts its own zen models (providerID=opencode) — these form
+#   a separate bucket since they need no credential (like kilo:anon).
 # Invoke:   opencode run -m model prompt; contained with --dir when a workdir
 #   is given (FA_WORKDIR).
 
@@ -16,15 +18,18 @@ FA_opencode_VERSION_BIN="opencode"
 
 opencode_identify() { # -> identity rows (see buckets.sh for the schema)
   command -v opencode >/dev/null 2>&1 || return 0
-  [[ -f "$OPENCODE_AUTH" ]] || return 0
-  local provider key
-  while IFS=$'\x1f' read -r provider key; do
-    [[ -z "$provider" ]] && continue
-    printf 'opencode\x1f%s\x1f%s\x1f%s\x1f%s\x1f{}\n' \
-      "$provider" "$provider" "$(fp "$key")" "opencode:auth.json"
-  done < <(jq -r 'to_entries[]
-                  | [.key, (.value.key // .value.apiKey // .value.access // "")]
-                  | join("\u001f")' "$OPENCODE_AUTH" 2>/dev/null)
+  # Always emit an identity for opencode's own zen models — they need no
+  # credential and are available even without an auth file (like kilo:anon).
+  # Ident "zen" distinguishes this from credential-backed opencode buckets.
+  printf 'opencode\x1fopencode\x1fopencode\x1fzen\x1fopencode:anonymous\x1f{}\n'
+  if [[ -f "$OPENCODE_AUTH" ]]; then
+    local provider key
+    while IFS=$'\x1f' read -r provider key; do
+      [[ -z "$provider" ]] && continue
+      printf 'opencode\x1f%s\x1f%s\x1f%s\x1fopencode:auth.json\x1f{}\n' \
+        "$provider" "$provider" "$(fp "$key")"
+    done < <(jq -r 'to_entries[] | [.key, (.value.key // .value.apiKey // .value.access // "")] | join("\u001f")' "$OPENCODE_AUTH" 2>/dev/null)
+  fi
 }
 
 opencode_models() { # -> model rows, agent-prefixed (see buckets.sh)

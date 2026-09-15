@@ -1,7 +1,6 @@
 # Agent Workflow — Read This First
 
-Every coding agent (opencode, kilo, hermes, claude) reads this file. It decides
-**how** you work on a request.
+Every coding agent (opencode, kilo, hermes, pi, copilot, cursor, agy) reads this file. It decides **how** you work on a request.
 
 ## Default: work directly
 
@@ -84,6 +83,65 @@ wallets, and journals every transition. You do not schedule; you specify.
 Run the declared verification (tests, lint, build). Review by **diff and test
 output**, not by re-reading the repo. Do not re-architect a worker's code — fix
 integration gaps only. Escalate real blockers.
+
+## Task categories
+
+Every task has a `category` that determines its verification:
+
+| Category | Output | Verification |
+|----------|--------|--------------|
+| `coding` (default) | Code changes | Files exist, tests pass (if `--validate`) |
+| `research` | Investigation report | Report file exists in `docs/` or `.orch/reports/`, no code modified |
+| `reasoning` | Analysis or design | Files exist, logic is sound |
+| `general` | Mixed output | Files exist |
+| `fast` | Quick task | Files exist |
+
+If `category` is omitted, it defaults to `coding`.
+
+## Project modes
+
+Projects can set an autonomy mode in `.orch/config.yaml`:
+
+```yaml
+# .orch/config.yaml
+mode: strict      # verify after every change (default)
+# mode: push      # can push and create PRs
+# mode: local     # no remote operations
+
+automerge: false  # allow autonomous merging (only with push mode)
+```
+
+- **strict** (default): Run verification after every change.
+- **push**: You can push and create PRs.
+- **local**: No remote operations. Do not push or create PRs.
+
+In `local` mode, any push or PR creation is a violation of the task.
+
+## Parallel isolation
+
+When the orchestrator runs multiple tasks with disjoint file sets, it may run each
+in its own git worktree (enabled with `--isolate` or auto-detected). In isolation:
+
+- You work in a separate copy of the repository, branched from HEAD.
+- You do NOT have access to push, pull, or interact with remote repositories.
+- Focus ONLY on the task you were given.
+- Your changes will be merged back when you complete successfully.
+
+## Exit report
+
+Before ending your session, you MUST report:
+- **Files changed**: list every file you created or edited
+- **Verification status**: did tests/build/lint pass? what was the result?
+- **Remaining work**: what's left to do (if anything)
+
+No silent exits. If you end without reporting, you have failed the task.
+
+## User instruction precedence
+
+A current, explicit, concrete user instruction overrides any standing rule
+within its exact scope. Ambiguity requires clarification first.
+Destructive, irreversible, or security-sensitive actions still need explicit
+user approval — no standing rule overrides this.
 
 ## What actually costs you
 

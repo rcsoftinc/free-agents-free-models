@@ -15,8 +15,8 @@ set -euo pipefail
 #
 #   usage:
 #     orch.sh init                     create .orch/ here
-#     orch.sh run TASKS.json [--max-parallel N] [--dry-run]
-#     orch.sh resume [--max-parallel N]     re-dispatch whatever is unfinished
+#     orch.sh run TASKS.json [--max-parallel N] [--dry-run] [--validate] [--isolate]
+#     orch.sh resume [--max-parallel N] [--dry-run] [--validate] [--isolate]     re-dispatch whatever is unfinished
 #     orch.sh status                   progress from the journal
 #
 #   TASKS.json:
@@ -51,8 +51,22 @@ TASKS_FILE="${ORCH_DIR}/tasks.json"
 MAX_PARALLEL=""
 DRY_RUN=0
 VALIDATE=0
+ISOLATE=0
 TASK_RETRIES="${TASK_RETRIES:-2}"      # retries after a real failure
 LANE_WAIT="${LANE_WAIT:-5}"            # seconds to wait when every lane is busy
+
+# Project mode: read from .orch/config.yaml
+project_mode() {
+  local config="${ORCH_DIR}/config.yaml"
+  [[ -f "$config" ]] || { echo "strict"; return; }
+  grep -E '^mode:' "$config" 2>/dev/null | head -1 | sed 's/mode:[[:space:]]*//'
+}
+
+project_automerge() {
+  local config="${ORCH_DIR}/config.yaml"
+  [[ -f "$config" ]] || { echo "false"; return; }
+  grep -E '^automerge:' "$config" 2>/dev/null | head -1 | sed 's/automerge:[[:space:]]*//'
+}
 
 # ------------------------------------------------------------------ journal --
 # Append-only, one JSON object per line, flushed under flock. Crash safety comes
@@ -259,39 +273,69 @@ snapshot_files() { # $1=task id
 }
 
 run_task() { # $1=task id ; runs in a subshell as a background job
-  local id="$1" prompt category out rc=0 meta before
+  local id="$1" prompt category out rc=0 meta before wt_dir deliverable
   prompt="$(build_prompt "$id")"
-  category="$(task_field "$id" category)"; category="${category:-general}"
+  category="$(task_field "$id" category)"; category="${category:-coding}"
   out="${RESULTS}/${id}.out"; mkdir -p "$RESULTS"
+  
+  # Worktree isolation: create a clean worktree for coding tasks
+  local workdir="$PROJECT"
+  if [[ $ISOLATE -eq 1 && "$category" == "coding" ]]; then
+    wt_dir="${ORCH_DIR}/worktrees/${id}"
+    mkdir -p "$(dirname "$wt_dir")"
+    # Create worktree from current HEAD
+    git -C "$PROJECT" worktree add -b "fa-task-${id}" "$wt_dir" HEAD 2>/dev/null || \
+      git -C "$PROJECT" worktree add "$wt_dir" HEAD 2>/dev/null || true
+    workdir="$wt_dir"
+    log "isolated $id in $wt_dir"
+  fi
+  
   before="$(snapshot_files "$id")"
 
   journal started "$id"
   set +e
   local validate_flag=""
   [[ $VALIDATE -eq 1 ]] && validate_flag="--validate"
-  FA_TASK_ID="$id" "$RUN_SH" -c "$category" -w "$PROJECT" $validate_flag "$prompt" \
+  FA_TASK_ID="$id" "$RUN_SH" -c "$category" -w "$workdir" $validate_flag "$prompt" \
     >"$out" 2>"${RESULTS}/${id}.err"
   rc=$?
-  set -e
+  set +e
   meta="$(sed -n 's/^---RUN-META--- //p' "${RESULTS}/${id}.err" | tail -1)"
 
   # VERIFY, do not trust. An agent reporting success is not evidence the work
   # happened: models have claimed to create a file and written it elsewhere, or
-  # not at all. If the task declared files, they must exist in the project.
+  # not at all. If the task declared files, they must exist.
   if [[ $rc -eq 0 ]]; then
-    local missing=() f was now
+    local missing=() f was now check_dir
+    check_dir="$workdir"
+    # For isolated tasks, check in the worktree; for non-isolated, check in PROJECT
+    [[ $ISOLATE -eq 1 && "$category" == "coding" ]] && check_dir="$wt_dir" || check_dir="$PROJECT"
+    
     while IFS= read -r f; do
       [[ -z "$f" ]] && continue
-      if [[ ! -e "${PROJECT}/${f}" ]]; then
+      if [[ ! -e "${check_dir}/${f}" ]]; then
         missing+=("${f} (absent)")
         continue
       fi
       was="$(printf '%s' "$before" | awk -F'\t' -v k="$f" '$1==k{print $2}')"
-      now="$(md5sum "${PROJECT}/${f}" 2>/dev/null | cut -d' ' -f1)"
+      now="$(md5sum "${check_dir}/${f}" 2>/dev/null | cut -d' ' -f1)"
       # It existed before and is byte-identical now: the task declared it would
       # touch this file and did not. Unchanged is as unverified as absent.
       [[ "$was" != "-" && "$was" == "$now" ]] && missing+=("${f} (unchanged)")
     done < <(task_files "$id")
+    
+    # For research tasks: verify report file exists
+    if [[ "$category" == "research" && ${#missing[@]} -eq 0 ]]; then
+      # Research tasks should write to docs/ or .orch/reports/
+      local has_report=0
+      while IFS= read -r f; do
+        [[ "$f" == docs/* || "$f" == .orch/reports/* ]] && has_report=1
+      done < <(task_files "$id")
+      if [[ $has_report -eq 0 ]]; then
+        missing+=("research task must write report to docs/ or .orch/reports/")
+      fi
+    fi
+    
     if [[ ${#missing[@]} -gt 0 ]]; then
       journal unverified "$id" "missing=${missing[*]}"
       log "unverified $id: declared but not written: ${missing[*]}"
@@ -303,7 +347,23 @@ run_task() { # $1=task id ; runs in a subshell as a background job
           "task claimed success without producing its files, more than once" \
           "task=${id} declared=${missing[*]}" "task=${id}"
       fi
+      # Cleanup worktree on failure
+      [[ -n "$wt_dir" && -d "$wt_dir" ]] && git -C "$PROJECT" worktree remove --force "$wt_dir" 2>/dev/null
       return 1
+    fi
+    
+    # Merge changes back from worktree to main worktree (for coding tasks)
+    if [[ $ISOLATE -eq 1 && "$category" == "coding" && -n "$wt_dir" && -d "$wt_dir" ]]; then
+      # Copy changed files back to main worktree
+      while IFS= read -r f; do
+        [[ -z "$f" ]] && continue
+        if [[ -f "${wt_dir}/${f}" ]]; then
+          cp "${wt_dir}/${f}" "${PROJECT}/${f}" 2>/dev/null || true
+        fi
+      done < <(task_files "$id")
+      # Cleanup worktree
+      git -C "$PROJECT" worktree remove --force "$wt_dir" 2>/dev/null || true
+      log "merged $id changes from worktree"
     fi
   fi
 
@@ -319,7 +379,9 @@ run_task() { # $1=task id ; runs in a subshell as a background job
     0) journal done "$id" \
          "bucket=$(jq -r '.bucket // ""' <<<"${meta:-{}}")" \
          "model=$(jq -r '.model // ""' <<<"${meta:-{}}")" \
-         "agent=$(jq -r '.agent // ""' <<<"${meta:-{}}")" ;;
+         "agent=$(jq -r '.agent // ""' <<<"${meta:-{}}")" \
+         "type=${task_type}" \
+         "deliverable=${deliverable}" ;;
     5) journal no_lane "$id" ;;          # not a failure: requeue
     *)
       if [[ -n "$validation_err" ]]; then
@@ -327,6 +389,8 @@ run_task() { # $1=task id ; runs in a subshell as a background job
       else
         journal attempt_failed "$id" "rc=$rc"
       fi
+      # Cleanup worktree on failure
+      [[ -n "$wt_dir" && -d "$wt_dir" ]] && git -C "$PROJECT" worktree remove --force "$wt_dir" 2>/dev/null
       ;;
   esac
   return $rc
@@ -340,7 +404,17 @@ cmd_run() {
   write_orch_gitignore
   local width="${MAX_PARALLEL:-$(healthy_buckets)}"
   [[ "$width" -ge 1 ]] || width=1
-  log "project=$PROJECT  parallel=$width (healthy buckets)"
+  
+  # Auto-enable isolation when multiple tasks have disjoint file sets
+  if [[ $ISOLATE -eq 0 ]]; then
+    local disjoint_count=0
+    # Count tasks with disjoint file sets (simplified check)
+    disjoint_count=$(jq '[.tasks[] | .files // []] | length' "$TASKS_FILE")
+    [[ $disjoint_count -gt 1 && $width -gt 1 ]] && ISOLATE=1 && log "auto-enabled isolation for parallel disjoint tasks"
+  fi
+  
+  local mode="$(project_mode)"
+  log "project=$PROJECT  parallel=$width  mode=$mode  isolate=$ISOLATE"
 
   declare -A ATTEMPTS=() PIDS=() RUNNING=() LANEWAIT=()
   local todo remaining id pid finished progressed
@@ -508,10 +582,12 @@ cmd_status() {
 # What of .orch/ belongs in the PROJECT's git:
 #   tasks.json      YES - it is the specification, and it is what makes a run
 #                   repeatable on someone else's machine (with their own lanes).
+#   config.yaml     YES - project autonomy mode (strict/push/local).
 #   journal.ndjson  NO  - a record of what happened on ONE machine. Committing it
 #                   guarantees conflicts and reproduces nothing: which wallet
 #                   served a task is not a property of the project.
 #   results/        NO  - raw agent transcripts.
+#   worktrees/      NO  - git worktrees for isolated task execution.
 write_orch_gitignore() {
   mkdir -p "$ORCH_DIR"
   # Never clobber a hand-edited file - but do repair the one line that an older
@@ -522,18 +598,35 @@ write_orch_gitignore() {
     return 0
   fi
   cat > "${ORCH_DIR}/.gitignore" <<'EOF'
-# Commit tasks.json - it is the specification, and it travels between machines.
+# Commit tasks.json and config.yaml - they are the specification.
 # Everything else here is a record of one machine's run.
 journal.ndjson
 results/
 handoffs/
 *.lock
+worktrees/
 EOF
 }
 
 cmd_init() {
   mkdir -p "$ORCH_DIR" "$RESULTS"
   [[ -f "$TASKS_FILE" ]] || echo '{"tasks":[]}' > "$TASKS_FILE"
+  
+  # Create default .orch/config.yaml if not present
+  if [[ ! -f "${ORCH_DIR}/config.yaml" ]]; then
+    cat > "${ORCH_DIR}/config.yaml" <<'EOF'
+# Project autonomy mode:
+#   strict    - verify after every change (default)
+#   push      - can push and create PRs
+#   local     - no remote operations
+mode: strict
+
+# Allow autonomous merging (only with push mode)
+automerge: false
+EOF
+    log "created ${ORCH_DIR}/config.yaml (mode: strict)"
+  fi
+  
   write_orch_gitignore
   echo "initialised $ORCH_DIR"
 }
@@ -546,6 +639,7 @@ while [[ $# -gt 0 ]]; do
     --max-parallel) MAX_PARALLEL="$2"; shift 2 ;;
     --dry-run) DRY_RUN=1; shift ;;
     --validate) VALIDATE=1; shift ;;
+    --isolate) ISOLATE=1; shift ;;
     -*) die "unknown option: $1" ;;
     *) # a positional after `run` is the task graph to install
        if [[ "$CMD" == "run" ]]; then

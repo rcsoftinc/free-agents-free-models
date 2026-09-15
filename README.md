@@ -364,7 +364,37 @@ fa bootstrap          # discover credentials, install skills
 fa lanes -v           # see your lanes
 ```
 
-## Supported agents
+## Agent roles
+
+Each agent brings something different beyond just its tooling — different model access, different containment semantics, different failure modes. Here's what each one adds to your pool:
+
+### opencode
+
+Two distinct wallets. First, **zen models** — hosted by opencode itself, no credential needed, 4 free models (zen). Second, any OpenRouter key you configure, giving you access to 200+ community models. Opencode uses `--dir` for containment (real process isolation), which makes it one of the safest lanes for parallel work. Its model list includes context size and max output, so the scheduler can match task complexity to model capacity.
+
+### kilo
+
+The **biggest unauthenticated pool** — 23 free models with no key needed at all. It also accepts OpenRouter keys via `kilo.jsonc`, so you can stack it with a different key than opencode to double your OpenRouter lanes. Kilo uses `--dir` for containment. Its models include output modality (text, audio, etc.), which helps the scheduler avoid sending text tasks to audio models. Watch for: it can be verbose — classify on output patterns, not exit code.
+
+### hermes
+
+The **multi-provider generalist**. It reaches Nous, Kilo gateway, OpenRouter, and others through a single CLI — each becomes a separate lane. Hermes is the only agent that reads gateway-specific free signals (isFree, zero pricing, `:free` suffix), so it surfaces models others miss. Containment is different: it ignores `--dir`, so fa uses `HOME` redirection instead. Its OAuth tokens rotate hourly — the registry fingerprints the stable subject, not the token.
+
+### pi
+
+The **high-volume lane**. Pi backed by OpenRouter gives you 353 models (86 free), making it the largest single bucket. It's a strong general-purpose worker: `--add-dir` containment, straightforward `--model` + `--print` invocation, standard OpenRouter catalog with clear context sizes. The sheer volume means when other lanes are busy or cold, pi almost always has capacity. Watch for: pi doesn't publish `:free` suffixes — the adapter detects `:free` and `:batch` variants.
+
+### agy (Antigravity)
+
+The **Google-quality lane** with 14 free models (Gemini, Claude, GPT-OSS). Uses Google OAuth — the adapter fingerprints the refresh token (stable) so token rotation doesn't create duplicate lanes. Uses `--add-dir` for containment. Useful when you want models from Google's ecosystem without managing an API key directly. The `--print` flag makes it non-interactive and script-friendly.
+
+### copilot
+
+The **metered safety net**. 200 monthly credits, renews monthly, `overage_permitted: false` — it stops rather than bills. Auto-routed (no model selector, one bucket with "auto"). Tried last by default, only when all free lanes are busy or cold. Uses `--allow-all` + `--add-dir` for containment. Its strength is not volume but reliability — GitHub's models tend to be well-tested and current.
+
+### cursor
+
+The **second metered lane**, similar to copilot: auto-routed, depleting monthly allowance, tried last. Reports account email via `cursor-agent status`. Uses `-f` to trust the directory (it refuses to run headless otherwise). Like copilot, its value is as a fallback when free lanes are exhausted — not as a primary worker.
 
 | Agent | Location | Identity source | Notes |
 |-------|----------|-----------------|-------|

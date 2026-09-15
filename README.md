@@ -12,6 +12,40 @@ The scheduling unit is the **credential**, not the agent:
 - **Different keys → real parallelism.** Two agents with different keys are two lanes even when running the same model.
 - **The same key in two agents is ONE lane.** Running both does not go faster — it races that single key into its own rate limit. The tool detects this automatically and flags it as a shared wallet.
 
+## How it works
+
+You work inside an agent's TUI the way you always have. The difference is that the agent has access to parallel lanes and decides when to use them.
+
+### Step 1: Open your TUI
+
+Open any supported agent (opencode, kilo, hermes, pi, agy, copilot, cursor). Use tmux or herdr to see multiple windows at once — this is the recommended setup because you'll see workers being launched in their own windows.
+
+### Step 2: Paste the coordinator prompt
+
+Paste `.free-agents/prompts/coordinator.md` into the TUI at the start of a session. The agent reads it, runs `fa doctor` to check the machine, and from that point on it's the coordinator — it decides what to build, when to split work, and how to dispatch.
+
+### Step 3: Work normally
+
+Talk to the agent. Ask it to build something, research something, fix something. The agent picks the mode:
+- **Small task** → does it directly in your TUI
+- **Multi-part build** → plans, dispatches workers across your lanes, monitors them
+
+### Step 4: Monitor (optional)
+
+Open another terminal and run `fa status` to see what's running. In tmux/herdr you'll see worker windows appear and disappear as lanes are used.
+
+When it finishes, the orchestrator prints an exit report: files changed, verification status, remaining work.
+
+## Setup (one-time)
+
+```sh
+cd myproject
+gh repo clone rcsoftinc/free-agents-free-models .free-agents
+.free-agents/setup.sh
+fa bootstrap          # discover credentials, install skills
+fa lanes -v           # see your lanes
+```
+
 ## Supported agents
 
 | Agent | Location | Identity source | Notes |
@@ -23,38 +57,6 @@ The scheduling unit is the **credential**, not the agent:
 | cursor | `/usr/local/nodejs/bin/cursor-agent` | cursor status | Metered |
 | agy | `~/.local/bin/agy` | Google OAuth | 14+ free models (Gemini, Claude, GPT) |
 | pi | `/usr/local/nodejs/bin/pi` | `~/.pi/agent/auth.json` | OpenRouter-backed |
-
-## Quick start
-
-### One-time setup
-```sh
-cd myproject
-gh repo clone rcsoftinc/free-agents-free-models .free-agents
-.free-agents/setup.sh
-fa bootstrap          # discover credentials, install skills
-fa lanes -v           # see what you have
-```
-
-### Run a simple task (interactive)
-```sh
-# You watch it work in the terminal
-fa run "add a --json flag to the status command"
-```
-
-### Orchestrate a multi-task build (fire-and-forget)
-```sh
-fa plan "build a markdown site with search"
-fa orch run           # dispatches workers, you go do other things
-```
-
-While `fa orch run` is running, workers execute across your agents — some in their own TUI windows, some headless. You don't babysit it.
-
-### Peek at progress (optional)
-```sh
-fa status             # see what's running, what's done
-```
-
-When it finishes, the orchestrator prints an exit report: files changed, verification status, remaining work.
 
 ## Features
 

@@ -26,25 +26,35 @@ The scheduling unit is the **credential**, not the agent:
 
 ## Quick start
 
+### One-time setup
 ```sh
-# Clone into your project
 cd myproject
 gh repo clone rcsoftinc/free-agents-free-models .free-agents
 .free-agents/setup.sh
-
-# Check your lanes
-fa lanes -v
-
-# Run a single task
-fa run "add a --json flag to the status command"
-
-# Orchestrate a multi-task build
-fa plan "build a markdown site with search"
-fa orch run
-
-# Check progress
-fa status
+fa bootstrap          # discover credentials, install skills
+fa lanes -v           # see what you have
 ```
+
+### Run a simple task (interactive)
+```sh
+# You watch it work in the terminal
+fa run "add a --json flag to the status command"
+```
+
+### Orchestrate a multi-task build (fire-and-forget)
+```sh
+fa plan "build a markdown site with search"
+fa orch run           # dispatches workers, you go do other things
+```
+
+While `fa orch run` is running, workers execute across your agents — some in their own TUI windows, some headless. You don't babysit it.
+
+### Peek at progress (optional)
+```sh
+fa status             # see what's running, what's done
+```
+
+When it finishes, the orchestrator prints an exit report: files changed, verification status, remaining work.
 
 ## Features
 

@@ -562,7 +562,7 @@ DRY_RUN_LIMIT=0 bin/run.sh --dry-run   # the full candidate chain, spends nothin
 - **`docs/dev/SESSION.md`** — current state, invariants, bugs
 - **`docs/dev/RUN-*.md`** — real project run records
 
-## Things that cost real debugging time
+## Pitfalls
 
 - These CLIs **exit 0 on hard failures** (hermes returns 0 on HTTP 404 and on a billing refusal). Classify on output, never on exit code.
 - **Containment differs per agent**: `opencode --dir`, `kilo --dir`, and hermes via `HOME`.

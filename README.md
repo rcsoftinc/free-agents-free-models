@@ -396,6 +396,61 @@ The **metered safety net**. 200 monthly credits, renews monthly, `overage_permit
 
 The **second metered lane**, similar to copilot: auto-routed, depleting monthly allowance, tried last. Reports account email via `cursor-agent status`. Uses `-f` to trust the directory (it refuses to run headless otherwise). Like copilot, its value is as a fallback when free lanes are exhausted — not as a primary worker.
 
+## Orchestration roles
+
+When the coordinator decides a task splits into independent pieces, three conceptual roles emerge. These aren't tied to specific agents — they're about who does what during a run.
+
+### Coordinator (you, in the TUI)
+
+The agent you're talking to. It decides what to build, keeps small work for itself, and dispatches the substantial, self-contained pieces to workers.
+
+Its job is to:
+- **Hold context** — your TUI session already has the project loaded. Don't dispatch a task that requires reading code you can just hand the worker in the spec.
+- **Write self-contained specs** — a worker receives a string, not a repository. If it needs to match existing style, quote the relevant code into the prompt.
+- **Guard the gate** — only split when 2+ tasks have disjoint file sets AND 2+ lanes are available. With one lane, working directly is strictly better.
+- **Keep the small things** — one-line fixes, renames, config tweaks, glue files cost a lane more than they cost you. If writing the spec takes about as long as doing the work, do the work.
+- **Record judgment** — the tool sees outputs, not intent. When a spec was ambiguous, a split caused a collision, or a worker missed the point, write it with `fa findings`. Those observations are lost when the session closes.
+
+### Workers (dispatched agents)
+
+Cold-start agents that receive a self-contained prompt, run it, and report back. They don't talk to you, don't see other tasks, and can't ask questions.
+
+Their constraints:
+- **No shared state** — each worker gets its own worktree (when `--isolate` is on) and sees nothing of the others.
+- **No conversation** — the prompt must be complete. The worker never sees this conversation.
+- **Declared files are enforced** — overlapping tasks never run together. Files are checked after execution; byte-identical files count as unverified.
+- **Category matters** — tasks declare a category (`coding`, `reasoning`, `research`, `general`, `fast`). The scheduler tracks which models succeed per category and ranks future picks accordingly. A model good at coding may be bad at research — the category keeps that signal separate.
+
+### Work that waits
+
+Some tasks can't be done yet: they need credentials you don't have, a service that isn't provisioned, or a decision only you can make. Mark them with a `blocked` field — they're never dispatched, never counted as failures, and anything depending on them waits with them. When you unblock them, `fa resume` picks them up. The coordinator should ask before assuming something is blocked.
+
+### Categories of work
+
+The `category` field on a task isn't cosmetic — it drives model selection:
+
+| Category | Best for | What the scheduler learns |
+|----------|----------|---------------------------|
+| **coding** | Implementation, features, bug fixes | Which models write correct code, respect file boundaries, follow specs |
+| **reasoning** | Debugging, root cause analysis, design decisions | Which models reason about tradeoffs, trace logic, explain clearly |
+| **research** | Comparing options, evaluating approaches, reading docs | Which models synthesize information, cite sources, avoid hallucination |
+| **general** | Mixed tasks that don't fit above | Overall model quality across varied work |
+| **fast** | Simple queries, formatting, single-file tweaks | Which models are quick without being sloppy |
+
+### Project modes
+
+How much autonomy workers get, per project:
+
+| Mode | When to use | Behavior |
+|------|-------------|----------|
+| **strict** (default) | Unreviewed code, shared branches | Workers propose changes, coordinator reviews before merging |
+| **push** | Personal projects, trusted lanes | Workers merge their own worktrees after passing verification |
+| **local** | Experimental work, scratch branches | Workers operate in the main working tree, no isolation |
+
+Set with `fa config --mode push` or by editing `.orch/config.yaml`. The orchestrator (`fa orch run`) reads the mode and adjusts isolation behavior accordingly.
+
+## Supported agents
+
 | Agent | Location | Identity source | Notes |
 |-------|----------|-----------------|-------|
 | opencode | `/usr/local/nodejs/bin/opencode` | `~/.local/share/opencode/auth.json` | Also has zen models (hosted, no credential) |

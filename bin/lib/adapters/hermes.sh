@@ -46,15 +46,19 @@ hermes_endpoints() {
 hermes_identify() {
   command -v hermes >/dev/null 2>&1 || return 0
   [[ -f "$HERMES_AUTH" ]] || return 0
-  local provider tok base subj ident
+  local provider tok base subj ident extra
   while IFS=$'\x1f' read -r provider tok base; do
     # OAuth access tokens rotate hourly - identify by the subject they carry.
     subj="$(jwt_subject "$tok" || true)"
     ident="$(fp "${subj:-$tok}")"
+    # jwt_limits may fail for non-JWT entries; fall back to empty object
+    extra="$(jq -cn --arg b "$base" --argjson l "$(jwt_limits "$tok" 2>/dev/null || echo '{}')" \
+        '{base_url:$b, limits:$l}')" 2>/dev/null || extra='{}'
+    [[ -z "$extra" ]] && extra='{}'
+    # Strip any newlines from extra to keep TSV intact
+    extra="$(printf '%s' "$extra" | tr -d '\n')"
     printf 'hermes\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\n' \
-      "$provider" "$provider" "$ident" "hermes:auth.json" \
-      "$(jq -cn --arg b "$base" --argjson l "$(jwt_limits "$tok")" \
-          '{base_url:$b, limits:$l}')"
+      "$provider" "$provider" "$ident" "hermes:auth.json" "$extra"
   done < <(hermes_endpoints)
 }
 

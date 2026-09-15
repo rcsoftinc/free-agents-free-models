@@ -80,7 +80,9 @@ Rules:
   time MUST NOT share a file. Get this right; it is enforced.
 - "deps" names task ids that must finish first. Use it only for real dependencies.
 - Prefer 2-6 tasks. Split by file boundary, never by phase-of-thought.
-- "category" is one of: coding, reasoning, research, general, fast.
+- "category" is one of: coding (default), reasoning, research, general, fast.
+  - coding: produces code changes
+  - research: produces an investigation report (write to docs/ or .orch/reports/)
 EOF
 }
 
@@ -106,7 +108,8 @@ valid_plan() { # $1=file
   jq -e '
     (.tasks | type == "array") and (.tasks | length > 0)
     and all(.tasks[]; (.id | type == "string" and length > 0)
-                  and (.prompt | type == "string" and length > 0))
+                  and (.prompt | type == "string" and length > 0)
+                  and ((.category // "coding") | test("^(coding|reasoning|research|general|fast)$")))
   ' "$1" >/dev/null 2>&1
 }
 

@@ -31,7 +31,7 @@
 #   <name>_invoke model provider prompt   run one model through this harness;
 #                                         echoes output, returns rc
 
-FA_AGENTS=(opencode kilo hermes copilot cursor agy)
+FA_AGENTS=(opencode kilo hermes copilot cursor agy pi)
 
 # Harnesses the tool does NOT ship an adapter for. The presence broom surfaces
 # them in `fa doctor` so an installed agent is never silently invisible - but a

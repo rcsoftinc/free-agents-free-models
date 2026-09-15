@@ -23,6 +23,7 @@ set -euo pipefail
 #   fa plan "goal"     goal -> .orch/tasks.json
 #   fa go "goal"       plan, then run it
 #                       --validate  validate each task after build
+#                       --isolate   use git worktrees for parallel tasks (no collisions)
 #   fa status          progress of the current project
 #   fa resume          continue after any interruption
 #   fa update          git pull the tool
@@ -122,13 +123,16 @@ case "$cmd" in
     [[ $# -gt 0 ]] || { echo "fa go: needs a goal" >&2; exit 3; }
     "${HERE}/plan.sh" -w "$(pwd)" "$1" || exit $?
     shift
-    # Pass through --validate if provided
-    if [[ "${1:-}" == "--validate" ]]; then
-      exec "${HERE}/orch.sh" run --validate
-    else
-      exec "${HERE}/orch.sh" run
-    fi
-    ;;
+    # Pass through --validate and --isolate if provided
+    local extra_args=()
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --validate) extra_args+=("--validate"); shift ;;
+        --isolate)  extra_args+=("--isolate"); shift ;;
+        *) shift ;;
+      esac
+    done
+    exec "${HERE}/orch.sh" run "${extra_args[@]}" ;;
 
   findings)
     . "${HERE}/lib/common.sh"; . "${HERE}/lib/findings.sh"

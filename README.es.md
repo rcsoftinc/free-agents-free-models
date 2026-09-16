@@ -1,4 +1,410 @@
-dor huella digital del token de actualización (estable) así que la rotación de tokens no crea carriles duplicados. Usa `--add-dir` para contención. Útil cuando quieres modelos del ecosistema de Google sin manejar una clave API directamente. La bandera `--print` lo hace no interactivo y amigable con scripts.
+# free-agents-free-models
+
+Haz trabajo real de programación con **modelos gratuitos** a través de múltiples agentes CLI (opencode, kilo, hermes, copilot, cursor, agy, pi) sin que un límite de tasa te detenga nunca, y sin que dos trabajadores compitan por la misma clave API.
+
+[English](README.md) | [Español](README.es.md)
+
+## ¿Qué es?
+
+Una capa de planificación que convierte modelos de IA gratuitos en líneas de construcción paralelas. La idea central: **un bucket es una billetera — un par `(proveedor, credencial)` — y la billetera es la unidad de límite de tasa, por lo tanto la unidad de planificación.**
+
+Dale a cada agente una clave API gratuita diferente, y obtienes más carriles. opencode, kilo y hermes incluyen sus propios modelos gratuitos, y cada uno acepta claves de puerta de enlace adicionales. Cada credencial distinta es una cuota independiente que puedes ejecutar en paralelo.
+
+La unidad de planificación es la **credencial**, no el agente:
+- **Claves diferentes → verdadero paralelismo.** Dos agentes con claves diferentes son dos carriles incluso ejecutando el mismo modelo.
+- **La misma clave en dos agentes es UN SOLO carril.** Ejecutar ambos no va más rápido — compite contra sí mismo por el límite de esa clave. La herramienta lo detecta automáticamente y lo marca como una billetera compartida.
+
+## Entorno
+
+**Linux y macOS** funcionan de forma nativa. **Windows requiere WSL2** — todos los agentes (opencode, kilo, hermes, pi, copilot, cursor, agy) deben instalarse dentro del entorno WSL, y `.free-agents` se ejecuta desde allí. La herramienta es shell pura — no existe una versión nativa para Windows.
+
+Dentro de WSL:
+- Usa una distribución Ubuntu o Debian
+- Instala Node.js 18+ y Python 3.11+
+- Todos los agentes van en `/usr/local/nodejs/bin/` o `~/.local/bin/`
+- El registro en `~/.local/state/free-agents` es nativo de WSL
+
+Puedes lanzar ejecuciones desde PowerShell de Windows o VS Code Remote — pero los agentes y el binario `fa` viven en Linux.
+
+## Cómo funciona
+
+Trabajas dentro del TUI de un agente como siempre. La diferencia es que el agente tiene acceso a carriles paralelos y decide cuándo usarlos.
+
+### Paso 1: Abre tu TUI
+
+Abre cualquier agente soportado (opencode, kilo, hermes, pi, agy, copilot, cursor). Usa tmux o herdr para ver múltiples ventanas a la vez — esta es la configuración recomendada porque verás a los trabajadores lanzarse en sus propias ventanas.
+
+### Paso 2: Pega el prompt del coordinador
+
+Pega `.free-agents/prompts/coordinator.md` en el TUI al inicio de una sesión. El agente lo lee, ejecuta `fa doctor` para verificar la máquina, y desde ese momento es el coordinador — decide qué construir, cuándo dividir el trabajo, y cómo enviarlo.
+
+### Paso 3: Trabaja normalmente
+
+Háblale al agente. Pídele que construya algo, investigue algo, arregle algo. El agente elige el modo:
+- **Tarea pequeña** → la hace directamente en tu TUI
+- **Construcción de múltiples partes** → planifica, envía trabajadores a través de tus carriles, los monitorea
+
+### Paso 4: Monitorea (opcional)
+
+Abre otra terminal y ejecuta `fa status` para ver qué está corriendo. En tmux/herdr verás ventanas de trabajadores aparecer y desaparecer según se usen los carriles.
+
+Cuando termina, el coordinador imprime un reporte de salida: archivos cambiados, estado de verificación, trabajo restante.
+
+## Guía Visual
+
+### 1. ¿Qué es un carril?
+
+Un carril es una billetera — un par `(proveedor, credencial)`. La billetera es la unidad de límite de tasa, por lo tanto la unidad de planificación.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  CARRIL = una billetera = un par (proveedor, credencial)   │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐  │
+│  │  Credencial  │    │   Modelos    │    │    Salud     │  │
+│  │              │    │              │    │              │  │
+│  │  proveedor:  │───▶│  modelo_a    │    │  estado: ok  │  │
+│  │  openrouter  │    │  modelo_b    │    │  fallos: 0   │  │
+│  │  fp: 845a..  │    │  modelo_c    │    │  enfriam.: - │  │
+│  └──────────────┘    └──────────────┘    └──────────────┘  │
+│                                                             │
+│  Claves diferentes = carriles diferentes = verdadero paralelismo  │
+│  Misma clave en dos agentes = UN SOLO carril = compiten │
+└─────────────────────────────────────────────────────────────┘
+```
+
+#### Colapso de credencial
+
+```
+  hermes ──▶ nous:9162a7f63a81 ──┐
+                                 ├──▶ MISMO CARRIL (una billetera)
+  opencode ──▶ nous:9162a7f63a81 ─┘
+
+  opencode ──▶ openrouter:845a3f963b8a ──┐
+                                          ├──▶ CARRILES DIFERENTES (paralelo)
+  pi ──▶ openrouter:131083dc00f2 ────────┘
+```
+
+### 2. ¿Qué pasa cuando ejecutas una tarea?
+
+```
+  ┌─────────┐
+  │  fa run │
+  │ "tarea" │
+  └────┬────┘
+       │
+       ▼
+  ┌──────────────┐     ┌──────────────┐
+  │  PLANIFICAR  │────▶│  Auto-       │
+  │  meta→spec   │     │  contenido   │
+  └──────┬───────┘     │  tarea spec  │
+         │             └──────────────┘
+         ▼
+  ┌──────────────┐
+  │  ENVIAR      │
+  │  elegir carril│
+  └──────┬───────┘
+         │
+         ▼
+  ┌──────────────┐     ┌──────────────┐
+  │  INVOCAR     │────▶│  El agente   │
+  │  agente+model│     │  ejecuta     │
+  └──────┬───────┘     └──────────────┘
+         │
+         ▼
+  ┌──────────────┐
+  │  CLASIFICAR  │
+  │  salida      │
+  └──────┬───────┘
+         │
+    ┌────┴────┐
+    │         │
+    ▼         ▼
+┌───────┐ ┌───────┐
+│  OK   │ │ FALLO │
+└───┬───┘ └───┬───┘
+    │         │
+    │         ▼
+    │    ┌──────────┐     ┌──────────────┐
+    │    │  REINTENTO│────▶│  Mismo carril│
+    │    │  mismo    │     │  mismo modelo│
+    │    └────┬─────┘     └──────────────┘
+    │         │
+    │    ┌────┴────┐
+    │    │         │
+    │    ▼         ▼
+    │ ┌───────┐ ┌──────────┐
+    │ │  OK   │ │ AGOTADO  │
+    │ └───────┘ └────┬─────┘
+    │                │
+    │                ▼
+    │         ┌──────────────┐
+    │         │  ALTERNATIVA │
+    │         │  sig. carril │
+    │         └──────┬───────┘
+    │                │
+    │           ┌────┴────┐
+    │           │         │
+    │           ▼         ▼
+    │        ┌───────┐ ┌───────┐
+    │        │  OK   │ │ FALLO │──▶ disyuntor
+    │        └───────┘ └───────┘    (billetera enfriada)
+    │
+    ▼
+┌──────────┐
+│  LISTO   │
+│  reporte │
+└──────────┘
+```
+
+### 3. ¿Cómo piensa el coordinador?
+
+```
+                    ┌─────────────────┐
+                    │  fa orch run    │
+                    │  tareas.json    │
+                    └────────┬────────┘
+                             │
+                             ▼
+                    ┌─────────────────┐
+                    │  ¿Se divide?    │
+                    │  ≥2 tareas,     │
+                    │  archivos disj. │
+                    └────────┬────────┘
+                             │
+                    ┌────────┴────────┐
+                    │                 │
+                   SÍ               NO
+                    │                 │
+                    ▼                 ▼
+           ┌───────────────┐  ┌───────────────┐
+           │  Carriles ≥ 2?│  │  TRABAJO      │
+           │  fa lanes -v  │  │  DIRECTO      │
+           └───────┬───────┘  │  (1 tarea)    │
+                   │          └───────────────┘
+           ┌───────┴───────┐
+           │               │
+          SÍ              NO
+           │               │
+           ▼               ▼
+    ┌──────────────┐  ┌──────────────┐
+    │  ENVIAR      │  │  TRABAJO     │
+    │  paralelo    │  │  DIRECTO     │
+    │  + aislamiento│ │  (1 carril)  │
+    └──────┬───────┘  └──────────────┘
+           │
+           ▼
+    ┌──────────────┐
+    │  POR TAREA:  │
+    │  elegir      │
+    │  por ranking │
+    │  + salud     │
+    └──────┬───────┘
+           │
+           ▼
+    ┌──────────────┐
+    │  EJECUTAR    │
+    │  agente +    │
+    │  modelo      │
+    └──────┬───────┘
+           │
+           ▼
+    ┌──────────────┐
+    │  VERIFICAR   │
+    │  arch. existen│
+    │  tests pasan │
+    └──────┬───────┘
+           │
+    ┌──────┴──────┐
+    │             │
+  FALLO        OK
+    │             │
+    ▼             ▼
+  ┌──────┐   ┌──────────┐
+  │REINT.│   │  FUNDIR  │
+  │o ALT.│   │  worktree│
+  └──────┘   │  reporte │
+             └──────────┘
+```
+
+### 4. Escenario: "Construir un dashboard React"
+
+Con el estado real del registro (8 carriles, 163 modelos gratis):
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  REGISTRO: 8 carriles, 163 modelos gratis                      │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  antigravity:67da9cad9d70  ── agy        14 gratis (Gemini/Claude)│
+│  opencode:zen             ── opencode    4 gratis (hospedado)   │
+│  openrouter:845a3f963b8a  ── opencode   27 gratis (clave OR 1)  │
+│  openrouter:131083dc00f2  ── pi         86 gratis (clave OR 2)  │
+│  kilo:anon                ── kilo       23 gratis (sin clave)   │
+│  nous:6b7db10dba77        ── hermes      7 gratis (clave Nous)  │
+│  copilot:bbc7cfd0e9b0     ── copilot     1 (medido, último)     │
+│  cursor:eca81fa11190      ── cursor      1 (medido, último)     │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+
+ESCENARIO: "Construir un dashboard React con tests"
+
+┌─────────────────────────────────────────────────────────────────┐
+│  PASO 1: PLANIFICAR                                             │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐             │
+│  │ Tarea A: API│  │ Tarea B: UI │  │ Tarea C:Tests│            │
+│  │ src/api.js  │  │ src/components│ │ src/tests/  │            │
+│  │ deps: []    │  │ deps: [A]   │  │ deps: [A,B] │             │
+│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘             │
+│         │                │                │                     │
+│         ▼                ▼                ▼                     │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  PASO 2: ENVIAR (paralelo donde sea posible)            │   │
+│  │                                                         │   │
+│  │  Tarea A ──▶ openrouter:131083dc00f2 (pi, 86 modelos)  │   │
+│  │  Tarea B ──▶ opencode:zen (hospedado, sin credencial)  │   │
+│  │  Tarea C ──▶ kilo:anon (23 modelos, sin clave)        │   │
+│  │                                                         │   │
+│  │  Las tres se ejecutan SIMULTÁNEAMENTE en billeteras    │   │
+│  │  independientes                                         │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│         │                                                       │
+│         ▼                                                       │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  PASO 3: EJECUTAR                                       │   │
+│  │                                                         │   │
+│  │  pi ejecuta api.js ──────────────▶ ✓ éxito              │   │
+│  │  opencode ejecuta components ────▶ ✓ éxito              │   │
+│  │  kilo ejecuta tests ─────────────▶ ✗ fallo              │   │
+│  │       │                                                 │   │
+│  │       └──▶ ALTERNATIVA: nous:6b7db10dba77              │   │
+│  │           hermes ejecuta tests ──▶ ✓ éxito              │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│         │                                                       │
+│         ▼                                                       │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  PASO 4: VERIFICAR Y REPORTAR                           │   │
+│  │                                                         │   │
+│  │  ✓ api.js existe, sintaxis OK                           │   │
+│  │  ✓ components/ existe, sintaxis OK                      │   │
+│  │  ✓ tests/ existe, sintaxis OK                           │   │
+│  │                                                         │   │
+│  │  Archivos cambiados: 12                                 │   │
+│  │  Verificación: todo pasa                                │   │
+│  │  Trabajo restante: ninguno                              │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 5. Manejo de fallos: "Mantener todo corriendo pase lo que pase"
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  MODOS DE FALLO Y RESPUESTAS                                   │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  1. MODELO DEVUELVE BASURA                                     │
+│     ┌──────────┐    ┌──────────┐    ┌──────────┐              │
+│     │ clasificar│───▶│ REINTENTO│───▶│ mismo    │              │
+│     │ = suave  │    │ mismo    │    │ carril   │              │
+│     └──────────┘    │ carril   │    └──────────┘              │
+│                     └──────────┘                                │
+│                                                                 │
+│  2. LÍMITE DE TASA (429)                                       │
+│     ┌──────────┐    ┌──────────┐    ┌──────────┐              │
+│     │ clasificar│───▶│ALTERNA-  │───▶│siguiente │              │
+│     │ = 429    │    │TIVA      │    │sano      │              │
+│     └──────────┘    │sig. carril│   └──────────┘              │
+│                     └──────────┘                                │
+│                                                                 │
+│  3. CREDENCIAL MUERTA (401, facturación)                       │
+│     ┌──────────┐    ┌──────────┐    ┌──────────┐              │
+│     │ clasificar│───▶│ALTERNA-  │───▶│siguiente │              │
+│     │ = auth   │    │TIVA      │    │carril    │              │
+│     └──────────┘    │saltar    │    └──────────┘              │
+│                     └──────────┘                                │
+│                                                                 │
+│  4. FALLOS CONSECUTIVOS                                        │
+│     ┌──────────┐    ┌──────────┐    ┌──────────┐              │
+│     │ 3 fallos │───▶│DISYUNTOR │───▶│CONGELAR  │              │
+│     │ seguidos │    │          │    │billetera │              │
+│     └──────────┘    └──────────┘    │ 15 min   │              │
+│                                     └──────────┘              │
+│                                                                 │
+│  5. TODOS LOS CARRILES AGOTADOS                                │
+│     ┌──────────┐    ┌──────────┐                               │
+│     │ no hay   │───▶│ TAREA    │                               │
+│     │ sanos    │    │ FALLA    │                               │
+│     └──────────┘    └──────────┘                               │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 6. Carriles medidos: cuándo se usan
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  ORDEN DE SELECCIÓN DE CARRILES (modo auto)                    │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  1. Carriles gratis (ilimitados)                                │
+│     ┌─────────────────────────────────────────────────────┐    │
+│     │  kilo:anon, opencode:zen, openrouter:*, nous:*,     │    │
+│     │  antigravity:*, pi:*                                │    │
+│     └─────────────────────────────────────────────────────┘    │
+│                                                                 │
+│  2. Carriles medidos (agotables)                                │
+│     ┌─────────────────────────────────────────────────────┐    │
+│     │  copilot:bbc7cfd0e9b0 (200 créditos, renueva oct 1)│    │
+│     │  cursor:eca81fa11190 (medido)                      │    │
+│     └─────────────────────────────────────────────────────┘    │
+│                                                                 │
+│  Los carriles medidos se intentan ÚLTIMOS, solo cuando todos    │
+│  los gratis están ocupados, fríos o agotados. No pueden         │
+│  facturarte — se detienen cuando se acaban los créditos y       │
+│  renuevan mensualmente.                                         │
+│                                                                 │
+│  --no-metered  → omitir paso 2 completamente                  │
+│  --allow-metered → forzar paso 2 aunque haya gratis disponibles│
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## Configuración (una vez)
+
+```sh
+cd mi-proyecto
+gh repo clone rcsoftinc/free-agents-free-models .free-agents
+.free-agents/setup.sh
+fa bootstrap          # descubrir credenciales, instalar habilidades
+fa lanes -v           # ver tus carriles
+```
+
+## Roles de agente
+
+Cada agente aporta algo diferente más allá de su herramienta — diferente acceso a modelos, diferente semántica de contención, diferentes modos de fallo. Esto es lo que cada uno añade a tu grupo:
+
+### opencode
+
+Dos billeteras distintas. Primero, **modelos zen** — hospedados por opencode mismo, sin credencial necesaria, 4 modelos gratis (zen). Segundo, cualquier clave OpenRouter que configures, dándote acceso a 200+ modelos comunitarios. Opencode usa `--dir` para contención (aislamiento de proceso real), lo que lo convierte en uno de los carriles más seguros para trabajo paralelo. Su lista de modelos incluye tamaño de contexto y salida máxima, para que el planificador pueda emparejar la complejidad de la tarea con la capacidad del modelo.
+
+### kilo
+
+El **grupo no autenticado más grande** — 23 modelos gratis sin necesidad de clave. También acepta claves OpenRouter vía `kilo.jsonc`, así que puedes apilarlo con una clave diferente a la de opencode para duplicar tus carriles OpenRouter. Kilo usa `--dir` para contención. Sus modelos incluyen modalidad de salida (texto, audio, etc.), lo que ayuda al planificador a evitar enviar tareas de texto a modelos de audio. Cuidado: puede ser verboso — clasifica por patrones de salida, no por código de salida.
+
+### hermes
+
+El **generalista multi-proveedor**. Alcanza Nous, Kilo gateway, OpenRouter, y otros a través de un solo CLI — cada uno se convierte en un carril separado. Hermes es el único agente que lee señales gratis específicas del gateway (isFree, precio cero, sufijo `:free`), por lo que descubre modelos que otros pasan por alto. La contención es diferente: ignora `--dir`, así que fa usa redirección de `HOME` en su lugar. Sus tokens OAuth rotan cada hora — el registro huella digital del sujeto estable, no el token.
+
+### pi
+
+El **carril de alto volumen**. Pi respaldado por OpenRouter te da 353 modelos (86 gratis), haciéndolo el bucket individual más grande. Es un trabajador de propósito general fuerte: contención `--add-dir`, invocación directa `--model` + `--print`, catálogo OpenRouter estándar con tamaños de contexto claros. El volumen puro significa que cuando otros carriles están ocupados o fríos, pi casi siempre tiene capacidad. Cuidado: pi no publica sufijos `:free` — el adaptador detecta variantes `:free` y `:batch`.
+
+### agy (Antigravity)
+
+El **carril de calidad Google** con 14 modelos gratis (Gemini, Claude, GPT-OSS). Usa Google OAuth — el adaptador huella digital del token de actualización (estable) así que la rotación de tokens no crea carriles duplicados. Usa `--add-dir` para contención. Útil cuando quieres modelos del ecosistema de Google sin manejar una clave API directamente. La bandera `--print` lo hace no interactivo y amigable con scripts.
 
 ### copilot
 
@@ -6,7 +412,7 @@ La **red de seguridad medida**. 200 créditos mensuales, renuevan mensualmente, 
 
 ### cursor
 
-El **segundo carril medido**, similar a copilot: auto-enrutado, asignación mensual agotable, intentado último. Reporta email de cuenta vía `cursor-agent status`. Usa `-f` para confiar en el directorio (se rechaza ejecutar headless de otra manera). Como copilot, su valor es como fallback cuando los carriles gratis están agotados — no como trabajador principal.
+El **segundo carril medido**, similar a copilot: auto-enrutado, asignación mensual agotable, intentado último. Reporta email de cuenta vía `cursor-agent status`. Usa `-f` para confiar en el directorio (se niega a ejecutar headless de otra manera). Como copilot, su valor es como fallback cuando los carriles gratis están agotados — no como trabajador principal.
 
 ## Roles de orquestación
 
@@ -31,17 +437,17 @@ Sus restricciones:
 - **Sin estado compartido** — cada trabajador obtiene su propio worktree (cuando `--isolate` está activo) y no ve nada de los otros.
 - **Sin conversación** — el prompt debe estar completo. El trabajador nunca ve esta conversación.
 - **Archivos declarados son obligatorios** — tareas superpuestas nunca corren juntas. Los archivos se verifican después de la ejecución; archivos byte-identicos cuentan como no verificados.
-- **La categoría importa** — las tareas declaran una categoría (`coding`, `reasoning`, `research`, `general`, `fast`). El programa rastrea qué modelos tienen éxito por categoría y clasifica las elecciones futuras acordemente. Un modelo bueno para coding puede ser malo para investigación — la categoría mantiene esa señal separada.
+- **La categoría importa** — las tareas declaran una categoría (`coding`, `reasoning`, `research`, `general`, `fast`). El planificador rastrea qué modelos tienen éxito por categoría y clasifica las elecciones futuras acordemente. Un modelo bueno para coding puede ser malo para investigación — la categoría mantiene esa señal separada.
 
 ### Trabajo que espera
 
-Algunas tareas no pueden hacerse aún: necesitan credenciales que no tienes, un servicio que no está provisionado, o una decisión que solo tú puedes marcalas con un campo `blocked` — nunca se envían, nunca se cuentan como fallos, y cualquier cosa que dependa de ellas espera con ellas. Cuando las desbloqueas, `fa resume` las recoge. El coordinador debería preguntar antes de asumir que algo está bloqueado.
+Algunas tareas no pueden hacerse aún: necesitan credenciales que no tienes, un servicio que no está provisionado, o una decisión que solo tú puedes hacer. Márcalas con un campo `blocked` — nunca se envían, nunca se cuentan como fallos, y cualquier cosa que dependa de ellas espera con ellas. Cuando las desbloqueas, `fa resume` las recoge. El coordinador debería preguntar antes de asumir que algo está bloqueado.
 
 ### Categorías de trabajo
 
 El campo `category` en una tarea no es cosmético — maneja la selección de modelo:
 
-| Categoría | Mejor para | Qué aprende el programador |
+| Categoría | Mejor para | Qué aprende el planificador |
 |-----------|------------|---------------------------|
 | **coding** | Implementación, funcionalidades, arreglos | Qué modelos escriben código correcto, respetan límites de archivos, siguen especificaciones |
 | **reasoning** | Depuración, análisis de causa raíz, decisiones de diseño | Qué modelos razonan sobre compensaciones, rastrean lógica, explican claramente |
@@ -98,7 +504,7 @@ fa doctor       # verificar la máquina
 fa lanes -v     # con lo que terminaste
 ```
 
-`bootstrap` lee las credenciales que tus agentes ya poseen — nunca pide claves y nunca almacena una. El registro es **de máquina** en `~/.local/state/free-agents`. Un bootstrap sirve para cada proyecto en la caja.
+`bootstrap` lee las credenciales que tus agentes ya poseen — nunca pide claves y nunca almacena una. El registro es **global a la máquina** en `~/.local/state/free-agents`. Un bootstrap sirve para cada proyecto en la caja.
 
 `bootstrap` instala una **actualización diaria** en crontab, así que un clon fresco no necesita paso manual. `fa schedule` / `fa unschedule` lo manejan.
 
@@ -137,9 +543,9 @@ Cada adaptador identifica credenciales, lista modelos (TSV prefijado por agente)
 ## Estado
 
 ```
-~/.local/state/free-agents/buckets.json   billettes + salud   GLOBAL (aprendido)
-<proyecto>/.orch/tasks.json               grafo de tareas    POR PROYECTO (comprometido)
-<proyecto>/.orch/config.yaml              modo de proyecto   POR PROYECTO (comprometido)
+~/.local/state/free-agents/buckets.json   billeteras + salud   GLOBAL (aprendido)
+<proyecto>/.orch/tasks.json               grafo de tareas    POR PROYECTO (confirmado)
+<proyecto>/.orch/config.yaml              modo de proyecto   POR PROYECTO (confirmado)
 <proyecto>/.orch/journal.ndjson           registro de solo añadir POR PROYECTO
 <proyecto>/.orch/results/                 transcripciones de agente POR PROYECTO
 <proyecto>/.orch/handoffs/                handoffs de tareas POR PROYECTO
@@ -156,7 +562,7 @@ Cada adaptador identifica credenciales, lista modelos (TSV prefijado por agente)
 - **Qué modelo sirve una tarea.** Depende de la salud de la billetera en vivo. El journal registra qué pasó realmente.
 - **El roster de modelos gratuitos.** Proveedores agregan y remueven modelos gratis constantemente. Re-ejecuta `fa discover && fa probe` para auto-sanar.
 
-Un **proyecto** es reproducible: compromete `.orch/tasks.json`, y cualquiera con sus propios carriles puede ejecutar `fa orch run .orch/tasks.json`.
+Un **proyecto** es reproducible: confirma `.orch/tasks.json`, y cualquiera con sus propios carriles puede ejecutar `fa orch run .orch/tasks.json`.
 
 ## Pruebas
 
@@ -177,13 +583,9 @@ DRY_RUN_LIMIT=0 bin/run.sh --dry-run   # la cadena candidata completa, gasta nad
 
 ## Peligros
 
-Estos CLIs **salen 0 en fallos duros** (hermes devuelve 0 en HTTP 404 y en una facturación rechazada). Clasifica por salida, nunca por código de salida.
+Estos CLIs **salen 0 en fallos duros** (hermes devuelve 0 en HTTP 404 y en un rechazo de facturación). Clasifica por salida, nunca por código de salida.
 - **La contención difiere por agente**: `opencode --dir`, `kilo --dir`, y hermes vía `HOME`.
-- Una ruta es `(agente, modelo, **proveedor**)`. `hermes -m X` se resuelve contra su *activo* proveedor solamente.
+- Una ruta es `(agente, modelo, **proveedor**)`. `hermes -m X` se resuelve contra su proveedor *activo* solamente.
 - Un modelo aún puede escribir a una ruta absoluta sin importar cualquier bandera. **Verifica los archivos.**
 - **El campo `free` en la salida del adaptador debe ser literal `true` o `false`** — el analizador en `buckets.sh` verifica `(.[4]==\"true\")`, no una etiqueta libre como `"free"`.
 - **Mantén el formato TSV estricto**: 7 campos separados por tabulaciones para modelos (`agente proveedor model_arg upstream free context max_output`), 6 para identidades (`agente proveedor billetera ident source extra`). Cualquier nueva línea literal en el campo `extra` rompe el constructor de registros.
-
----
-
-[English](README.md) | [Español](README.es.md)

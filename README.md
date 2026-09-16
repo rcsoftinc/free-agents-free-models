@@ -2,6 +2,8 @@
 
 Run real coding work on **free models** across several agent CLIs (opencode, kilo, hermes, copilot, cursor, agy, pi) without a rate limit ever stopping you, and without two workers fighting over the same API key.
 
+[English](README.md) | [Español](README.es.md)
+
 ## What it is
 
 A scheduling layer that turns free AI models into parallel build lanes. The core insight: **a bucket is one wallet — one `(provider, credential)` pair — and the wallet is the unit of rate limiting, therefore the unit of scheduling.**

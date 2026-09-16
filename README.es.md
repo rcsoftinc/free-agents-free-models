@@ -451,6 +451,21 @@ Sus restricciones:
 
 Algunas tareas no pueden hacerse aún: necesitan credenciales que no tienes, un servicio que no está provisionado, o una decisión que solo tú puedes hacer. Márcalas con un campo `blocked` — nunca se envían, nunca se cuentan como fallos, y cualquier cosa que dependa de ellas espera con ellas. Cuando las desbloqueas, `fa resume` las recoge. El coordinador debería preguntar antes de asumir que algo está bloqueado.
 
+### Handoffs
+
+Las tareas que tienen dependientes pasan contexto hacia adelante mediante un bloque estructurado al final de su salida:
+
+```
+---HANDOFF---
+decisions: <qué elegiste y por qué>
+rejected: <alternativas consideradas y por qué fueron rechazadas>
+open: <preguntas o decisiones que la siguiente tarea debe tomar>
+```
+
+Este bloque se da a las tareas que declararon esta como dependencia. Si una tarea no escribe nada, todo degrada al comportamiento anterior — sin fallo, solo menos contexto.
+
+El handoff **no** es un resumen — no hay llamada de modelo extra, no se gasta un carril. El trabajador ya está generando salida; solo estructuramos su final.
+
 ### Categorías de trabajo
 
 El campo `category` en una tarea no es cosmético — maneja la selección de modelo:
@@ -502,7 +517,7 @@ Configura con `fa config --mode push` o editando `.orch/config.yaml`. El orquest
 | **Carriles medidos** | Auto-incluye copilot/cursor cuando se detectan con créditos, intentados últimos |
 | **Puerta de verificación** | Verificación de sintaxis post-construcción opcional con bucle de auto-arreglo (`--validate`) |
 | **Modos de proyecto** | Autonomía por proyecto: strict (default), push, local |
-| **Handoffs** | Tareas pasan resúmenes de una línea a dependientes; sin llamada de modelo extra |
+| **Handoffs** | Bloque estructurado (decisions, rejected, open) pasado a dependientes; sin llamada de modelo extra |
 | **Findings** | Registra lo que la herramienta notó que manejó mal; copiable a issues |
 
 ## Bootstrap (una vez por máquina)

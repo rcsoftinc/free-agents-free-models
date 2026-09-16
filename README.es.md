@@ -382,7 +382,15 @@ fa bootstrap          # descubrir credenciales, instalar habilidades
 fa lanes -v           # ver tus carriles
 ```
 
-## Roles de agente
+### Primera ejecución
+
+Inicia tu agente preferido (opencode, kilo, hermes, pi, agy, copilot, cursor) y pásale el prompt del coordinator:
+
+```
+.free-agents/prompts/coordinator.md
+```
+
+El agente lo lee, ejecuta `fa doctor`, y se convierte en el coordinador — decide qué construir, cuándo dividir el trabajo y cómo despachar a través de tus carriles.
 
 Cada agente aporta algo diferente más allá de su herramienta — diferente acceso a modelos, diferente semántica de contención, diferentes modos de fallo. Esto es lo que cada uno añade a tu grupo:
 

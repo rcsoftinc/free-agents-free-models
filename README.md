@@ -449,9 +449,22 @@ Their constraints:
 
 Some tasks can't be done yet: they need credentials you don't have, a service that isn't provisioned, or a decision only you can make. Mark them with a `blocked` field — they're never dispatched, never counted as failures, and anything depending on them waits with them. When you unblock them, `fa resume` picks them up. The coordinator should ask before assuming something is blocked.
 
-### Categories of work
+### Handoffs
 
-The `category` field on a task isn't cosmetic — it drives model selection:
+Tasks that have dependents pass context forward via a structured block at the end of their output:
+
+```
+---HANDOFF---
+decisions: <what you chose and why>
+rejected: <alternatives considered and why they were rejected>
+open: <questions or decisions the next task must make>
+```
+
+This block is given to tasks that declared this one as a dependency. If a task writes nothing, everything degrades to the old behavior — no failure, just less context.
+
+The handoff is **not** a summarizer — no extra model call, no lane spent. The worker is already generating output; we just structure its ending.
+
+### Categories of work
 
 | Category | Best for | What the scheduler learns |
 |----------|----------|---------------------------|
@@ -499,7 +512,7 @@ Set with `fa config --mode push` or by editing `.orch/config.yaml`. The orchestr
 | **Metered lanes** | Auto-includes copilot/cursor when detected with credits, tried last |
 | **Validation gate** | Optional post-build syntax check with auto-fix loop (`--validate`) |
 | **Project modes** | Per-project autonomy: strict (default), push, local |
-| **Handoffs** | Tasks pass one-line summaries to dependents; no extra model call |
+| **Handoffs** | Structured decisions + rejected + open block passed to dependents; no extra model call |
 | **Findings** | Records what the tool noticed it handled badly; pasteable into issues |
 
 ## Bootstrap (once per machine)

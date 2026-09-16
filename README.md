@@ -582,6 +582,7 @@ DRY_RUN_LIMIT=0 bin/run.sh --dry-run   # the full candidate chain, spends nothin
 ## Docs
 
 - **`docs/SETUP.md`** — install, where each agent hides its credentials, full file layout
+- **`docs/dev/PARADIGMS.md`** — multi-agent workflow paradigms: Graph/Loop/Harness framework, fa's coverage, gaps, and prioritized roadmap
 - **`docs/dev/ALIGNMENT.md`** — the design and every finding
 - **`docs/dev/SESSION.md`** — current state, invariants, bugs
 - **`docs/dev/RUN-*.md`** — real project run records

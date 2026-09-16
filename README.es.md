@@ -586,6 +586,7 @@ DRY_RUN_LIMIT=0 bin/run.sh --dry-run   # la cadena candidata completa, gasta nad
 ## Documentación
 
 - **`docs/SETUP.md`** — instalación, dónde cada agente esconde sus credenciales, layout completo de archivos
+- **`docs/dev/PARADIGMS.md`** — paradigmas de flujo de trabajo multi-agente: framework Grafo/Bucle/Contenedor, cobertura de fa, brechas y roadmap priorizado
 - **`docs/dev/ALIGNMENT.md`** — el diseño y cada hallazgo
 - **`docs/dev/SESSION.md`** — estado actual, invariantes, bugs
 - **`docs/dev/RUN-*.md`** — registros de ejecuciones reales de proyectos

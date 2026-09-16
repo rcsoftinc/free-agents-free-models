@@ -71,7 +71,7 @@ assert_not_contains "a note cannot leak a key either" "$("$FA" findings)" "secre
 # --- the issue report names the next step ------------------------------------
 fresh
 rec all_lanes_failed "every available lane failed on the same task" "build the whole payment subsystem" attempts=4 task=t5
-rec missing_handoff "a task with dependents ended without the handoff line it was asked for" "task=t2 dependents=t4" task=t2
+rec missing_handoff "a task with dependents ended without the handoff block it was asked for" "task=t2 dependents=t4" task=t2
 "$FA" findings --note "the result compiled but missed the point" >/dev/null
 iss="$("$FA" findings --issue)"
 assert_contains "all_lanes_failed blames the task, not the wallets" "$iss" "the task is"
@@ -80,9 +80,8 @@ assert_contains "a note says no heuristic could have caught it"     "$iss" "coul
 assert_contains "and each is a pasteable issue"                     "$iss" '## '
 
 # --- missing_handoff fires from a real run -----------------------------------
-# The stub writes no handoff line, so a task with dependents must produce one
-# finding - and a task with none must produce nothing, because the handoff was
-# never asked for in the first place.
+# A task with no dependents is never asked for a handoff — so no finding fires.
+# This proves the gate: only tasks that have dependents are expected to write one.
 fresh
 P="$(mktemp -d)"; mkdir -p "$P/.orch"
 cat > "$P/.orch/tasks.json" <<'EOF'

@@ -494,7 +494,7 @@ Set with `fa config --mode push` or by editing `.orch/config.yaml`. The orchestr
 | **Isolated execution** | Runs tasks in git worktrees to prevent collisions (`--isolate`) |
 | **Fallback chain** | Tries the next healthy lane when one fails — no manual intervention |
 | **Bucket circuit breaker** | Freezes a wallet after consecutive failures, skips all its models instantly |
-| **Learned rankings** | Ranks models by observed outcomes per category (coding, reasoning, research) |
+| **Graph visualization** | Render the task graph as an ASCII diagram (`fa graph`, `fa plan --graph`) — verify the split before spending tokens |
 | **Crash-safe resume** | Append-only journal; resume any run after interruption |
 | **Metered lanes** | Auto-includes copilot/cursor when detected with credits, tried last |
 | **Validation gate** | Optional post-build syntax check with auto-fix loop (`--validate`) |

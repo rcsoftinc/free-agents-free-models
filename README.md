@@ -12,6 +12,18 @@ The scheduling unit is the **credential**, not the agent:
 - **Different keys → real parallelism.** Two agents with different keys are two lanes even when running the same model.
 - **The same key in two agents is ONE lane.** Running both does not go faster — it races that single key into its own rate limit. The tool detects this automatically and flags it as a shared wallet.
 
+## Environment
+
+**Linux and macOS** run natively. **Windows requires WSL2** — all agents (opencode, kilo, hermes, pi, copilot, cursor, agy) must be installed inside the WSL environment, and `.free-agents` runs from there. The tool itself is pure shell — no native Windows build exists.
+
+Inside WSL:
+- Use an Ubuntu or Debian distro
+- Install Node.js 18+ and Python 3.11+
+- All agent CLIs go into `/usr/local/nodejs/bin/` or `~/.local/bin/`
+- The registry at `~/.local/state/free-agents` is WSL-native
+
+You can trigger runs from Windows PowerShell or VS Code Remote — but the agents and the `fa` binary live in Linux.
+
 ## How it works
 
 You work inside an agent's TUI the way you always have. The difference is that the agent has access to parallel lanes and decides when to use them.

@@ -179,34 +179,45 @@ halted_tasks() {
 # not to trust. If a worker writes nothing, everything degrades to the old
 # behaviour.
 HANDOFF_MARK="---HANDOFF---"
-HANDOFF_MAX_CHARS="${HANDOFF_MAX_CHARS:-320}"
+HANDOFF_MAX_CHARS="${HANDOFF_MAX_CHARS:-800}"
 
 # Tasks that declare $1 as a dependency.
 dependents_of() { # $1=task id
   jq -r --arg id "$1" '.tasks[] | select((.deps // []) | index($id)) | .id' "$TASKS_FILE"
 }
 
-# Pull the marked line out of a finished task's output and store it.
+# Pull the marked block out of a finished task's output and store it.
+# Supports the structured format:
+#   ---HANDOFF---
+#   decisions: ...
+#   rejected: ...
+#   open: ...
+# Or the legacy one-line format (still works).
 capture_handoff() { # $1=task id
-  local id="$1" out="${RESULTS}/${id}.out" line
+  local id="$1" out="${RESULTS}/${id}.out" block
   [[ -f "$out" ]] || return 0
-  line="$(grep -a "^${HANDOFF_MARK}" "$out" 2>/dev/null | tail -1 || true)"
-  line="${line#"$HANDOFF_MARK"}"
-  line="$(printf '%s' "$line" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-  if [[ -z "$line" ]]; then
-    # It was asked for one and did not write it, so every task depending on this
-    # one now starts blind. Nothing fails, the work just quietly gets worse - the
-    # exact shape of problem a test suite cannot see and a real project can.
+
+  # Extract everything after the last ---HANDOFF--- marker
+  block="$(awk -v mark="$HANDOFF_MARK" '
+    $0 ~ mark { found=1; next }
+    found { buf = buf $0 "\n" }
+    END { printf "%s", buf }
+  ' "$out")"
+
+  block="$(printf '%s' "$block" | sed '/^[[:space:]]*$/d' | sed 's/^[[:space:]]*//')"
+
+  if [[ -z "$block" ]]; then
     if [[ -n "$(dependents_of "$id")" ]]; then
       record_finding missing_handoff \
-        "a task with dependents ended without the handoff line it was asked for" \
+        "a task with dependents ended without the handoff block it was asked for" \
         "task=${id} dependents=$(dependents_of "$id" | tr '\n' ' ')" "task=${id}"
     fi
     return 0
   fi
+
   mkdir -p "$HANDOFFS"
-  printf '%.'"$HANDOFF_MAX_CHARS"'s' "$line" > "${HANDOFFS}/${id}.txt"
-  journal handoff "$id" "chars=${#line}"
+  printf '%.'"$HANDOFF_MAX_CHARS"'s' "$block" > "${HANDOFFS}/${id}.txt"
+  journal handoff "$id" "chars=${#block}"
 }
 
 # Build what a worker actually receives: its dependencies' handoffs, then its own
@@ -221,8 +232,11 @@ build_prompt() { # $1=task id
   [[ -n "$ctx" ]] && ctx="Context from the tasks you depend on (already finished):"$'\n'"${ctx}"$'\n'
 
   if [[ -n "$(dependents_of "$id")" ]]; then
-    note=$'\n\n'"Other tasks depend on this one. End your reply with a single line:"$'\n'
-    note+="${HANDOFF_MARK} <one sentence: decisions, names or constraints the next task must match>"
+    note=$'\n\n'"Other tasks depend on this one. End your reply with a structured handoff:"$'\n'
+    note+="---HANDOFF---"$'\n'
+    note+="decisions: <what you chose and why>"$'\n'
+    note+="rejected: <alternatives considered and why they were rejected>"$'\n'
+    note+="open: <questions or decisions the next task must make>"$'\n'
   fi
   printf '%s%s%s' "$ctx" "$(task_field "$id" prompt)" "${note:-}"
 }

@@ -69,14 +69,14 @@ if [[ -n "${GOOD_MODEL:-}" && "$MODEL_ID" == "$GOOD_MODEL" ]]; then
   MODE="success"
 fi
 
-# If the prompt asks for a handoff line, emit one - and echo any context it was
+# If the prompt asks for a handoff block, emit one - and echo any context it was
 # given, so a test can prove the injection actually reached the worker.
 if printf '%s' "$*" | grep -q -- '---HANDOFF---'; then
   if printf '%s' "$*" | grep -q 'Context from the tasks you depend on'; then
     printf 'SAW_CONTEXT\n'
   fi
   printf 'did the work\n'
-  printf -- '---HANDOFF--- decided: ids are uuid4 strings, store is notes.json\n'
+  printf -- '---HANDOFF---\ndecided: ids are uuid4 strings, store is notes.json\nrejected: sequential ids (collision risk), localstorage (XSS)\nopen: expiry strategy for sessions\n'
   exit 0
 fi
 if printf '%s' "$*" | grep -q 'Context from the tasks you depend on'; then

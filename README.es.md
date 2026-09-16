@@ -497,6 +497,7 @@ Configura con `fa config --mode push` o editando `.orch/config.yaml`. El orquest
 | **Cadena de alternativas** | Intenta el siguiente carril sano cuando uno falla — sin intervención manual |
 | **Disyuntor de bucket** | Congela una billetera después de fallos consecutivos, omite todos sus modelos instantáneamente |
 | **Clasificaciones aprendidas** | Clasifica modelos por resultados observados por categoría (coding, reasoning, research) |
+| **Visualización de grafo** | Renderiza el grafo de tareas como diagrama ASCII (`fa graph`, `fa plan --graph`) — verifica la división antes de gastar tokens |
 | **Resumen seguro** | Registro de solo añadir; resume cualquier ejecución después de interrupción |
 | **Carriles medidos** | Auto-incluye copilot/cursor cuando se detectan con créditos, intentados últimos |
 | **Puerta de verificación** | Verificación de sintaxis post-construcción opcional con bucle de auto-arreglo (`--validate`) |

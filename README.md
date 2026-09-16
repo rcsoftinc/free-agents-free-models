@@ -378,6 +378,16 @@ fa bootstrap          # discover credentials, install skills
 fa lanes -v           # see your lanes
 ```
 
+### First run
+
+Start your preferred agent (opencode, kilo, hermes, pi, agy, copilot, cursor) and pass it the coordinator prompt:
+
+```
+.free-agents/prompts/coordinator.md
+```
+
+The agent reads it, runs `fa doctor`, and becomes the coordinator — it decides what to build, when to split work, and how to dispatch across your lanes.
+
 ## Agent roles
 
 Each agent brings something different beyond just its tooling — different model access, different containment semantics, different failure modes. Here's what each one adds to your pool:

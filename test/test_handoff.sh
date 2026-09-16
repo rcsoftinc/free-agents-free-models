@@ -30,9 +30,17 @@ assert_contains "the dependent received that context" "$(cat "$P/.orch/results/a
 
 # The failure mode that would make things WORSE: context leaking everywhere.
 assert_not_contains "the dependency itself got no context" \
-  "$(cat "$P/.orch/results/config.out")" "SAW_CONTEXT"
+  "$(cat "$P/.orch/results/config.out" 2>/dev/null)" "SAW_CONTEXT"
 assert_not_contains "an unrelated task got no context" \
-  "$(cat "$P/.orch/results/lonely.out")" "SAW_CONTEXT"
+  "$(cat "$P/.orch/results/lonely.out" 2>/dev/null)" "SAW_CONTEXT"
+
+# The structured handoff format: decisions, rejected, open fields are present
+assert_contains "handoff has decisions field" \
+  "$(cat "$P/.orch/handoffs/config.txt" 2>/dev/null)" "decided:"
+assert_contains "handoff has rejected field" \
+  "$(cat "$P/.orch/handoffs/config.txt" 2>/dev/null)" "rejected:"
+assert_contains "handoff has open field" \
+  "$(cat "$P/.orch/handoffs/config.txt" 2>/dev/null)" "open:"
 
 # A task nothing depends on is never asked for a handoff - the ask is not free,
 # it is a line in every worker's prompt.

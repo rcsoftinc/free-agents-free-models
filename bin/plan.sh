@@ -14,7 +14,7 @@ set -euo pipefail
 # free-associates instead of answering costs one attempt and the chain moves on.
 #
 #   usage:
-#     plan.sh "goal"  [-w DIR] [-o tasks.json] [--max-tries N] [--print]
+#     plan.sh "goal"  [-w DIR] [-o tasks.json] [--max-tries N] [--print] [--graph]
 #
 # Exit: 0 wrote a valid plan | 2 no model produced one | 3 setup error
 
@@ -27,6 +27,7 @@ WORKDIR="$(pwd)"
 OUT=""
 MAX_TRIES="${PLAN_MAX_TRIES:-4}"
 PRINT=0
+GRAPH=0
 GOAL=""
 
 while [[ $# -gt 0 ]]; do
@@ -35,6 +36,7 @@ while [[ $# -gt 0 ]]; do
     -o|--out)     OUT="$2"; shift 2 ;;
     --max-tries)  MAX_TRIES="$2"; shift 2 ;;
     --print)      PRINT=1; shift ;;
+    --graph)      GRAPH=1; shift ;;
     -h|--help)    sed -n '6,20p' "$0"; exit 0 ;;
     -*)           die "unknown option: $1" ;;
     *)            GOAL="$1"; shift ;;
@@ -162,6 +164,7 @@ while [[ $try -lt $MAX_TRIES ]]; do
   jq '.' "${tmp}.json" > "${OUT}.tmp" && mv "${OUT}.tmp" "$OUT"
   log "wrote $OUT ($(jq '.tasks | length' "$OUT") tasks) via $(sed -n 's/^---RUN-META--- //p' "${tmp}.err" | tail -1 | jq -r '.bucket // "?"')"
   [[ $PRINT -eq 1 ]] && jq '.' "$OUT"
+  [[ $GRAPH -eq 1 ]] && bash "${HERE}/lib/graph.sh" "$OUT"
   exit 0
 done
 

@@ -21,9 +21,12 @@ set -euo pipefail
 #   fa run "task"      one task, with fallback across every lane
 #                       --validate  run syntax check on result (fail fast)
 #   fa plan "goal"     goal -> .orch/tasks.json
+#                       --graph     print the task graph as an ASCII diagram
 #   fa go "goal"       plan, then run it
+#                       --graph     print the task graph after planning
 #                       --validate  validate each task after build
 #                       --isolate   use git worktrees for parallel tasks (no collisions)
+#   fa graph           render the current .orch/tasks.json as a diagram
 #   fa status          progress of the current project
 #   fa resume          continue after any interruption
 #   fa update          git pull the tool
@@ -115,13 +118,25 @@ case "$cmd" in
   show)     exec "${HERE}/buckets.sh" show "$@" ;;
   run)      exec "${HERE}/run.sh" -w "$(pwd)" "$@" ;;
   plan)     exec "${HERE}/plan.sh" -w "$(pwd)" "$@" ;;
+
+  graph)
+    # Render the current task graph as an ASCII diagram
+    exec "${HERE}/lib/graph.sh" -w "$(pwd)" "$@"
+    ;;
   status)   exec "${HERE}/orch.sh" status "$@" ;;
   resume)   exec "${HERE}/orch.sh" resume "$@" ;;
   orch)     exec "${HERE}/orch.sh" "$@" ;;
 
   go)
     [[ $# -gt 0 ]] || { echo "fa go: needs a goal" >&2; exit 3; }
-    "${HERE}/plan.sh" -w "$(pwd)" "$1" || exit $?
+    local graph_flag=()
+    while [[ $# -gt 1 ]]; do
+      case "$1" in
+        --graph) graph_flag=("--graph"); shift ;;
+        *) shift ;;
+      esac
+    done
+    "${HERE}/plan.sh" -w "$(pwd)" "${graph_flag[@]}" "$1" || exit $?
     shift
     # Pass through --validate and --isolate if provided
     local extra_args=()

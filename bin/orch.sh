@@ -298,10 +298,13 @@ run_task() { # $1=task id ; runs in a subshell as a background job
     wt_dir="${ORCH_DIR}/worktrees/${id}"
     mkdir -p "$(dirname "$wt_dir")"
     # Create worktree from current HEAD
-    git -C "$PROJECT" worktree add -b "fa-task-${id}" "$wt_dir" HEAD 2>/dev/null || \
-      git -C "$PROJECT" worktree add "$wt_dir" HEAD 2>/dev/null || true
-    workdir="$wt_dir"
-    log "isolated $id in $wt_dir"
+    if git -C "$PROJECT" worktree add -b "fa-task-${id}" "$wt_dir" HEAD 2>/dev/null ||
+       git -C "$PROJECT" worktree add "$wt_dir" HEAD 2>/dev/null; then
+      workdir="$wt_dir"
+      log "isolated $id in $wt_dir"
+    else
+      log "WARNING: worktree isolation failed for $id, using main worktree"
+    fi
   fi
   
   before="$(snapshot_files "$id")"
@@ -420,11 +423,12 @@ cmd_run() {
   [[ "$width" -ge 1 ]] || width=1
   
   # Auto-enable isolation when multiple tasks have disjoint file sets
+  # Only works in git repos — skip if project isn't a git repo
   if [[ $ISOLATE -eq 0 ]]; then
     local disjoint_count=0
     # Count tasks with disjoint file sets (simplified check)
     disjoint_count=$(jq '[.tasks[] | .files // []] | length' "$TASKS_FILE")
-    [[ $disjoint_count -gt 1 && $width -gt 1 ]] && ISOLATE=1 && log "auto-enabled isolation for parallel disjoint tasks"
+    [[ $disjoint_count -gt 1 && $width -gt 1 ]] && git -C "$PROJECT" rev-parse --is-inside-work-tree 2>/dev/null && ISOLATE=1 && log "auto-enabled isolation for parallel disjoint tasks"
   fi
   
   local mode="$(project_mode)"

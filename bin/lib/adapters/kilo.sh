@@ -3,7 +3,7 @@
 # Identity: two separate things. The native kilo gateway needs no credential
 #   (empty kilo.db account table is still a real, free wallet) and is emitted as
 #   "kilo:unauthenticated"; extra OpenAI-compatible providers configured in
-#   kilo.jsonc (e.g. OpenRouter via kilo-add-openrouter.sh) are emitted per key.
+#   kilo.jsonc are emitted per key.
 # Models:   `kilo models --verbose` - shared parser with opencode, in buckets.sh.
 # Invoke:   kilo run --auto; contained with --dir when a workdir is given.
 

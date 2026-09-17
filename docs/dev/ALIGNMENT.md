@@ -1,8 +1,7 @@
 # ALIGNMENT — what you want, what's true, what to build
 
 > Written 2026-08-27 (Opus 5), after your statement of intent.
-> Companion to `docs/ANALYSIS.md` (repo inventory + defect list).
-> This file supersedes ANALYSIS.md §7 "the open question" — that question is now answered.
+> This file is the source of truth for the design.
 
 ---
 
@@ -705,25 +704,7 @@ Per-model state degrades; the wallet does not. Three opencode models now hang
 intermittent — that bucket is real but weak, and the rankings will learn to deprioritise it
 without any manual list.
 
-### `bin/kilo-add-openrouter.sh`
 
-Your script, reworked. It had three bugs, one destructive:
-
-1. **Scope.** `.provider // {} | .openai = …` rebinds `.` to `.provider`, so the inner
-   `.provider.openai.models` read `.provider.provider.openai.models` — always null.
-   Existing models, whitelist and blacklist were silently discarded, not merged.
-2. **It dropped the apiKey.** The rewritten `options` had `baseURL` and `timeout` but no
-   `apiKey`. Running it on your current config would have **wiped the key you just added.**
-3. **`whitelist: ["*"]` + "assume all are free" spends money.** `"*"` exposes OpenRouter's
-   whole catalogue through that provider, paid models included, while downstream we treat
-   everything there as free. It now writes an explicit whitelist of the free ids, which
-   makes that assumption true by construction. `--all` opts back into `"*"`, with a warning.
-
-Also: free detection by zero pricing rather than a `test("free")` substring match (which
-matches `freeform`), response validation, a timestamped backup, `chmod 600`, no-echo key
-prompt, and the key reused from the config so re-runs need no argument.
-
-Verified: 21 free models registered, apiKey preserved, whitelist scoped to those 21.
 
 
 ---

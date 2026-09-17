@@ -56,14 +56,9 @@ Produces `{"<provider>": {"type":"api","key":"..."}}`. Providers seen here:
 - **Native gateway**: needs nothing. `kilo.db`'s account tables are empty and it
   still works — the gateway serves this machine unauthenticated. That is a real,
   free wallet.
-- **Extra providers**: `~/.config/kilo/kilo.jsonc`. For OpenRouter:
-
-  ```sh
-  OPENROUTER_API_KEY=sk-or-v1-... fa-repo/bin/kilo-add-openrouter.sh
-  ```
-
-  It registers only the zero-priced models and writes an explicit whitelist —
-  `whitelist: ["*"]` would expose paid models that we then treat as free.
+- **Extra providers**: `~/.config/kilo/kilo.jsonc`. For OpenRouter, add
+  an OpenAI-compatible provider entry to `kilo.jsonc` with your key. See
+  https://github.com/glenng/kilo for the format.
 
 ### hermes → two separate places
 

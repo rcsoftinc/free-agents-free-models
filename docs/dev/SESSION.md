@@ -19,7 +19,7 @@ the code does rather than what the agents reported:
 | [fmtkit](https://github.com/noonelifecoach/fmtkit) | wide | 8 | **5** | 5m09s | 503 lines, 8 modules |
 | [coldrun](https://github.com/noonelifecoach/coldrun) | starved | 5 | **1** | — | 5 modules, 9 requeues, 0 failures |
 
-Records: **`docs/dev/RUN-2026-08-30-{mdsite,fmtkit,coldrun}.md`**.
+
 
 ## Documentation map
 
@@ -27,23 +27,9 @@ Records: **`docs/dev/RUN-2026-08-30-{mdsite,fmtkit,coldrun}.md`**.
 |---|---|
 | **[Route map](https://claude.ai/code/artifact/68bc7de1-6a06-4242-86f0-957904c09e1f)** | Visual: every route the tool can take — discovery, the gate, the dispatch loop, the taxonomy, and what is deliberately absent |
 | **[One run, end to end](https://claude.ai/code/artifact/727f0341-8a96-4e91-99fd-47ec5cdb7076)** | Visual: a real recorded build, with the wide and starved runs compared |
-| `docs/dev/ALIGNMENT.md` | The design and every finding — **the source of truth** |
-| `docs/dev/RUN-2026-08-30-*.md` | One record per real project, including what each did NOT show |
-| `docs/artifacts/README.md` | What to re-check in the published pages when the tool changes |
-| `docs/dev/TOKENS-AND-HANDOFFS.md` | Why handoffs were built cheap and token accounting was scoped |
-| `docs/SETUP.md` | Where each agent keeps its credentials (the non-reproducible part) |
-| `README.md` | User-facing: install, use, invariants |
-| `docs/dev/ANALYSIS.md` | Historical — the pre-rebuild survey |
-| `docs/validation-gate-plan.md` | Validation gate design and phases |
-
-Artifact **sources are vendored** in `docs/artifacts/`, because they otherwise
-live only in a session scratchpad. Editing one and republishing to the **same
-URL** updates the published page; publishing without the URL creates a duplicate.
-
-**Both artifacts make claims about a live system and go stale silently.**
-`docs/artifacts/README.md` lists what must be re-checked — chiefly the lane
-counts, the model names, and the statement that no real provider failure has yet
-occurred mid-build. If that last one changes, both pages need it.
+|| `docs/dev/ALIGNMENT.md` | The design and every finding — **the source of truth** |
+|| `docs/SETUP.md` | Where each agent keeps its credentials (the non-reproducible part) |
+|| `README.md` | User-facing: install, use, invariants |
 
 ## The core idea
 
@@ -224,8 +210,7 @@ with auto-fix loop. `fa run --validate` runs `node --check`, `python3 -m py_comp
 `shellcheck` on changed files; on failure the same agent gets the errors and retries
 (default 3 rounds). Exhaustion fails the task. `fa orch run --validate` applies this
 per task. Flag `--validate-all` reserved for tests + lint (future phases).
-Journal records `validation_failed` events for `fa analyze`. See
-`docs/validation-gate-plan.md`.
+Journal records `validation_failed` events for `fa analyze`.
 
 ## Next, if resuming
 
@@ -238,11 +223,9 @@ roughly in order of value:
    breaker, cooldown escalation and cross-wallet rerouting remain verified only by
    the test suite. **Do not force this by hammering providers** — it will close by
    itself during a genuinely large build.
-1. **Token accounting, scoped.** Assessed in `docs/dev/TOKENS-AND-HANDOFFS.md` and
-   deliberately not built: worth it only for the two lanes that publish a budget
-   (`nous` tph, `copilot` credits), where it turns the reactive breaker into a
-   predictive one. A general ledger for the five lanes with no budget changes no
-   decision.
+1. **Token accounting** was assessed and deliberately not built: worth it only
+   for the two lanes that publish a budget (`nous` tph, `copilot` credits).
+   A general ledger for the five lanes with no budget changes no decision.
 
 **Do not** add: token budgets on unmetered lanes, live leaderboard fetching (see
 ALIGNMENT for why gateway metadata beats it), or a summariser-based handoff — each
@@ -263,9 +246,7 @@ surfaces installed-but-unadapted harnesses. Two more gaps closed in passing:
 - `setup.sh` swallowed a missing `jq` and declared "Ready." with a silent
   half-install; it now fails loudly (`exit 3`) with the apt line. `missing_deps()`
   in `bin/lib/deps.sh` is consulted by setup, `fa bootstrap` and `fa doctor`.
-- `find-free-providers.sh` pointed at `scripts/bootstrap.sh` (never existed) and
-  `.env` (nothing reads it); it now names the real credential locations and `fa
-  refresh`.
+- `kilo-add-openrouter.sh` was removed — it was a setup helper, not part of the tool flow.
 
 `fa doctor` checks all five harnesses against their pins (opencode 1.17.20,
 kilo 7.5.5, hermes 0.20.5, copilot 1.0.83, cursor 2026.09.02); metered lanes are

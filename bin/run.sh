@@ -99,9 +99,9 @@ isolation_preamble() {
 exit_report_preamble() {
   printf '\n\n=== EXIT REPORT REQUIRED ===\n'
   printf 'Before ending your session, you MUST report:\n'
-  printf '- Files changed: list every file you created or edited\n'
-  printf '- Verification status: did tests/build/lint pass? what was the result?\n'
-  printf '- Remaining work: what is left to do (if anything)\n'
+  printf '%s\n' '- Files changed: list every file you created or edited'
+  printf '%s\n' '- Verification status: did tests/build/lint pass? what was the result?'
+  printf '%s\n' '- Remaining work: what is left to do (if anything)'
   printf 'No silent exits.\n'
   printf '============================\n\n'
 }

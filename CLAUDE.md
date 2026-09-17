@@ -13,7 +13,7 @@ configured with the same API key are **one lane**, and running them in parallel
 only races that wallet into its own limit. Parallel width = number of healthy
 buckets, nothing else.
 
-## Read in this order
+## Read in order
 
 1. **`docs/dev/SESSION.md`** — current state, the invariants, every bug the suite
    found, what is deliberately untested, and a ranked "next if resuming" list.
@@ -25,9 +25,6 @@ buckets, nothing else.
    full file layout (project side vs machine-wide).
 5. **`test/`** — 245 assertions, 15 suites, offline against stubs. The most
    reliable specification here; prose can drift, these cannot.
-
-`docs/dev/ANALYSIS.md` is historical — the original three-layer survey. Useful
-for "why is it like this", not for what the code does now.
 
 ## Invariants — breaking one of these is a regression, not a refactor
 

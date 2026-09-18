@@ -37,6 +37,8 @@ opencode_models() { # -> model rows, agent-prefixed (see buckets.sh)
   models_from_verbose opencode | sed 's/^/opencode\t/'
 }
 
+opencode_caps() { printf 'code,reasoning,shell,git,file'; }
+
 opencode_invoke() { # $1=model $2=provider $3=prompt ; echoes output, returns rc
   local model="$1" prompt="$3" rc=0 out=""
   local t="${INVOKE_TIMEOUT:-${ATTEMPT_TIMEOUT:-${PROBE_TIMEOUT:-300}}}"

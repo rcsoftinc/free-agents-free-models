@@ -166,6 +166,25 @@ metered_include_pred() { # -> jq boolean expr operating on the current bucket `.
   esac
 }
 
+adapter_caps() { # $1=agent -> prints comma-separated capabilities
+  local fn="${1}_caps"
+  if declare -f "$fn" >/dev/null 2>&1; then
+    "$fn"
+  fi
+}
+
+# Task category -> required capabilities
+category_caps() { # $1=category
+  case "$1" in
+    coding)     printf 'code' ;;
+    research)   printf 'web,research' ;;
+    reasoning)  printf 'reasoning' ;;
+    fast)       printf 'code,reasoning' ;;
+    general)    printf 'code' ;;
+    *)          printf '' ;;
+  esac
+}
+
 # Presence broom: harnesses that are installed but have no adapter. Surfaced so
 # nothing is silent; NOT a lane (that needs an adapter) and not staleness (a
 # refresh cannot change what is unadaptable).

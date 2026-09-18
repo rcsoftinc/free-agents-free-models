@@ -47,6 +47,8 @@ agy_models() { # -> model rows, agent-prefixed (see buckets.sh)
   done < <(agy models 2>/dev/null | tail -n +1)
 }
 
+agy_caps() { printf 'web,code,research,reasoning,file'; }
+
 agy_invoke() { # $1=model $2=provider $3=prompt ; echoes output, returns rc
   local model="$1" prompt="$3" rc=0 out=""
   local t="${INVOKE_TIMEOUT:-${ATTEMPT_TIMEOUT:-${PROBE_TIMEOUT:-300}}}"

@@ -54,6 +54,8 @@ pi_models() { # -> model rows, agent-prefixed (see buckets.sh)
   done < <(pi --list-models 2>/dev/null | tail -n +2)
 }
 
+pi_caps() { printf 'code,reasoning,file'; }
+
 pi_invoke() { # $1=model $2=provider $3=prompt ; echoes output, returns rc
   local model="$1" prompt="$3" rc=0 out=""
   local t="${INVOKE_TIMEOUT:-${ATTEMPT_TIMEOUT:-${PROBE_TIMEOUT:-300}}}"

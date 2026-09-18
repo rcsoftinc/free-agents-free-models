@@ -141,6 +141,20 @@ candidates() {
   local now; now="$(now_epoch)"
   local ex_json; ex_json="$(printf '%s\n' "${EXCLUDES[@]:-}" | jq -R . | jq -sc 'map(select(length>0))')"
   local metered_include; metered_include="$(metered_include_pred)"
+
+  # Build agent capabilities JSON for dispatch filtering
+  local acaps="{"
+  local first=1
+  for agent in "${FA_AGENTS[@]}"; do
+    [ $first -eq 0 ] && acaps+=","
+    acaps+="\"${agent}\":\"$(adapter_caps "$agent")\""
+    first=0
+  done
+  acaps+="}"
+
+  # Required capabilities for this task category
+  local req_cap="$(category_caps "$CATEGORY")"
+
   registry_read '
     [ .buckets[]
       | select(($pin == "") or (.id == $pin))
@@ -162,6 +176,9 @@ candidates() {
       | select((.cooldown_until // 0) <= ($now|tonumber))
       | . as $m
       | ($m.routes[] | select(.agent == $b.preferred_agent)) as $r
+      # Filter by required capabilities for this category.
+      # req_cap may be comma-separated ("web,research") — match if ANY required cap is present.
+      | select($r.agent as $a | $acaps | has($a) and (.[$a] | split(",") | map(select(. as $c | $req_cap | split(",") | index($c))) | length > 0))
       | { bucket: $b.id,
           agent:  $r.agent,
           model:  $r.model_arg,
@@ -208,7 +225,7 @@ candidates() {
     | sort_by(.metered, .bucket_last_used, -.score)
     | .[] | [.bucket, .agent, .model, .provider] | @tsv
   ' --arg pin "$PIN_BUCKET" --arg now "$now" --argjson ex "$ex_json" \
-    --arg cat "$CATEGORY"
+    --arg cat "$CATEGORY" --argjson acaps "$acaps" --arg req_cap "$req_cap"
 }
 
 # ------------------------------------------------------------------- leasing --

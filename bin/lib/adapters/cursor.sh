@@ -26,6 +26,8 @@ cursor_models() { # -> model rows, agent-prefixed (see buckets.sh)
   printf 'cursor\tcursor\tauto\tauto\ttrue\t0\t0\t\n'
 }
 
+cursor_caps() { printf 'web,code,reasoning,shell,git,file'; }
+
 cursor_invoke() { # $1=model $2=provider $3=prompt ; echoes output, returns rc
   local prompt="$3" rc=0 out=""
   local t="${INVOKE_TIMEOUT:-${ATTEMPT_TIMEOUT:-${PROBE_TIMEOUT:-300}}}"

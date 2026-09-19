@@ -97,6 +97,20 @@ hermes_models() { # -> model rows, agent-prefixed (see buckets.sh)
 
 hermes_caps() { printf 'web,browser,code,research,reasoning,shell,git,file'; }
 
+hermes_install() { # -> 0 if install was run (or already installed)
+  command -v hermes >/dev/null 2>&1 && return 1  # already installed
+  if [[ "${FA_AUTO_INSTALL:-0}" == "1" ]] || prompt_yn "hermes not installed. Install now?"; then
+    if command -v cargo >/dev/null 2>&1; then
+      cargo install hermes-agent
+    elif command -v brew >/dev/null 2>&1; then
+      brew install hermes-agent
+    else
+      say "Install hermes manually: https://hermes-agent.nousresearch.com"
+      return 1
+    fi
+  fi
+}
+
 hermes_invoke() { # $1=model $2=provider $3=prompt ; echoes output, returns rc
   local model="$1" provider="$2" prompt="$3" rc=0 out=""
   local t="${INVOKE_TIMEOUT:-${ATTEMPT_TIMEOUT:-${PROBE_TIMEOUT:-300}}}"

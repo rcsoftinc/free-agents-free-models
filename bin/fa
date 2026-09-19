@@ -47,6 +47,12 @@ ROOT="$(cd "${HERE}/.." && pwd)"
 . "${HERE}/lib/common.sh"
 STATE="$STATE_DIR"
 
+prompt_yn() { # $1=prompt -> 0 if yes
+  local ans
+  read -rp "$1 [y/N] " ans
+  [[ "${ans,,}" == "y" || "${ans,,}" == "yes" ]]
+}
+
 usage() { sed -n '6,26p' "$0" >&2; exit 3; }
 cmd="${1:-}"; shift || true
 
@@ -69,8 +75,19 @@ case "$cmd" in
     _miss="$(missing_deps)"
     if [[ -n "$_miss" ]]; then
       echo "[fa] missing system dependencies: $(tr '\n' ' ' <<<"$_miss")"
-      echo "[fa]   install them first, e.g.:  sudo apt-get install -y $(tr '\n' ' ' <<<"$_miss")"
-      exit 3
+      if [[ "${FA_AUTO_INSTALL:-0}" == "1" ]] || prompt_yn "install them now?"; then
+        if command -v apt-get >/dev/null 2>&1; then
+          sudo apt-get install -y $_miss || { echo "[fa] apt install failed"; exit 3; }
+        elif command -v brew >/dev/null 2>&1; then
+          brew install $_miss || { echo "[fa] brew install failed"; exit 3; }
+        else
+          echo "[fa]   install them first, e.g.:  sudo apt-get install -y $(tr '\n' ' ' <<<"$_miss")"
+          exit 3
+        fi
+      else
+        echo "[fa]   install them first, e.g.:  sudo apt-get install -y $(tr '\n' ' ' <<<"$_miss")"
+        exit 3
+      fi
     fi
     echo "[fa] discovering credentials this machine's agents already hold..."
     "${HERE}/buckets.sh" discover || exit $?

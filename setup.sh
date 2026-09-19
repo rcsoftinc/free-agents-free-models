@@ -35,19 +35,44 @@ STATE="$STATE_DIR"
 
 say() { printf '[fa] %s\n' "$*"; }
 
+prompt_yn() { # $1=prompt -> 0 if yes
+  local ans
+  read -rp "$1 [y/N] " ans
+  [[ "${ans,,}" == "y" || "${ans,,}" == "yes" ]]
+}
+
 # The tool cannot talk to a provider without the system tools - setup previously
 # swallowed a missing jq and declared "Ready." with a silent half-install. Fail
 # loudly (with the apt line) before anything else runs.
 _miss="$(missing_deps)"
 if [[ -n "$_miss" ]]; then
   say "missing system dependencies: $(tr '\n' ' ' <<<"$_miss")"
-  say "  install them first, e.g.:  sudo apt-get install -y $(tr '\n' ' ' <<<"$_miss")"
-  exit 3
+  if [[ "${FA_AUTO_INSTALL:-0}" == "1" ]] || prompt_yn "install them now?"; then
+    if command -v apt-get >/dev/null 2>&1; then
+      sudo apt-get install -y $_miss || { say "apt install failed"; exit 3; }
+    elif command -v brew >/dev/null 2>&1; then
+      brew install $_miss || { say "brew install failed"; exit 3; }
+    else
+      say "  install them first, e.g.:  sudo apt-get install -y $(tr '\n' ' ' <<<"$_miss")"
+      exit 3
+    fi
+  else
+    say "  install them first, e.g.:  sudo apt-get install -y $(tr '\n' ' ' <<<"$_miss")"
+    exit 3
+  fi
 fi
 
 cd "$PROJECT"
 say "project: $PROJECT"
 say "tool:    $HERE"
+
+# Check for missing agents and offer to install
+for agent in "${FA_AGENTS[@]}"; do
+  if ! adapter_installed "$agent"; then
+    say "$agent: not installed"
+    adapter_install "$agent" || say "  skipped $agent"
+  fi
+done
 
 chmod +x "${HERE}"/bin/*.sh "${HERE}"/bin/lib/*.sh "${HERE}/bin/fa" \
          "${HERE}/setup.sh" 2>/dev/null || true

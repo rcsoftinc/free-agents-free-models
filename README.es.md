@@ -382,6 +382,16 @@ fa bootstrap          # descubrir credenciales, instalar habilidades
 fa lanes -v           # ver tus carriles
 ```
 
+### Auto-instalación
+
+`setup.sh` verifica las dependencias del sistema (jq, curl, flock, sqlite3, timeout)
+y los CLIs de agente faltantes (opencode, kilo, hermes, copilot, cursor, agy, pi),
+luego pregunta si desea instalarlos. Use `FA_AUTO_INSTALL=1` para omitir las preguntas:
+
+```sh
+FA_AUTO_INSTALL=1 .free-agents/setup.sh
+```
+
 ### Primera ejecución
 
 Inicia tu agente preferido (opencode, kilo, hermes, pi, agy, copilot, cursor) y pásale el prompt del coordinator:
@@ -519,6 +529,30 @@ Configura con `fa config --mode push` o editando `.orch/config.yaml`. El orquest
 | **Modos de proyecto** | Autonomía por proyecto: strict (default), push, local |
 | **Handoffs** | Bloque estructurado (decisions, rejected, open) pasado a dependientes; sin llamada de modelo extra |
 | **Findings** | Registra lo que la herramienta notó que manejó mal; copiable a issues |
+
+## Capacidades
+
+Cada agente declara lo que puede hacer. El planificador empareja los requisitos de la tarea con las capacidades del agente:
+
+| Agente | Capacidades |
+|-------|-------------|
+| **opencode** | `code,reasoning,shell,git,file` |
+| **kilo** | `code,reasoning,shell,git,file` |
+| **hermes** | `web,browser,code,research,reasoning,shell,git,file` |
+| **copilot** | `code,reasoning,shell,git,file` |
+| **cursor** | `web,code,reasoning,shell,git,file` |
+| **agy** | `web,code,research,reasoning,file` |
+| **pi** | `code,reasoning,file` |
+
+### Categoría → Capacidades Requeridas
+
+| Categoría | Requerida | Agentes elegibles |
+|-----------|----------|-----------------|
+| **coding** | `code` | todos |
+| **research** | `web` OR `research` | hermes, cursor, agy |
+| **reasoning** | `reasoning` | todos |
+| **fast** | `code` | todos |
+| **general** | `code` | todos |
 
 ## Bootstrap (una vez por máquina)
 

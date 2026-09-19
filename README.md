@@ -378,6 +378,16 @@ fa bootstrap          # discover credentials, install skills
 fa lanes -v           # see your lanes
 ```
 
+### Auto-install
+
+`setup.sh` checks for missing system dependencies (jq, curl, flock, sqlite3, timeout)
+and missing agent CLIs (opencode, kilo, hermes, copilot, cursor, agy, pi), then
+prompts to install them. Use `FA_AUTO_INSTALL=1` to skip prompts:
+
+```sh
+FA_AUTO_INSTALL=1 .free-agents/setup.sh
+```
+
 ### First run
 
 Start your preferred agent (opencode, kilo, hermes, pi, agy, copilot, cursor) and pass it the coordinator prompt:
@@ -514,6 +524,30 @@ Set with `fa config --mode push` or by editing `.orch/config.yaml`. The orchestr
 | **Project modes** | Per-project autonomy: strict (default), push, local |
 | **Handoffs** | Structured decisions + rejected + open block passed to dependents; no extra model call |
 | **Findings** | Records what the tool noticed it handled badly; pasteable into issues |
+
+## Capabilities
+
+Each agent declares what it can do. The scheduler matches task requirements to agent capabilities:
+
+| Agent | Capabilities |
+|-------|-------------|
+| **opencode** | `code,reasoning,shell,git,file` |
+| **kilo** | `code,reasoning,shell,git,file` |
+| **hermes** | `web,browser,code,research,reasoning,shell,git,file` |
+| **copilot** | `code,reasoning,shell,git,file` |
+| **cursor** | `web,code,reasoning,shell,git,file` |
+| **agy** | `web,code,research,reasoning,file` |
+| **pi** | `code,reasoning,file` |
+
+### Category → Required Capabilities
+
+| Category | Required | Eligible agents |
+|----------|----------|-----------------|
+| **coding** | `code` | all |
+| **research** | `web` OR `research` | hermes, cursor, agy |
+| **reasoning** | `reasoning` | all |
+| **fast** | `code` | all |
+| **general** | `code` | all |
 
 ## Bootstrap (once per machine)
 

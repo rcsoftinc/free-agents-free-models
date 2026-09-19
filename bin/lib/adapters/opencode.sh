@@ -39,6 +39,20 @@ opencode_models() { # -> model rows, agent-prefixed (see buckets.sh)
 
 opencode_caps() { printf 'code,reasoning,shell,git,file'; }
 
+opencode_install() { # -> 0 if install was run (or already installed)
+  command -v opencode >/dev/null 2>&1 && return 1  # already installed
+  if [[ "${FA_AUTO_INSTALL:-0}" == "1" ]] || prompt_yn "opencode not installed. Install now?"; then
+    if command -v npm >/dev/null 2>&1; then
+      npm install -g opencode-ai
+    elif command -v brew >/dev/null 2>&1; then
+      brew install opencode-ai
+    else
+      say "Install opencode manually: https://opencode.ai"
+      return 1
+    fi
+  fi
+}
+
 opencode_invoke() { # $1=model $2=provider $3=prompt ; echoes output, returns rc
   local model="$1" prompt="$3" rc=0 out=""
   local t="${INVOKE_TIMEOUT:-${ATTEMPT_TIMEOUT:-${PROBE_TIMEOUT:-300}}}"

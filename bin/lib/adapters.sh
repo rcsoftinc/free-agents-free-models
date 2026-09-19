@@ -202,6 +202,13 @@ adapters_present_without_adapter() { # -> installed unsupported binaries
 # The dispatcher. One route is (agent, model, provider); the adapter owns the
 # invocation shape, so run.sh and buckets.sh share a single implementation and a
 # harness added after the fact needs no edit anywhere but its adapter.
+adapter_install() { # $1=agent -> runs the agent's install function
+  local fn="${1}_install"
+  if declare -f "$fn" >/dev/null 2>&1; then
+    "$fn"
+  fi
+}
+
 adapter_invoke() { # $1=agent; then (model provider prompt)
   local agent="$1"; shift
   local fn="${agent}_invoke"

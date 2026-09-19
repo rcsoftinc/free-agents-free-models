@@ -54,6 +54,20 @@ kilo_models() { # -> model rows, agent-prefixed (see buckets.sh)
 
 kilo_caps() { printf 'code,reasoning,shell,git,file'; }
 
+kilo_install() { # -> 0 if install was run (or already installed)
+  command -v kilo >/dev/null 2>&1 && return 1  # already installed
+  if [[ "${FA_AUTO_INSTALL:-0}" == "1" ]] || prompt_yn "kilo not installed. Install now?"; then
+    if command -v npm >/dev/null 2>&1; then
+      npm install -g @kilocode/kilo
+    elif command -v brew >/dev/null 2>&1; then
+      brew install kilocode/tap/kilo
+    else
+      say "Install kilo manually: https://github.com/glenng/kilo"
+      return 1
+    fi
+  fi
+}
+
 kilo_invoke() { # $1=model $2=provider $3=prompt ; echoes output, returns rc
   local model="$1" prompt="$3" rc=0 out=""
   local t="${INVOKE_TIMEOUT:-${ATTEMPT_TIMEOUT:-${PROBE_TIMEOUT:-300}}}"

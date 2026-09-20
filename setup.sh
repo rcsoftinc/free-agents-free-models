@@ -76,17 +76,6 @@ done
 
 chmod +x "${HERE}"/bin/*.sh "${HERE}"/bin/lib/*.sh "${HERE}/bin/fa" \
          "${HERE}/setup.sh" 2>/dev/null || true
-
-# Offer to put fa on PATH
-if ! command -v fa >/dev/null 2>&1; then
-  say "'fa' is not on your PATH."
-  if prompt_yn "  create symlink /usr/local/bin/fa -> ${HERE}/bin/fa?"; then
-    ln -sf "${HERE}/bin/fa" /usr/local/bin/fa && say "  linked. Use 'fa' from anywhere."
-  else
-    say "  skipped. Run: ${HERE}/bin/fa (or add to PATH manually)"
-  fi
-fi
-
 # Let orch.sh define what .orch/ contains. This used to be open-coded here, and
 # the copy drifted: it omitted handoffs/, ran first, and orch.sh's own writer
 # no-ops when the file already exists - so every project committed its handoffs.

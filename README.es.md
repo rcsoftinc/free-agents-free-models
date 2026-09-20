@@ -378,22 +378,8 @@ ESCENARIO: "Construir un dashboard React con tests"
 cd mi-proyecto
 gh repo clone rcsoftinc/free-agents-free-models .free-agents
 .free-agents/setup.sh
-fa bootstrap          # descubrir credenciales, instalar habilidades
-fa lanes -v           # ver tus carriles
-```
-
-### Poner `fa` en tu PATH
-
-`setup.sh` ofrecerá crear un enlace simbólico de `fa` en `/usr/local/bin`. Si lo omitiste, ejecuta:
-
-```sh
-ln -sf "$(pwd)/.free-agents/bin/fa" /usr/local/bin/fa
-```
-
-O agrega a `~/.bashrc`:
-
-```sh
-export PATH="$(pwd)/.free-agents/bin:$PATH"
+.free-agents/bin/fa bootstrap          # descubrir credenciales, instalar habilidades
+.free-agents/bin/fa lanes -v           # ver tus carriles
 ```
 
 ### Auto-instalación

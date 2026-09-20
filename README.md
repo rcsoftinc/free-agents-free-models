@@ -374,25 +374,11 @@ SCENARIO: "Build a React dashboard with tests"
 cd myproject
 gh repo clone rcsoftinc/free-agents-free-models .free-agents
 .free-agents/setup.sh
-fa bootstrap          # discover credentials, install skills
-fa lanes -v           # see your lanes
+.free-agents/bin/fa bootstrap          # discover credentials, install skills
+.free-agents/bin/fa lanes -v           # see your lanes
 ```
 
 > **Windows note:** all agents must be installed inside WSL2, and `.free-agents` runs from there. See [Environment](README.md#environment).
-
-### Put `fa` on your PATH
-
-`setup.sh` will offer to symlink `fa` to `/usr/local/bin`. If you skipped that, run:
-
-```sh
-ln -sf "$(pwd)/.free-agents/bin/fa" /usr/local/bin/fa
-```
-
-Or add to `~/.bashrc`:
-
-```sh
-export PATH="$(pwd)/.free-agents/bin:$PATH"
-```
 
 ### Auto-install
 

@@ -382,6 +382,20 @@ fa bootstrap          # descubrir credenciales, instalar habilidades
 fa lanes -v           # ver tus carriles
 ```
 
+### Poner `fa` en tu PATH
+
+`setup.sh` ofrecerá crear un enlace simbólico de `fa` en `/usr/local/bin`. Si lo omitiste, ejecuta:
+
+```sh
+ln -sf "$(pwd)/.free-agents/bin/fa" /usr/local/bin/fa
+```
+
+O agrega a `~/.bashrc`:
+
+```sh
+export PATH="$(pwd)/.free-agents/bin:$PATH"
+```
+
 ### Auto-instalación
 
 `setup.sh` verifica las dependencias del sistema (jq, curl, flock, sqlite3, timeout)

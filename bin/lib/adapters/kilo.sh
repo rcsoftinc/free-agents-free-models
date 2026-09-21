@@ -68,6 +68,26 @@ kilo_install() { # -> 0 if install was run (or already installed)
   fi
 }
 
+kilo_provision_key() { # $1=provider (default openrouter) $2=key -> 0 on success
+  # Signature matches opencode/pi's *_provision_key (provider, key) so the
+  # generic dispatcher in keys.sh can call all three identically - only the
+  # base URL is agent-specific, and it's looked up here, not passed in.
+  local provider="${1:-openrouter}" key="${2:-}" base
+  [[ -z "$key" ]] && return 1
+  case "$provider" in
+    openrouter) base="https://openrouter.ai/api/v1" ;;
+    *) log "kilo_provision_key: no known base URL for provider '$provider'"; return 1 ;;
+  esac
+  # Refuses cleanly (via json_merge_file) rather than corrupting kilo.jsonc if
+  # it already carries comments - see kilo_identify's own note on this file.
+  # The provider NAME here is just a local label (wallet identity comes from
+  # host_of(baseURL), not this string) - "openrouter" is clearer than the
+  # generic "openai" label seen on some real configs, and works the same.
+  json_merge_file "$KILO_CONFIG" \
+    '.provider.openrouter = {"options": {"apiKey": $k, "baseURL": $b}}' \
+    --arg k "$key" --arg b "$base"
+}
+
 kilo_invoke() { # $1=model $2=provider $3=prompt ; echoes output, returns rc
   local model="$1" prompt="$3" rc=0 out=""
   local t="${INVOKE_TIMEOUT:-${ATTEMPT_TIMEOUT:-${PROBE_TIMEOUT:-300}}}"

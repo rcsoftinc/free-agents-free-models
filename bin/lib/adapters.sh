@@ -209,6 +209,29 @@ adapter_install() { # $1=agent -> runs the agent's install function
   fi
 }
 
+# Tier B credential check ("needs its own interactive login, not a key file").
+# Reuses identify() rather than a second detection path: copilot/cursor/agy
+# each always emit exactly one row and hardcode ident="anon" until logged in;
+# hermes emits ZERO rows until its credential_pool has a resolvable token (see
+# hermes_endpoints(), which `continue`s past any empty token) - so "any row at
+# all" already means logged in there. One check covers both shapes.
+adapter_logged_in() { # $1=agent -> 0 if identify() shows a real credential
+  local fn="${1}_identify"
+  declare -F "$fn" >/dev/null 2>&1 || return 1
+  "$fn" 2>/dev/null | awk -F '\x1f' '{print $4}' | grep -qv '^anon$'
+}
+
+# Best-effort guidance for the login setup.sh could not do for you. Some of
+# these are verified commands (documented in docs/SETUP.md); others are an
+# educated guess at the CLI's own subcommand name and say so, rather than
+# stating an unverified command as fact.
+adapter_login_hint() { # $1=agent -> one line of guidance
+  local fn="${1}_login_hint"
+  if declare -F "$fn" >/dev/null 2>&1; then "$fn"
+  else printf 'run %s and follow its own onboarding prompt' "$1"
+  fi
+}
+
 adapter_invoke() { # $1=agent; then (model provider prompt)
   local agent="$1"; shift
   local fn="${agent}_invoke"

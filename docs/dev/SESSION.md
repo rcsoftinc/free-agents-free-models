@@ -8,7 +8,7 @@
 
 **Complete, working, and proven on a real project.** Published privately at
 `github.com/rcsoftinc/free-agents-free-models`. Full suite green:
-**404 assertions, 23 suites, offline.**
+**426 assertions, 24 suites, offline.**
 
 **It has built real software unattended.** All independently verified against what
 the code does rather than what the agents reported:
@@ -108,7 +108,7 @@ bin/lib/          common.sh, deps.sh, adapters.sh, classify.sh + adapters/ (one 
 data/model-seed.json  OPTIONAL cold-start opinion per model/category - hand-edit or delete, nothing breaks
 prompts/          coordinator.md - the single pasted prompt
 skills/           skill cards, linked into the project by bootstrap
-test/             23 suites, stub agents, fixture registry - fully offline
+test/             24 suites, stub agents, fixture registry - fully offline
 ```
 
 ## Lanes on this machine
@@ -352,3 +352,47 @@ surfaces installed-but-unadapted harnesses. Two more gaps closed in passing:
 kilo 7.5.5, hermes 0.20.5, copilot 1.0.83, cursor 2026.09.02); metered lanes are
 marked. New `test/test_adapters.sh` pins the single-source invariant and the
 broom; full suite is 16 suites / 269 assertions, offline.
+
+## This session: fresh-machine credential setup (`keys.env` + guided logins)
+
+Prompted by a user question about simplifying setup on a brand-new Ubuntu/
+Debian box with nothing but git installed: the seven agents split cleanly
+into two tiers, and only one of them was actually automatable.
+
+- **Tier A — opencode, kilo, pi.** Each needs nothing but a raw API key
+  dropped into its own JSON/JSONC config file. New `bin/lib/keys.sh` reads
+  an optional, gitignored `keys.env` (template: `keys.env.example`, tracked)
+  and calls a new `<agent>_provision_key` function per adapter, which writes
+  the key via a new shared `json_merge_file()` helper in `common.sh` —
+  atomic read-modify-write, refuses (never corrupts) a target that isn't
+  plain JSON, chmod 600 after writing. `setup.sh` runs this automatically;
+  absent `keys.env` it's a silent no-op.
+- **Tier B — copilot, cursor, agy, hermes.** Real OAuth/account login, which
+  nothing here will ever auto-consent to on the user's behalf. New
+  `adapter_logged_in()` in `adapters.sh` reuses each agent's own
+  `_identify()` (no second detection path) to answer "is this one already
+  logged in", and `guided_logins()` in `keys.sh` offers each still-missing
+  agent's login step interactively, then — the part that used to be
+  silent — prints a final summary of every account still not logged in,
+  with the exact command for each.
+
+**Real bug caught by the test suite before it shipped**: `kilo_provision_key`
+was first written with signature `(key, baseURL)`, but the generic
+dispatcher in `keys.sh` calls every `*_provision_key` function uniformly as
+`(provider, key)` — silently swapping the two, so the real key landed in
+`baseURL` and the literal string `"openrouter"` landed in `apiKey`. Would
+have produced a completely dead, unrecoverable "provisioned" credential that
+looked fine at a glance. Caught only by writing the file and reading the
+actual JSON back with `jq`, not by re-reading the code — the same lesson as
+the worktree merge-back bug earlier this session. `test/test_provision.sh`
+pins this shape directly (test 3) so it can't regress silently again.
+
+**Honesty, not a guess presented as fact**: `gh auth login` (copilot) and
+`hermes login` (hermes) are verified commands, already documented in
+`docs/SETUP.md` before this session. `cursor-agent login` and `agy login`
+are educated guesses at each CLI's own subcommand name, never confirmed
+against a real machine — their hint text says so explicitly, and falls back
+to "run the agent once and follow its own prompt" if wrong. Worth
+confirming on a real machine and tightening if resuming this thread.
+
+Full suite: 24 suites / 426 assertions, offline.

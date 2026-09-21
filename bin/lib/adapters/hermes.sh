@@ -97,6 +97,12 @@ hermes_models() { # -> model rows, agent-prefixed (see buckets.sh)
 
 hermes_caps() { printf 'web,browser,code,research,reasoning,shell,git,file'; }
 
+# Verified command (docs/SETUP.md): starts Nous OAuth, the one provider hermes
+# can log into on its own. Its other gateways (kilocode, etc.) need a separate
+# key in ~/.hermes/.env against a credential_pool slot hermes itself creates -
+# not something this project provisions non-interactively (see docs/SETUP.md).
+hermes_login_hint() { printf 'hermes login   (starts Nous OAuth; hermes is the most interactive of the seven - see docs/SETUP.md for its other gateways)'; }
+
 hermes_install() { # -> 0 if install was run (or already installed)
   command -v hermes >/dev/null 2>&1 && return 1  # already installed
   if [[ "${FA_AUTO_INSTALL:-0}" == "1" ]] || prompt_yn "hermes not installed. Install now?"; then

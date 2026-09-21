@@ -42,6 +42,10 @@ copilot_models() { # -> model rows, agent-prefixed (see buckets.sh)
 
 copilot_caps() { printf 'code,reasoning,shell,git,file'; }
 
+# Verified command (docs/SETUP.md): copilot rides on gh's own session, it has
+# no login step of its own.
+copilot_login_hint() { printf 'gh auth login   (GitHub CLI - copilot rides on your gh session, no login of its own)'; }
+
 copilot_install() { # -> 0 if install was run (or already installed)
   command -v copilot >/dev/null 2>&1 && return 1  # already installed
   if [[ "${FA_AUTO_INSTALL:-0}" == "1" ]] || prompt_yn "copilot not installed. Install now?"; then

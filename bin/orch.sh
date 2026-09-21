@@ -369,18 +369,50 @@ run_task() { # $1=task id ; runs in a subshell as a background job
       return 1
     fi
     
-    # Merge changes back from worktree to main worktree (for coding tasks)
+    # Merge changes back from the isolated worktree into the main project,
+    # and COMMIT them there. Every worktree is created from $PROJECT's HEAD
+    # at dispatch time (git worktree add ... HEAD, above); without a real
+    # commit here, HEAD never advances, so a LATER task's worktree is still
+    # branched from the pre-run HEAD and never sees an earlier task's merged
+    # work. For two unrelated tasks that never touch the same file this is
+    # invisible - but a dependent pair that legitimately extends the same
+    # file (plan.sh's check_boundaries() allows exactly this between a
+    # declared dependency edge) would have the later task's own worktree
+    # start from the file's ORIGINAL content, and its cp back to $PROJECT
+    # would silently overwrite - not merge with - the earlier task's already
+    # -verified work. Committing closes the gap: deps_met() only dispatches
+    # a dependent after its dependency's `done` event, which now only fires
+    # after that dependency's commit has landed.
+    #
+    # The commit itself is serialized under a merge lock: two run_task()
+    # background jobs can finish and reach this block at the same moment,
+    # and `git add`/`git commit` against one shared working tree is not safe
+    # to run concurrently from two processes.
     if [[ $ISOLATE -eq 1 && "$category" == "coding" && -n "$wt_dir" && -d "$wt_dir" ]]; then
-      # Copy changed files back to main worktree
+      local merged=()
       while IFS= read -r f; do
         [[ -z "$f" ]] && continue
         if [[ -f "${wt_dir}/${f}" ]]; then
-          cp "${wt_dir}/${f}" "${PROJECT}/${f}" 2>/dev/null || true
+          mkdir -p "$(dirname "${PROJECT}/${f}")"
+          cp "${wt_dir}/${f}" "${PROJECT}/${f}" 2>/dev/null && merged+=("$f")
         fi
       done < <(task_files "$id")
-      # Cleanup worktree
+
+      if [[ ${#merged[@]} -gt 0 ]]; then
+        (
+          flock -w 30 9 || { log "WARNING: merge lock timed out for $id - files copied but NOT committed, a later dependent task will not see them"; exit 1; }
+          git -C "$PROJECT" add -A -- "${merged[@]}" >/dev/null 2>&1
+          GIT_AUTHOR_NAME="free-agents" GIT_AUTHOR_EMAIL="free-agents@localhost" \
+          GIT_COMMITTER_NAME="free-agents" GIT_COMMITTER_EMAIL="free-agents@localhost" \
+            git -C "$PROJECT" commit -q -m "fa: ${id}" -- "${merged[@]}" >/dev/null 2>&1
+        ) 9>"${ORCH_DIR}/.merge.lock" \
+          && log "merged and committed $id changes from worktree" \
+          || log "WARNING: $id changes were copied but the commit failed - a later dependent task may not see them; check ${ORCH_DIR}/.merge.lock contention or run 'git -C $PROJECT status'"
+      fi
+
+      # Cleanup the worktree and its throwaway branch
       git -C "$PROJECT" worktree remove --force "$wt_dir" 2>/dev/null || true
-      log "merged $id changes from worktree"
+      git -C "$PROJECT" branch -D "fa-task-${id}" >/dev/null 2>&1 || true
     fi
   fi
 

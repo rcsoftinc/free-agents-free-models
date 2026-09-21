@@ -202,14 +202,20 @@ candidates() {
                    + 2 * ( (($m.stats.ok   // 0))
                          - 2 * (($m.stats.fail // 0)) )
                    + (if $m.probe.state == "ok" then 5 else 0 end)
-                   # The prior applies ONLY to a model nothing is yet known
-                   # about. Clamping it below the value of one success is not
-                   # enough: the prior SPREAD between two models (+3 vs -3) can
-                   # still offset an evidence gap. Gating it on "no stats at all"
-                   # makes the rule exact - opinion orders the unknown, evidence
-                   # orders everything else, and the two never compete.
-                   + ( (if (($m.stats.ok // 0) + ($m.stats.fail // 0)
-                            + ($m.cat_stats[$cat].ok // 0)
+                   # The prior applies whenever THIS CATEGORY has no evidence
+                   # yet - not only when the model has never been tried at
+                   # all. Gating it on the models OVERALL stats too used to
+                   # mean a model that succeeded once at, say, coding lost
+                   # every bit of size/name/seed guidance for reasoning the
+                   # moment that first success landed, even though reasoning
+                   # was still completely untested. Clamping it below the
+                   # value of one success is not enough on its own: the prior
+                   # SPREAD between two models (+3 vs -3) can still offset an
+                   # evidence gap. Gating it on "no evidence in THIS category"
+                   # makes the rule exact - opinion orders what this category
+                   # does not yet know, evidence orders everything else, and
+                   # the two never compete.
+                   + ( (if (($m.cat_stats[$cat].ok // 0)
                             + ($m.cat_stats[$cat].fail // 0)) > 0
                         then 0 else 1 end)
                      * ( [ [ (if   ($m.context // 0) >= 400000 then 2
@@ -220,7 +226,14 @@ candidates() {
                             elif ($m.upstream | test("nano|mini|small|tiny|[0-9]b\\b")) then -2
                             else 0 end)
                          + (if ($m.router // false) then -1 else 0 end)
-                           + (($m.seed_tier // 1) - 1), 3 ] | min, -3 ] | max ) ) ) }
+                           # Per-category seed opinion (data/model-seed.json,
+                           # "tiers") wins when it names this category;
+                           # otherwise the flat "tier"; otherwise neutral (1,
+                           # contributes 0). The // operator only skips
+                           # null/false, so an explicit tier 0 ("avoid") is
+                           # never silently overridden by a fallback default.
+                           + ((($m.seed_tiers // {})[$cat] // $m.seed_tier // 1) - 1),
+                           3 ] | min, -3 ] | max ) ) ) }
     ]
     | sort_by(.metered, .bucket_last_used, -.score)
     | .[] | [.bucket, .agent, .model, .provider] | @tsv

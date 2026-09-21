@@ -271,6 +271,12 @@ cmd_discover() {
                   # request - so it can never be ranked, only tolerated.
                   router: ($m.upstream | test("(^|/)auto(-beta)?$|^kilo-auto/|^openrouter/auto")),
                   seed_tier: ($seed[$m.upstream].tier // null),
+                  # Optional per-category override (data/model-seed.json,
+                  # "tiers": {"coding":3,...}) - wins over the flat seed_tier
+                  # for whichever categories it names; categories it does not
+                  # name fall back to seed_tier, same as a model with no
+                  # per-category opinion at all.
+                  seed_tiers: ($seed[$m.upstream].tiers // null),
                   # First rule that fires wins. Unknown context is KEPT.
                   suitable: (
                     ($meta[$m.upstream] // {}) as $x

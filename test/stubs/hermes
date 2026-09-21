@@ -9,11 +9,13 @@
 
 AGENT="$(basename "$0")"
 
-# Parse -m <model_id>
+# Parse -m <model_id> and --dir/--add-dir <path> (the containment flag)
 MODEL_ID=""
+DIR=""
 prev=""
 for a in "$@"; do
   if [[ "$prev" == "-m" ]]; then MODEL_ID="$a"; fi
+  if [[ "$prev" == "--dir" || "$prev" == "--add-dir" ]]; then DIR="$a"; fi
   prev="$a"
 done
 
@@ -45,6 +47,37 @@ for a in "$@"; do
     exit 0
   fi
 done
+
+# Test-only file-write protocol, used by tests that need a stub to actually
+# produce files on disk (real coding agents do; this stub otherwise only
+# prints text). A prompt line "FA_STUB_WRITE:<relpath>:<base64-content>"
+# writes that file verbatim under --dir/--add-dir. A prompt line
+# "FA_STUB_APPEND:<relpath>:<base64-suffix>" reads whatever is CURRENTLY at
+# that path (empty if absent) and appends the decoded suffix - this is what
+# lets a test prove whether a later task's worktree actually contains an
+# earlier task's merged content, by encoding the answer into the final file.
+if [[ -n "$DIR" ]]; then
+  wmarker="$(printf '%s' "$*" | grep -o 'FA_STUB_WRITE:[^ ]*' | head -1)"
+  if [[ -n "$wmarker" ]]; then
+    wrel="${wmarker#FA_STUB_WRITE:}"; wrel="${wrel%%:*}"
+    wcontent="${wmarker#FA_STUB_WRITE:${wrel}:}"
+    if [[ -n "$wrel" ]]; then
+      mkdir -p "$(dirname "${DIR}/${wrel}")"
+      printf '%s' "$wcontent" | base64 -d > "${DIR}/${wrel}" 2>/dev/null
+    fi
+  fi
+  amarker="$(printf '%s' "$*" | grep -o 'FA_STUB_APPEND:[^ ]*' | head -1)"
+  if [[ -n "$amarker" ]]; then
+    arel="${amarker#FA_STUB_APPEND:}"; arel="${arel%%:*}"
+    asuffix="${amarker#FA_STUB_APPEND:${arel}:}"
+    if [[ -n "$arel" ]]; then
+      mkdir -p "$(dirname "${DIR}/${arel}")"
+      existing="$(cat "${DIR}/${arel}" 2>/dev/null || true)"
+      suffix="$(printf '%s' "$asuffix" | base64 -d 2>/dev/null || true)"
+      printf '%s%s' "$existing" "$suffix" > "${DIR}/${arel}"
+    fi
+  fi
+fi
 
 MODE="${AGENT}_STUB_MODE"
 MODE="${!MODE:-success}"

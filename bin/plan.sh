@@ -115,10 +115,28 @@ valid_plan() { # $1=file
   [[ -s "$1" ]] || return 1
   jq -e '
     (.tasks | type == "array") and (.tasks | length > 0)
-    and all(.tasks[]; (.id | type == "string" and length > 0)
+    and all(.tasks[]; . as $t |
+                  (.id | type == "string" and length > 0)
                   and (.prompt | type == "string" and length > 0)
                   and ((.category // "coding") | test("^(coding|reasoning|research|general|fast)$"))
-                  and ((.complexity // "standard") | test("^(trivial|standard|substantial)$")))
+                  and ((.complexity // "standard") | test("^(trivial|standard|substantial)$"))
+                  # "when" is optional; if present its dep/path must be
+                  # non-empty strings and equals must at least be present
+                  # (any type). Piping has("when") through `not` clobbers
+                  # `.` with a bare boolean, so the object is captured in
+                  # $t first and every when.* reference below goes through
+                  # $t explicitly rather than relying on `.` - confirmed by
+                  # hand-testing the naive version directly: it does not
+                  # silently misjudge a when clause, it makes jq itself
+                  # error (index-on-boolean) for EVERY task carrying a
+                  # "when" field, valid or not - which the 2>&1 discard
+                  # around this whole jq call would have made
+                  # indistinguishable from an ordinary "model returned no
+                  # usable plan" retry.
+                  and ((($t|has("when")) | not)
+                       or (($t.when.dep  | type == "string" and length > 0)
+                       and ($t.when.path | type == "string" and length > 0)
+                       and ($t.when | has("equals")))))
   ' "$1" >/dev/null 2>&1
 }
 
@@ -163,6 +181,32 @@ check_graph_integrity() { # $1=file -> prints one problem per line, or nothing
       fi
     done < <(task_deps_of "$id" "$file")
   done <<<"$ids"
+
+  # Same check for "when.dep" - a conditional edge naming a task that does
+  # not exist would otherwise wait forever: deps_met() never sees it as a
+  # real dependency (when is evaluated separately, after deps_met), so
+  # nothing would ever detect this at run time the way a dangling "deps"
+  # entry is at least caught by the cycle/deadlock machinery.
+  while IFS=$'\t' read -r id d; do
+    [[ -z "$id" || -z "$d" ]] && continue
+    if ! grep -qxF "$d" <<<"$ids"; then
+      printf '%s has a "when" clause depending on unknown task id: %s\n' "$id" "$d"
+      dangling=1
+    fi
+  done < <(jq -r '.tasks[] | select(.when.dep) | [.id, .when.dep] | @tsv' "$file" 2>/dev/null)
+
+  # when.dep MUST also be listed in the task's own "deps" - orch.sh's
+  # deps_met() is what makes a task wait for its dependency to actually
+  # finish before when_satisfied() ever reads its result; a when clause
+  # with no matching deps entry would let the task become eligible
+  # immediately, reading a result file that may not exist yet (or may
+  # never exist, if the dependency has not even been dispatched).
+  while IFS=$'\t' read -r id d; do
+    [[ -z "$id" || -z "$d" ]] && continue
+    printf '%s has a "when" clause on %s but does not list it in "deps" too\n' "$id" "$d"
+  done < <(jq -r '.tasks[] | . as $t | select($t.when.dep)
+                  | select((($t.deps // []) | index($t.when.dep)) == null)
+                  | [$t.id, $t.when.dep] | @tsv' "$file" 2>/dev/null)
 
   # A cycle check only means something once every dep reference is known to
   # exist - a dangling reference (already reported above) would otherwise

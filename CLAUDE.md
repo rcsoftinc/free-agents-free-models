@@ -84,7 +84,7 @@ fa findings --issue            # format them as GitHub issues
 fa findings --ack              # mark as seen
 ```
 
-Seven kinds, and the split matters:
+Eight kinds, and the split matters:
 
 | kind | what it means |
 |---|---|
@@ -94,9 +94,10 @@ Seven kinds, and the split matters:
 | `missing_handoff` | a task with dependents wrote no handoff line, so they ran blind. Nothing failed; the work quietly got worse |
 | `deadlock` | a task graph could not progress |
 | `orphan_abandoned` | a task's previous attempt vanished mid-run (no PID left alive, no terminal event) — resume redispatched it fresh |
+| `malformed_result` | a task's `result:` handoff line was not valid JSON — a `when` clause reading it sees `{}` instead |
 | `note` | recorded by hand — the channel for what no heuristic reaches |
 
-The first six are the tool noticing something about itself. **`note` is the one
+The first seven are the tool noticing something about itself. **`note` is the one
 that catches "the spec was ambiguous" or "the plan split this wrong"** — real
 failures that no detector will ever see. If you are the coordinator and you
 notice one, record it; otherwise it dies with the terminal session.

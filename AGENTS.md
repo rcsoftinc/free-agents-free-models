@@ -70,6 +70,17 @@ never assumes the worker has seen the repo, the conversation, or another task.
 `files` is not documentation — the runner refuses to run overlapping tasks
 concurrently, and it verifies afterwards that the declared files exist.
 
+A task can also declare `"when": {"dep":"api", "path":".decision", "equals":
+"yes"}` to run only if `api`'s handoff included a matching `result: {...}`
+line (ask for one explicitly in `api`'s own spec if you need this — a
+dependent's `when` clause does not by itself make its dependency report one).
+`api` must still be listed in this task's own `deps` too. An unsatisfied
+`when` **skips** the task (not a failure — downstream tasks still proceed).
+Use this for a real conditional branch in the graph, never to fake a retry:
+resending the same failed work to a different model hoping for a correction
+is explicitly rejected elsewhere in this project's own design notes, and a
+`when` clause is not an exception to that.
+
 ### Phase 1b — Keep the small work
 
 Do not dispatch everything. Take the small, quick, context-heavy tasks yourself

@@ -127,6 +127,14 @@ if [[ "$MODE" != "nohandoff" ]] && printf '%s' "$*" | grep -q -- '---HANDOFF---'
   fi
   printf 'did the work\n'
   printf -- '---HANDOFF---\ndecided: ids are uuid4 strings, store is notes.json\nrejected: sequential ids (collision risk), localstorage (XSS)\nopen: expiry strategy for sessions\n'
+  # Test-only: a prompt line "FA_STUB_RESULT:<base64-json>" adds a matching
+  # result: line to the handoff, for tests exercising "when" clauses. Absent
+  # by default - most handoff tests want no result line at all.
+  rmarker="$(printf '%s' "$*" | grep -o 'FA_STUB_RESULT:[^ ]*' | head -1)"
+  if [[ -n "$rmarker" ]]; then
+    rb64="${rmarker#FA_STUB_RESULT:}"
+    printf 'result: %s\n' "$(printf '%s' "$rb64" | base64 -d 2>/dev/null)"
+  fi
   exit 0
 fi
 if printf '%s' "$*" | grep -q 'Context from the tasks you depend on'; then
@@ -204,6 +212,17 @@ case "$MODE" in
     # check) - this fixture is about dispatch MECHANICS, not file
     # verification, which is already covered elsewhere.
     printf '{"tasks":[{"id":"x","prompt":"do x","deps":[],"files":[],"category":"coding","complexity":"trivial"},{"id":"y","prompt":"do y","deps":[],"files":[],"category":"coding","complexity":"trivial"}]}'
+    exit 0
+    ;;
+  plandangling_when)
+    # A "when.dep" naming a task id that was never declared.
+    printf '{"tasks":[{"id":"a","prompt":"x","deps":[],"files":["a.txt"],"when":{"dep":"ghost","path":".d","equals":"y"}}]}'
+    exit 0
+    ;;
+  planwhen_nodep)
+    # A valid when.dep, but not also listed in the task's own "deps" - the
+    # task would become eligible before its when-dependency ever finishes.
+    printf '{"tasks":[{"id":"a","prompt":"x","deps":[],"files":["a.txt"]},{"id":"b","prompt":"y","deps":[],"files":["b.txt"],"when":{"dep":"a","path":".d","equals":"y"}}]}'
     exit 0
     ;;
   slow)

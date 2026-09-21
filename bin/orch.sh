@@ -287,7 +287,7 @@ snapshot_files() { # $1=task id
 }
 
 run_task() { # $1=task id ; runs in a subshell as a background job
-  local id="$1" prompt category out rc=0 meta before wt_dir deliverable
+  local id="$1" prompt category out rc=0 meta before wt_dir
   prompt="$(build_prompt "$id")"
   category="$(task_field "$id" category)"; category="${category:-coding}"
   out="${RESULTS}/${id}.out"; mkdir -p "$RESULTS"
@@ -394,11 +394,9 @@ run_task() { # $1=task id ; runs in a subshell as a background job
 
   case $rc in
     0) journal done "$id" \
-         "bucket=$(jq -r '.bucket // ""' <<<"${meta:-{}}")" \
-         "model=$(jq -r '.model // ""' <<<"${meta:-{}}")" \
-         "agent=$(jq -r '.agent // ""' <<<"${meta:-{}}")" \
-         "type=${task_type}" \
-         "deliverable=${deliverable}" ;;
+         "bucket=$(jq -r '.bucket // ""' <<<"${meta:-null}")" \
+         "model=$(jq -r '.model // ""' <<<"${meta:-null}")" \
+         "agent=$(jq -r '.agent // ""' <<<"${meta:-null}")" ;;
     5) journal no_lane "$id" ;;          # not a failure: requeue
     *)
       if [[ -n "$validation_err" ]]; then

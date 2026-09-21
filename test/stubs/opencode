@@ -118,7 +118,10 @@ fi
 
 # If the prompt asks for a handoff block, emit one - and echo any context it was
 # given, so a test can prove the injection actually reached the worker.
-if printf '%s' "$*" | grep -q -- '---HANDOFF---'; then
+# MODE=nohandoff is the one deliberate exception: a worker that ignores the
+# request entirely, used to test build_prompt()'s soft-injection recovery
+# for a dependency that left no handoff at all.
+if [[ "$MODE" != "nohandoff" ]] && printf '%s' "$*" | grep -q -- '---HANDOFF---'; then
   if printf '%s' "$*" | grep -q 'Context from the tasks you depend on'; then
     printf 'SAW_CONTEXT\n'
   fi

@@ -56,10 +56,18 @@ assert_contains "the capture is journaled" \
 P="$(mkproj '{"tasks":[
  {"id":"silent","deps":[],"files":[],"prompt":"say nothing useful"},
  {"id":"after","deps":["silent"],"files":[],"prompt":"carry on"}]}')"
-mode_for opencode ratelimit   # make lane 0 useless so a plain success path is used
-clear_modes
+# nohandoff on every agent: "silent" must ignore the handoff request
+# regardless of which lane the ranking happens to route it through.
+mode_for opencode nohandoff; mode_for kilo nohandoff; mode_for hermes nohandoff
 rc="$(run_orch "$P")"
+clear_modes
 assert_eq "a chain still completes when no handoff is emitted" "$rc" "0"
+assert_contains "the missing handoff is soft-injected as a caution, journaled for visibility" \
+  "$(cat "$P/.orch/journal.ndjson")" '"event":"handoff_recovery_injected"'
+assert_contains "the injection names which dependency was missing it" \
+  "$(cat "$P/.orch/journal.ndjson")" '"dependency":"silent"'
+assert_contains "the SPECIFIC caution text reached the dependent's actual prompt" \
+  "$(cat "$P/.orch/results/after.out" 2>/dev/null)" "SAW_CONTEXT"
 
 # --- 3. a long handoff is truncated -----------------------------------------
 LONG="$(head -c 900 /dev/zero | tr '\0' 'z')"

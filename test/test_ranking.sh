@@ -215,5 +215,16 @@ out="$(DRY_RUN_LIMIT=0 timeout 60 "$REPO/bin/run.sh" --dry-run 2>/dev/null)"
 assert_not_contains "an unsuitable model is not offered as a candidate" "$out" "b1:fp1"
 assert_contains "suitable lanes are unaffected" "$out" "b0:fp0"
 
+# --- `fa rank`: the ranked chain, exposed read-only, no dispatch -----------
+# Compared against an EXPLICIT DRY_RUN_LIMIT=0 call (the full, untruncated
+# chain) rather than a bare `--dry-run` (which defaults to a 20-row
+# preview): matching that byte-for-byte is exactly what proves fa rank's
+# own default shows everything, regardless of how many candidates this
+# fixture happens to have at this point.
+echo "=== fa rank exposes the same, FULL chain candidates() would dispatch from ==="
+direct="$(DRY_RUN_LIMIT=0 timeout 60 "$REPO/bin/run.sh" --dry-run -c coding 2>/dev/null)"
+via_fa="$(timeout 60 "$REPO/bin/fa" rank coding 2>/dev/null)"
+assert_eq "fa rank coding matches the FULL run.sh --dry-run -c coding chain exactly" "$via_fa" "$direct"
+
 end_suite
 final_report

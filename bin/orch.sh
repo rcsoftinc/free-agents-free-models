@@ -97,6 +97,39 @@ failed_tasks() {
   jq -r 'select(.event == "failed") | .task' "$JOURNAL" 2>/dev/null | sort -u
 }
 
+# ------------------------------------------------------------------ orphans --
+# Killing the orchestrator does not kill the children it already forked -
+# run_task() keeps running to completion on its own, independent of its
+# parent, and writes its own journal events regardless. A naive resume has no
+# memory of this (RUNNING/PIDS are fresh, empty maps on every invocation) and
+# would dispatch a brand-new run_task() for the same id while the orphan is
+# still out there - both writing to the same ${RESULTS}/<id>.out/.err files,
+# and, if isolated, colliding on the same git worktree branch name.
+#
+# The last event journaled for a task, whatever it is. An un-terminated
+# "started" (nothing after it) means the invocation that logged it either is
+# STILL running or died without ever reporting back - which one determines
+# whether redispatching is safe, and the journal alone cannot say; see
+# orphan_alive_pid below.
+last_event_for() { # $1=id -> event name, or empty
+  [[ -f "$JOURNAL" ]] || return 0
+  jq -r --arg t "$1" 'select(.task == $t) | .event' "$JOURNAL" 2>/dev/null | tail -1
+}
+
+# If task $1's last event is an un-terminated "started" AND the PID it
+# recorded is still alive, print that PID (so the caller knows not to
+# redispatch). Prints nothing for an old journal with no pid field either -
+# there is nothing to check liveness against, so this degrades to the
+# pre-existing behaviour rather than blocking dispatch forever.
+orphan_alive_pid() { # $1=id -> pid, or empty
+  [[ "$(last_event_for "$1")" == "started" ]] || return 0
+  local pid
+  pid="$(jq -r --arg t "$1" \
+        'select(.task == $t and .event == "started") | .pid // empty' \
+        "$JOURNAL" 2>/dev/null | tail -1)"
+  [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null && printf '%s' "$pid"
+}
+
 # --------------------------------------------------------------- scheduling --
 # Parallel width is DERIVED from how many wallets are actually healthy, never a
 # constant. On one healthy bucket, concurrency buys nothing and only produces
@@ -309,7 +342,12 @@ run_task() { # $1=task id ; runs in a subshell as a background job
   
   before="$(snapshot_files "$id")"
 
-  journal started "$id"
+  # $BASHPID, not $$: run_task is invoked as `run_task "$id" &`, and $$ is
+  # documented (and confirmed empirically) to stay the PARENT shell's PID
+  # even inside a backgrounded subshell - only $BASHPID reports this
+  # process's own, real PID, which is what resume needs to later check
+  # whether this specific invocation is still alive.
+  journal started "$id" "pid=$BASHPID"
   set +e
   local validate_flag=""
   [[ $VALIDATE -eq 1 ]] && validate_flag="--validate"
@@ -486,16 +524,56 @@ cmd_run() {
   log "project=$PROJECT  parallel=$width  mode=$mode  isolate=$ISOLATE"
 
   declare -A ATTEMPTS=() PIDS=() RUNNING=() LANEWAIT=()
-  local todo remaining id pid finished progressed
+  # Reconstruct the retry budget from the journal, so a resume after a crash
+  # continues the SAME budget instead of restarting it. ATTEMPTS is otherwise
+  # a fresh, empty map on every invocation: a task that had already failed
+  # once under a prior, now-dead process would get up to TASK_RETRIES+1 MORE
+  # attempts on top of whatever it had already spent.
+  if [[ -f "$JOURNAL" ]]; then
+    while IFS=$'\t' read -r _cnt _id; do
+      [[ -z "$_id" ]] && continue
+      ATTEMPTS[$_id]="$_cnt"
+    done < <(jq -r 'select(.event == "attempt_failed") | .task' "$JOURNAL" 2>/dev/null \
+             | sort | uniq -c | awk '{print $1"\t"$2}')
+  fi
+  local todo remaining id pid finished progressed orphan_ids
 
   while :; do
-    todo=""; remaining=0
+    todo=""; remaining=0; orphan_ids=()
     while IFS= read -r id; do
       [[ -z "$id" ]] && continue
       grep -qxF "$id" <<<"$(completed_tasks)" && continue
       grep -qxF "$id" <<<"$(failed_tasks)"    && continue
       is_halted "$id" && continue
       remaining=$((remaining+1))
+      # A task we did not dispatch OURSELVES this run (not in RUNNING) whose
+      # last journal event is still "started" under a PID that is alive is
+      # being run by an orphaned child of a previous, now-dead orch.sh
+      # process. Do not dispatch a second run_task() for it - just wait; the
+      # orphan writes its own terminal event independently and this loop
+      # will pick that up on a later pass. A "started" with no live PID
+      # (old journal with no pid field, or the orphan died too) falls
+      # through to a normal, fresh dispatch below.
+      if [[ -z "${RUNNING[$id]:-}" ]]; then
+        # orphan_alive_pid intentionally returns non-zero when the pid is
+        # dead - `|| true` so that, under set -euo pipefail, a plain
+        # assignment from its non-zero exit does not abort the whole script
+        # (the same class of bug fixed elsewhere in this file's --validate
+        # gate: `local x; x="$(cmd)"` checks cmd's exit status, unlike
+        # `local x="$(cmd)"` on one line, which does not).
+        local opid; opid="$(orphan_alive_pid "$id")" || true
+        if [[ -n "$opid" ]]; then
+          orphan_ids+=("$id(pid $opid)")
+          continue
+        elif [[ "$(last_event_for "$id")" == "started" ]] \
+             && ! grep -q "\"event\":\"orphan_abandoned\",\"task\":\"${id}\"" "$JOURNAL" 2>/dev/null; then
+          journal orphan_abandoned "$id"
+          record_finding orphan_abandoned \
+            "a task's previous attempt vanished mid-run: no PID left alive and no terminal event was ever written" \
+            "task=${id}"
+          log "  $id: previous attempt is gone with no result - redispatching"
+        fi
+      fi
       todo+="$id"$'\n'
     done < <(task_ids)
     [[ $remaining -eq 0 ]] && break
@@ -534,6 +612,15 @@ cmd_run() {
     if [[ $DRY_RUN -eq 1 ]]; then break; fi
 
     if [[ ${#RUNNING[@]} -eq 0 ]]; then
+      # We have nothing of our own in flight, but at least one task is still
+      # running under an orphaned child from a previous process - that is
+      # progress happening outside this loop's view, not a stall. Poll for
+      # it to finish (or die) rather than declaring a deadlock.
+      if [[ ${#orphan_ids[@]} -gt 0 ]]; then
+        log "waiting on ${#orphan_ids[@]} task(s) still running under a PID from an earlier orch.sh process: ${orphan_ids[*]}"
+        sleep "${ORPHAN_POLL:-5}"
+        continue
+      fi
       # Nothing runnable: a dependency cycle, a dependency on a task id that does
       # not exist, or everything left is waiting on something that failed.
       # Record it - the journal is the only account of a run, and a stall that

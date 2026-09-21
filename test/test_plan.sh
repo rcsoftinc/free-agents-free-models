@@ -60,5 +60,30 @@ timeout 120 "$REPO/bin/plan.sh" -w "$PROJ" -o "$OUT" --max-tries 2 "build" >/dev
 assert_eq "rejects a plan whose independent tasks share a file" "$?" "2"
 assert_true "the conflicting plan is not written" '[[ ! -s "$OUT" ]]'
 
+# --- 6. a plan with a dependency cycle is rejected ---------------------------
+# Undetected, this sends bin/lib/graph.sh's depth-BFS into an actual
+# unbounded loop (confirmed directly before writing the check: a 3-task
+# cycle reachable from a root hangs graph.sh until killed) - not just a bad
+# render. Catching it here costs zero lane requests.
+rm -f "$OUT"
+clear_modes; mode_for opencode plancycle; mode_for kilo plancycle; mode_for hermes plancycle
+timeout 120 "$REPO/bin/plan.sh" -w "$PROJ" -o "$OUT" --max-tries 2 "build" >/dev/null 2>&1
+assert_eq "rejects a plan with a dependency cycle" "$?" "2"
+assert_true "the cyclic plan is not written" '[[ ! -s "$OUT" ]]'
+
+# --- 7. a plan depending on a nonexistent task id is rejected ---------------
+rm -f "$OUT"
+clear_modes; mode_for opencode plandangling; mode_for kilo plandangling; mode_for hermes plandangling
+timeout 120 "$REPO/bin/plan.sh" -w "$PROJ" -o "$OUT" --max-tries 2 "build" >/dev/null 2>&1
+assert_eq "rejects a plan depending on an unknown task id" "$?" "2"
+assert_true "the dangling-dependency plan is not written" '[[ ! -s "$OUT" ]]'
+
+# --- 8. a plan with a duplicate task id is rejected --------------------------
+rm -f "$OUT"
+clear_modes; mode_for opencode planduplicate; mode_for kilo planduplicate; mode_for hermes planduplicate
+timeout 120 "$REPO/bin/plan.sh" -w "$PROJ" -o "$OUT" --max-tries 2 "build" >/dev/null 2>&1
+assert_eq "rejects a plan with a duplicate task id" "$?" "2"
+assert_true "the duplicate-id plan is not written" '[[ ! -s "$OUT" ]]'
+
 end_suite
 final_report

@@ -56,5 +56,25 @@ timeout 60 "$REPO/bin/run.sh" -b b2:fp2 "task" >/dev/null 2>&1
 assert_eq "a success resets the wallet to ok" "$(bstate b2:fp2)" "ok"
 assert_eq "a success clears the failure count" "$(bfails b2:fp2)" "0"
 
+# --- 6. `fa lanes` excludes a bucket that is still cooling down -------------
+# cmd_lanes() JSON-encoded `now` as a STRING ("<epoch>") and compared it
+# against .cooldown_until (a NUMBER) - jq orders every number before every
+# string, so `.cooldown_until <= "<string>"` was true unconditionally,
+# however far in the future the cooldown actually was. This is the exact
+# count AGENTS.md's orchestration gate checks before deciding to fan out
+# ("fa lanes >= 2"), so a bucket deep in cooldown looked like a live lane.
+clear_modes
+future=$(( $(date +%s) + 999999 ))
+jq --argjson t "$future" \
+   '.buckets["b0:fp0"].health = {state:"rate_limited",consecutive_failures:2,cooldown_until:$t,last_used:0}' \
+   "$REG" > "$REG.t" && mv "$REG.t" "$REG"
+
+nlanes="$("$REPO/bin/buckets.sh" lanes)"
+assert_eq "a bucket deep in cooldown is not counted as a lane" "$nlanes" "2"
+vout="$("$REPO/bin/buckets.sh" lanes -v)"
+assert_not_contains "the cooling-down bucket is not listed LANE" \
+  "$(printf '%s\n' "$vout" | grep '^  LANE')" "b0:fp0"
+assert_contains "healthy buckets are still listed LANE" "$vout" "b1:fp1"
+
 end_suite
 final_report

@@ -434,35 +434,39 @@ cmd_probe() {
 # touch the network - it reads recorded health only.
 cmd_lanes() {
   [[ -f "$REGISTRY" ]] || { echo 0; return 0; }
-  local now nowq metered_include live
+  local now metered_include live
   now="$(now_epoch)"
-  nowq="$(printf '%s' "$now" | jq -R @json)"
   metered_include="$(metered_include_pred)"
-  # Single-quoted jq with the metered predicate and the timestamp injected. The
-  # count and the -v listing both come from THIS same expression, so they can
-  # never disagree about who is a lane.
+  # Single-quoted jq with the metered predicate injected as text and the
+  # timestamp passed properly via --arg + ($now|tonumber), the same pattern
+  # run.sh and orch.sh already use. A prior version JSON-encoded $now with
+  # `jq -R @json` and spliced the result directly, which produces a JSON
+  # STRING ("1789877241"), not a number - jq orders every number before
+  # every string, so `.cooldown_until <= "<string>"` was true unconditionally,
+  # regardless of how far in the future the cooldown actually was.
   live='. as $b |
       ( ( '"$metered_include"' )
-        and (($b.health.cooldown_until // 0) <= '"$nowq"')
+        and (($b.health.cooldown_until // 0) <= ($now|tonumber))
         and $b.health.state != "no_credits" and $b.health.state != "auth_error"
         and ([$b.models[] | select(.free)
-                 | select((.cooldown_until // 0) <= '"$nowq"')] | length > 0) )'
+                 | select((.cooldown_until // 0) <= ($now|tonumber))] | length > 0) )'
   local n
-  n="$(registry_read "[ .buckets[] | select(${live}) ] | length")"
+  n="$(registry_read "[ .buckets[] | select(${live}) ] | length" --arg now "$now")"
   if [[ "${1:-}" == "-v" ]]; then
     printf 'healthy lanes: %s\n' "$n"
     registry_read '.buckets[]
       | . as $b
       | ([$b.models[] | select(.free)
-          | select((.cooldown_until // 0) <= '"$nowq"')] | length) as $usable
+          | select((.cooldown_until // 0) <= ($now|tonumber))] | length) as $usable
       | ( ( '"$metered_include"' )
-         and (($b.health.cooldown_until // 0) <= '"$nowq"')
+         and (($b.health.cooldown_until // 0) <= ($now|tonumber))
          and $b.health.state != "no_credits" and $b.health.state != "auth_error"
          and $usable > 0) as $live
       | ([$b.models[] | select(.free and .suitable == false)] | group_by(.unsuitable_reason)
          | map("\(length) \(.[0].unsuitable_reason)") | join(" · ")) as $cut
       | ([$b.models[] | select(.free and .suitable != false)] | length) as $ok
-      | "  \(if $live then "LANE    " elif ($b.metered // false) then "metered " else "unusable" end) \($b.id)  \($b.preferred_agent)  \($ok) usable\(if $cut != "" then " (\($cut) filtered)" else "" end)  health=\($b.health.state)"'
+      | "  \(if $live then "LANE    " elif ($b.metered // false) then "metered " else "unusable" end) \($b.id)  \($b.preferred_agent)  \($ok) usable\(if $cut != "" then " (\($cut) filtered)" else "" end)  health=\($b.health.state)"' \
+      --arg now "$now"
   else
     printf '%s\n' "$n"
   fi

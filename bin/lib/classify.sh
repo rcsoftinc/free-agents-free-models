@@ -47,7 +47,12 @@ classify_ex() { # $1=rc $2=output -> state<TAB>matched
   # is a statement about one MODEL, not about the credential. Matching 401 first
   # would cool the entire wallet for 24h because one model is unsupported, which
   # is the single most expensive misclassification available here.
-  if printf '%s' "$t" | grep -qE 'is not supported|not supported|unknown model|no such model|does not exist|model .* not found|invalid model'; then
+  # "not supported" alone also matches wallet-scope text like "This
+  # authentication method is not supported for this endpoint" - requiring
+  # "model" nearby keeps this rule scoped to what its own comment above
+  # describes, so a real credential/account fault is not misread as a
+  # single unsupported model and left unattributed to the wallet.
+  if printf '%s' "$t" | grep -qE 'model.{0,40}not supported|unknown model|no such model|does not exist|model .* not found|invalid model'; then
     printf 'dead\tyes\n'; return
   fi
 
@@ -59,7 +64,11 @@ classify_ex() { # $1=rc $2=output -> state<TAB>matched
     printf 'no_credits\tyes\n'; return
   fi
 
-  if printf '%s' "$t" | grep -qE '429|rate.?limit|too many requests|temporarily rate-limited|try again later|in-flight requests|overloaded'; then
+  # "try again later" and "overloaded" alone are generic retry language that
+  # a transient upstream blip uses too (see provider_error below, whose own
+  # comment says exactly this must NOT cool the wallet) - moved there instead
+  # of matched here first.
+  if printf '%s' "$t" | grep -qE '429|rate.?limit|too many requests|temporarily rate-limited|in-flight requests'; then
     printf 'rate_limited\tyes\n'; return
   fi
   if printf '%s' "$t" | grep -qE 'insufficient balance|model access is unavailable|subscribe or add credits|exceed your available credits|quota|billing|payment required|402'; then
@@ -68,14 +77,19 @@ classify_ex() { # $1=rc $2=output -> state<TAB>matched
   if printf '%s' "$t" | grep -qE 'unauthorized|forbidden|invalid api key|authentication|401|403'; then
     printf 'auth_error\tyes\n'; return
   fi
-  if printf '%s' "$t" | grep -qE 'context length|too large|maximum context|token limit exceeded'; then
+  # Bare "too large" also matches a transport/payload-size error like "HTTP
+  # 413: Request body too large, reduce payload size" - unrelated to the
+  # PROMPT being too big for the model's context window. Requiring a
+  # context/token/prompt word nearby keeps this rule about what its own
+  # state name promises.
+  if printf '%s' "$t" | grep -qE 'context length|maximum context|token limit exceeded|(prompt|input|context|tokens?).{0,20}too large|too large.{0,20}(context|tokens?)'; then
     printf 'context_overflow\tyes\n'; return
   fi
 
   # A gateway failing upstream is usually transient and says nothing about the
   # model's health - parking it for 72h like a genuinely dead model throws away a
   # working endpoint over a blip. Short cooldown instead.
-  if printf '%s' "$t" | grep -qE 'upstream request failed|provider returned error|upstream error|bad gateway|service unavailable|50[234]'; then
+  if printf '%s' "$t" | grep -qE 'upstream request failed|provider returned error|upstream error|bad gateway|service unavailable|50[234]|try again later|overloaded'; then
     printf 'provider_error\tyes\n'; return
   fi
 
@@ -134,7 +148,17 @@ cooldown_for() { # $1=state $2=consecutive_failures(optional, default 1) -> seco
   esac
   [[ "$n" -lt 1 ]] && n=1
   local secs="$base" i
-  for ((i=1; i<n && i<4; i++)); do secs=$((secs * 4)); done
+  # Escalate x4 per consecutive failure until the cap is reached, not a fixed
+  # 3 doublings (x64 max) - that bound sat below the ratio auth_error (needs
+  # x96) and dead (needs x72) actually need to ever reach their configured
+  # cap, so a persistently bad credential or a genuinely dead model was
+  # retried hours sooner than the tuned constants intended, however many
+  # times it kept failing. Breaking once the cap is hit avoids growing $secs
+  # without bound for a very large $n.
+  for ((i=1; i<n; i++)); do
+    secs=$((secs * 4))
+    [[ "$secs" -ge "$cap" ]] && break
+  done
   [[ "$secs" -gt "$cap" ]] && secs="$cap"
   echo "$secs"
 }
@@ -180,6 +204,23 @@ classify_self_test() {
   _ct 1 "Temporary failure in name resolution"                 local_network    || fails=1
   # precedence: a rate-limit mentioning a model must not read as 'dead'
   _ct 1 "429 rate limit on model not found in pool"            rate_limited     || fails=1
+  # precedence: wallet-scope "not supported" text without a model name must
+  # not read as a single unsupported model (it would leave the wallet fault
+  # unattributed and every model on it gets walked one by one for nothing).
+  _ct 1 "HTTP 401: This authentication method is not supported for this endpoint" \
+                                                                auth_error       || fails=1
+  # precedence: generic "please retry" language must not read as a wallet-
+  # wide rate limit - it says nothing about whether the wallet's quota is
+  # exhausted, only that this one call had a transient upstream hiccup.
+  _ct 1 "Service temporarily down, try again later"            provider_error   || fails=1
+  _ct 1 "Error 503: The model is overloaded. Please retry your request" \
+                                                                provider_error   || fails=1
+  # precedence: a payload/transport size error is not the PROMPT being too
+  # big for the model's context window - scoring it as context_overflow
+  # would silently deflate a model that was never actually asked anything.
+  _ct 1 "HTTP 413: Request body too large, reduce payload size" dead            || fails=1
+  _ct 1 "Error: your prompt is too large for this model's context window" \
+                                                                context_overflow || fails=1
 
   echo "real messages observed in the wild"
   # A gateway blip, not a dead model - 72h would discard a working endpoint.
@@ -213,6 +254,16 @@ classify_self_test() {
     && echo "  ok   no_credits escalates with repeats" || { echo "  FAIL"; fails=1; }
   [[ "$(cooldown_for local_network 9)" == "0" ]] \
     && echo "  ok   local_network never cools, however many times" || { echo "  FAIL"; fails=1; }
+  # The cap must be REACHABLE, not just "escalated some" - auth_error needs a
+  # x96 ratio and dead needs x72 to ever hit their configured cap; a fixed
+  # x64 ceiling on the escalation loop looked like it worked (it clears the
+  # weak >=3600 check above) while permanently falling short of both.
+  [[ "$(cooldown_for auth_error 20)" == "$(( ${CAP_AUTH_ERROR:-86400} ))" ]] \
+    && echo "  ok   auth_error escalation reaches its configured cap" \
+    || { echo "  FAIL auth_error never reaches its cap"; fails=1; }
+  [[ "$(cooldown_for dead 20)" == "$(( ${CAP_DEAD:-259200} ))" ]] \
+    && echo "  ok   dead escalation reaches its configured cap" \
+    || { echo "  FAIL dead never reaches its cap"; fails=1; }
 
   echo "unknown-text detection (the signal findings are built on)"
   [[ "$(classify_ex 1 "HTTP 429 rate limit" | cut -f2)" == "yes" ]] \

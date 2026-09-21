@@ -96,6 +96,12 @@ failed_tasks() {
   [[ -f "$JOURNAL" ]] || return 0
   jq -r 'select(.event == "failed") | .task' "$JOURNAL" 2>/dev/null | sort -u
 }
+# A task a "when" clause elsewhere decided not to run - terminal, like done
+# or failed, but neither: nothing was attempted and nothing was wrong.
+skipped_tasks() {
+  [[ -f "$JOURNAL" ]] || return 0
+  jq -r 'select(.event == "skipped") | .task' "$JOURNAL" 2>/dev/null | sort -u
+}
 
 # ------------------------------------------------------------------ orphans --
 # Killing the orchestrator does not kill the children it already forked -
@@ -219,6 +225,36 @@ dependents_of() { # $1=task id
   jq -r --arg id "$1" '.tasks[] | select((.deps // []) | index($id)) | .id' "$TASKS_FILE"
 }
 
+# True if any OTHER task's "when" clause reads this task's result - only
+# then is it worth asking this task to emit a result: line at all (see
+# build_prompt()). No point requesting a field nobody reads.
+task_needs_result() { # $1=id
+  jq -e --arg id "$1" '.tasks[] | select((.when.dep // "") == $id)' "$TASKS_FILE" >/dev/null 2>&1
+}
+
+# A task's "when" clause: {"dep":"<id>","path":"<jq path, e.g. .decision>",
+# "equals":"<value>"}. Optional - absent means "always run", unchanged
+# behaviour. Evaluated against the named dependency's captured result (see
+# capture_handoff) - a dependency that reported no result, or a malformed
+# one, reads as {} here, same as everywhere else this degrades rather than
+# crashes. A malformed "when" clause itself (missing dep or path) never
+# blocks dispatch over a spec error - that is what plan.sh's own validation
+# is for, not a runtime hang.
+when_satisfied() { # $1=id -> 0 if satisfied (or no when clause at all)
+  local id="$1" w dep path want result got
+  w="$(task_field "$id" when)"
+  [[ -z "$w" ]] && return 0
+  dep="$(jq -r '.dep // empty' <<<"$w" 2>/dev/null)"
+  path="$(jq -r '.path // empty' <<<"$w" 2>/dev/null)"
+  want="$(jq -r '.equals // empty' <<<"$w" 2>/dev/null)"
+  [[ -z "$dep" || -z "$path" ]] && return 0
+  result="$(cat "${HANDOFFS}/${dep}.result.json" 2>/dev/null || true)"
+  [[ -z "$result" ]] && result='{}'
+  jq -e . <<<"$result" >/dev/null 2>&1 || result='{}'
+  got="$(jq -r "${path} // empty" <<<"$result" 2>/dev/null || true)"
+  [[ "$got" == "$want" ]]
+}
+
 # Pull the marked block out of a finished task's output and store it.
 # Supports the structured format:
 #   ---HANDOFF---
@@ -251,6 +287,27 @@ capture_handoff() { # $1=task id
   mkdir -p "$HANDOFFS"
   printf '%.'"$HANDOFF_MAX_CHARS"'s' "$block" > "${HANDOFFS}/${id}.txt"
   journal handoff "$id" "chars=${#block}"
+
+  # Optional machine-readable line, for a "when" clause elsewhere in the
+  # graph to branch on: "result: <one-line JSON>". Default {} on absence or
+  # malformed JSON - never a crash, and never blocks dispatch; a when clause
+  # reading a key that is not there just evaluates false, same as any
+  # dependency that reported no result at all.
+  local rline rjson
+  # grep exits 1 when there is no result: line - the common case - and
+  # under set -euo pipefail a plain assignment checks that exit status, so
+  # this needs the same `|| true` already applied elsewhere in this file for
+  # exactly this reason (orphan_alive_pid, check_graph_integrity).
+  rline="$(printf '%s\n' "$block" | grep -m1 '^result:')" || true
+  rjson="$(sed 's/^result:[[:space:]]*//' <<<"$rline")"
+  if [[ -n "$rjson" ]] && jq -e . <<<"$rjson" >/dev/null 2>&1; then
+    jq -c . <<<"$rjson" > "${HANDOFFS}/${id}.result.json"
+  elif [[ -n "$rjson" ]]; then
+    printf '{}' > "${HANDOFFS}/${id}.result.json"
+    record_finding malformed_result \
+      "a task's result: line was not valid JSON - any when clause reading it sees {} instead" \
+      "task=${id} result=${rjson}" "task=${id}"
+  fi
 }
 
 # Build what a worker actually receives: its dependencies' handoffs, then its own
@@ -283,6 +340,12 @@ build_prompt() { # $1=task id
     note+="decisions: <what you chose and why>"$'\n'
     note+="rejected: <alternatives considered and why they were rejected>"$'\n'
     note+="open: <questions or decisions the next task must make>"$'\n'
+    # Only asked when something downstream actually reads it (a "when"
+    # clause naming this task) - no point requesting a field nobody
+    # consumes.
+    if task_needs_result "$id"; then
+      note+="result: <one-line JSON a later task's \"when\" clause can check, e.g. {\"decision\":\"yes\"}>"$'\n'
+    fi
   fi
   printf '%s%s%s' "$ctx" "$(task_field "$id" prompt)" "${note:-}"
 }
@@ -306,10 +369,16 @@ files_conflict() { # $1=task, rest: currently-running task ids
 }
 
 deps_met() { # $1=task
-  local d; local done_list; done_list="$(completed_tasks)"
+  # A skipped dependency (its own "when" clause decided not to run) is
+  # RESOLVED for this purpose, same as done - a dependent must not wait
+  # forever on a task that already, correctly, decided never to run. What a
+  # dependent then finds in that dependency's handoff/result (absent) is a
+  # separate, unrelated question - the same "no handoff" case build_prompt()
+  # already soft-injects a caution for.
+  local d; local resolved; resolved="$(completed_tasks; skipped_tasks)"
   while IFS= read -r d; do
     [[ -z "$d" ]] && continue
-    grep -qxF "$d" <<<"$done_list" || return 1
+    grep -qxF "$d" <<<"$resolved" || return 1
   done < <(task_deps "$1")
   return 0
 }
@@ -557,6 +626,7 @@ cmd_run() {
       [[ -z "$id" ]] && continue
       grep -qxF "$id" <<<"$(completed_tasks)" && continue
       grep -qxF "$id" <<<"$(failed_tasks)"    && continue
+      grep -qxF "$id" <<<"$(skipped_tasks)"   && continue
       is_halted "$id" && continue
       remaining=$((remaining+1))
       # A task we did not dispatch OURSELVES this run (not in RUNNING) whose
@@ -610,6 +680,17 @@ cmd_run() {
         continue
       fi
       deps_met "$id" || continue
+      # deps_met above already guarantees any dependency named in a "when"
+      # clause has resolved (done or skipped) by this point, so its result
+      # (if any) is final - safe to evaluate now, once, before ever
+      # spending a lane on a task whose own precondition says not to run.
+      if ! when_satisfied "$id"; then
+        if ! grep -q "\"event\":\"skipped\",\"task\":\"${id}\"" "$JOURNAL" 2>/dev/null; then
+          journal skipped "$id" "reason=when-not-satisfied"
+          log "skip $id (when clause not satisfied)"
+        fi
+        continue
+      fi
       files_conflict "$id" "${!RUNNING[@]}" && continue
 
       if [[ $DRY_RUN -eq 1 ]]; then
@@ -680,9 +761,10 @@ cmd_run() {
     fi
   done
 
-  local nfail nhalt; nfail="$(failed_tasks | grep -c . || true)"
+  local nfail nhalt nskip; nfail="$(failed_tasks | grep -c . || true)"
   nhalt="$(halted_tasks | grep -c . || true)"
-  log "complete: $(completed_tasks | grep -c . || true) done, ${nfail} failed$([[ ${nhalt:-0} -gt 0 ]] && echo ", ${nhalt} waiting on you")"
+  nskip="$(skipped_tasks | grep -c . || true)"
+  log "complete: $(completed_tasks | grep -c . || true) done, ${nfail} failed$([[ ${nskip:-0} -gt 0 ]] && echo ", ${nskip} skipped (when clause)")$([[ ${nhalt:-0} -gt 0 ]] && echo ", ${nhalt} waiting on you")"
   if [[ "${nhalt:-0}" -gt 0 ]]; then
     log ""
     log "Waiting on you - these were never attempted:"
@@ -712,14 +794,16 @@ cmd_run() {
 
 cmd_status() {
   [[ -f "$JOURNAL" ]] || { echo "no journal at $JOURNAL"; return 0; }
-  local total done_n fail_n
+  local total done_n fail_n skip_n
   total="$( [[ -f "$TASKS_FILE" ]] && task_ids | grep -c . || echo '?')"
   done_n="$(completed_tasks | grep -c . || true)"
   fail_n="$(failed_tasks | grep -c . || true)"
-  printf 'project: %s\n%s/%s done, %s failed\n\n' "$PROJECT" "$done_n" "$total" "$fail_n"
+  skip_n="$(skipped_tasks | grep -c . || true)"
+  printf 'project: %s\n%s/%s done, %s failed, %s skipped\n\n' "$PROJECT" "$done_n" "$total" "$fail_n" "$skip_n"
   jq -r 'select(.event=="done")
          | "  done    \(.task)  <- \(.bucket // "?")  \(.model // "")"' "$JOURNAL" | sort -u
   jq -r 'select(.event=="failed") | "  FAILED  \(.task)"' "$JOURNAL" | sort -u
+  jq -r 'select(.event=="skipped") | "  SKIPPED \(.task)  (when clause not satisfied)"' "$JOURNAL" | sort -u
   # Validation failures: distinct from build failures — the agent built
   # something that doesn't parse. Show them prominently.
   jq -r 'select(.event=="validation_failed")
@@ -738,10 +822,11 @@ cmd_status() {
          | "  BLOCKED  \(.blocked // "?")  (cycle, unknown dependency id, or a failed prerequisite)"' \
      "$JOURNAL" 2>/dev/null | tail -1
   if [[ -f "$TASKS_FILE" ]]; then
-    local d; d="$(completed_tasks)"; local f; f="$(failed_tasks)"
+    local d; d="$(completed_tasks)"; local f; f="$(failed_tasks)"; local s; s="$(skipped_tasks)"
     while IFS= read -r id; do
       grep -qxF "$id" <<<"$d" && continue
       grep -qxF "$id" <<<"$f" && continue
+      grep -qxF "$id" <<<"$s" && continue
       is_halted "$id" && continue
       echo "  pending $id"
     done < <(task_ids)

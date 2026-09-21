@@ -1,5 +1,10 @@
 {
-  "_README": "OPTIONAL cold-start opinion. Never fetched at runtime - edit by hand, or generate from a leaderboard whenever you like. tier 0=avoid, 1=neutral (default), 2=good, 3=preferred. It only breaks ties between models nothing is yet known about: one observed success outweighs the best possible tier, so this can never override real results. Delete this file and nothing breaks.",
+  "_README": "OPTIONAL cold-start opinion. Never fetched at runtime - edit by hand, or generate from a leaderboard whenever you like. tier 0=avoid, 1=neutral (default), 2=good, 3=preferred. It only breaks ties between a model and ONE CATEGORY nothing is yet known about: the moment that category has even one real result, its own evidence takes over and this is ignored for it - so this can never override real results. 'tiers' is an OPTIONAL per-category override (keys: coding, reasoning, research, general, fast) for a model whose strengths differ by task; a category not listed there falls back to the flat 'tier'. Only 'tier' is required - add 'tiers' only for a model you actually have per-category opinion on. Delete this file and nothing breaks.",
+  "_EXAMPLE_a-model-strong-at-code-weak-at-research:free": {
+    "tier": 2,
+    "tiers": { "coding": 3, "reasoning": 2, "research": 0 },
+    "note": "illustrative only - not a real model. 'coding' and 'reasoning' use their own tier; every other category (general, fast) falls back to the flat tier (2)"
+  },
   "nvidia/nemotron-3-ultra-550b-a55b:free": { "tier": 3, "note": "largest free model reachable here" },
   "z-ai/glm-5.2:free":                      { "tier": 3, "note": "strong on code" },
   "cohere/north-mini-code:free":            { "tier": 2, "note": "code-tuned, proven on this machine" },

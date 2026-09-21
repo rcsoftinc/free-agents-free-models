@@ -134,6 +134,81 @@ pos_big=$(printf '%s\n' "$out" | grep -n 'big-model'  | head -1 | cut -d: -f1)
 pos_nano=$(printf '%s\n' "$out" | grep -n 'nano-model' | head -1 | cut -d: -f1)
 assert_true "a single observed success beats the prior (evidence > opinion)" '[[ $pos_nano -lt $pos_big ]]'
 
+# --- per-category seed_tiers overrides the flat seed_tier, per category ----
+# spec-up and spec-down each have a FLAT tier deliberately opposite to what
+# their per-category override implies, so a passing assertion can ONLY be
+# explained by the override actually being read - if the code silently fell
+# back to the flat tier (the old, pre-this-feature behaviour), every
+# assertion below would flip to its opposite, not merely weaken. Verified by
+# hand-computing both the old and new formula for these exact fixtures
+# before writing this test (see the commit message).
+#   spec-up:   flat tier=0 (would rank LOW alone), tiers.coding=3
+#   spec-down: flat tier=3 (would rank HIGH alone), tiers.research=0
+#   flat3-x / flat1-x: no tiers - fixed, unambiguous reference points
+jq '.buckets["b2:fp2"].models = [
+      {upstream:"spec-up", free:true, context:200000, max_output:4096,
+       seed_tier:0, seed_tiers:{coding:3},
+       routes:[{agent:"hermes",model_arg:"spec-up",provider:"p2"}], probe:{state:"unprobed"}},
+      {upstream:"spec-down", free:true, context:200000, max_output:4096,
+       seed_tier:3, seed_tiers:{research:0},
+       routes:[{agent:"hermes",model_arg:"spec-down",provider:"p2"}], probe:{state:"unprobed"}},
+      {upstream:"flat3-x", free:true, context:200000, max_output:4096, seed_tier:3,
+       routes:[{agent:"hermes",model_arg:"flat3-x",provider:"p2"}], probe:{state:"unprobed"}},
+      {upstream:"flat1-x", free:true, context:200000, max_output:4096, seed_tier:1,
+       routes:[{agent:"hermes",model_arg:"flat1-x",provider:"p2"}], probe:{state:"unprobed"}}
+    ]' "$REG" > "$REG.t" && mv "$REG.t" "$REG"
+
+pos_of() { printf '%s\n' "$1" | grep -n "$2" | head -1 | cut -d: -f1; }
+
+echo "=== per-category seed_tiers: an override can RAISE a model above its own flat tier ==="
+out="$(DRY_RUN_LIMIT=0 timeout 60 "$REPO/bin/run.sh" --dry-run -c coding 2>/dev/null)"
+p_up=$(pos_of "$out" spec-up); p_f1=$(pos_of "$out" flat1-x)
+assert_true "tiers.coding=3 beats flat tier=1, despite spec-up's OWN flat tier being 0" \
+  '[[ $p_up -lt $p_f1 ]]'
+
+echo "=== per-category seed_tiers: an override can LOWER a model below its own flat tier ==="
+out="$(DRY_RUN_LIMIT=0 timeout 60 "$REPO/bin/run.sh" --dry-run -c research 2>/dev/null)"
+p_down=$(pos_of "$out" spec-down); p_f1=$(pos_of "$out" flat1-x)
+assert_true "tiers.research=0 loses to flat tier=1, despite spec-down's OWN flat tier being 3 (an explicit 'avoid' is not silently treated as neutral)" \
+  '[[ $p_f1 -lt $p_down ]]'
+
+echo "=== per-category seed_tiers: a category not named falls back to each model's OWN flat tier ==="
+out="$(DRY_RUN_LIMIT=0 timeout 60 "$REPO/bin/run.sh" --dry-run -c general 2>/dev/null)"
+p_up=$(pos_of "$out" spec-up); p_down=$(pos_of "$out" spec-down)
+assert_true "general is covered by neither model's tiers, so each falls back to its own flat tier (spec-down=3 beats spec-up=0)" \
+  '[[ $p_down -lt $p_up ]]'
+
+# --- the zero-evidence gate is per-CATEGORY, not per-model ------------------
+# A model with real evidence in ANOTHER category must still get seed/size
+# guidance for a category it has never been tried in - losing that the
+# moment ANY evidence exists anywhere used to strand every other category
+# back at "nothing known", with no signal at all, even a crude one (and, as
+# here, silently drop an explicit "avoid" opinion for the untested category
+# too).
+#
+# Isolated via a TWIN: spec-down and twin-down share the exact same flat
+# tier (3) and the exact same one unrelated coding success; the ONLY
+# difference is spec-down has tiers.research=0 and twin-down has no
+# research override at all (so it falls back to its own flat tier=3 for
+# research). If the override still applies despite the unrelated evidence,
+# twin-down must clearly outscore spec-down for research. Under the OLD,
+# model-wide gate this used to TIE (any evidence anywhere zeroed the prior
+# for both, override or not) - with spec-down listed BEFORE twin-down here,
+# a tie's stable sort would rank spec-down first, the OPPOSITE of what is
+# asserted, so this cannot pass by coincidental ordering either.
+jq '.buckets["b2:fp2"].models += [
+      {upstream:"twin-down", free:true, context:200000, max_output:4096, seed_tier:3,
+       stats:{ok:1,fail:0}, cat_stats:{coding:{ok:1,fail:0}},
+       routes:[{agent:"hermes",model_arg:"twin-down",provider:"p2"}], probe:{state:"unprobed"}}
+    ] | .buckets["b2:fp2"].models |= map(
+      if .upstream=="spec-down"
+      then . + {stats:{ok:1,fail:0}, cat_stats:{coding:{ok:1,fail:0}}}
+      else . end)' "$REG" > "$REG.t" && mv "$REG.t" "$REG"
+out="$(DRY_RUN_LIMIT=0 timeout 60 "$REPO/bin/run.sh" --dry-run -c research 2>/dev/null)"
+p_down=$(pos_of "$out" spec-down); p_twin=$(pos_of "$out" twin-down)
+assert_true "tiers.research=0 still applies despite unrelated coding evidence (untested category is not stranded by other-category evidence)" \
+  '[[ $p_twin -lt $p_down ]]'
+
 # --- unsuitable models never reach the chain --------------------------------
 jq '.buckets["b1:fp1"].models |= map(. + {suitable:false, unsuitable_reason:"context_too_small"})'    "$REG" > "$REG.t" && mv "$REG.t" "$REG"
 out="$(DRY_RUN_LIMIT=0 timeout 60 "$REPO/bin/run.sh" --dry-run 2>/dev/null)"

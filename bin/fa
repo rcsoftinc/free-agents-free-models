@@ -15,6 +15,7 @@ set -euo pipefail
 #   fa unschedule      remove it
 #   fa init            set up the current directory (same as .free-agents/setup.sh)
 #   fa lanes [-v]      how many independent credential lanes are healthy
+#   fa profile         per-agent/harness learned reliability (read-only)
 #   fa discover        rebuild the credential registry (after adding/removing keys)
 #   fa probe [--all]   prove each wallet answers
 #   fa doctor          verify this machine is set up correctly
@@ -53,7 +54,12 @@ prompt_yn() { # $1=prompt -> 0 if yes
   [[ "${ans,,}" == "y" || "${ans,,}" == "yes" ]]
 }
 
-usage() { sed -n '6,26p' "$0" >&2; exit 3; }
+# 6,41: the whole header block (through "fa where"), not a magic prefix of
+# it - a fixed range here already went stale once (it used to cut off `fa
+# go`'s own --graph/--validate/--isolate flags before this comment existed),
+# which is exactly the kind of drift a hardcoded sed slice with no anchor to
+# the content it is supposed to track produces on every edit to the header.
+usage() { sed -n '6,41p' "$0" >&2; exit 3; }
 cmd="${1:-}"; shift || true
 
 case "$cmd" in
@@ -133,6 +139,7 @@ case "$cmd" in
   discover) exec "${HERE}/buckets.sh" discover "$@" ;;
   probe)    exec "${HERE}/buckets.sh" probe "$@" ;;
   show)     exec "${HERE}/buckets.sh" show "$@" ;;
+  profile)  exec "${HERE}/buckets.sh" profile "$@" ;;
   run)      exec "${HERE}/run.sh" -w "$(pwd)" "$@" ;;
   plan)     exec "${HERE}/plan.sh" -w "$(pwd)" "$@" ;;
 

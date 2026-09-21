@@ -156,7 +156,9 @@ candidates() {
   local req_cap="$(category_caps "$CATEGORY")"
 
   registry_read '
-    [ .buckets[]
+    def beta_post(ok; fail; k; p0): (ok + k*p0) / (ok + fail + k);
+    (.agent_stats // {}) as $astats
+    | [ .buckets[]
       | select(($pin == "") or (.id == $pin))
       | select((.health.cooldown_until // 0) <= ($now|tonumber))
       | select((.id | IN($ex[])) | not)
@@ -175,7 +177,13 @@ candidates() {
       | select(.suitable != false)
       | select((.cooldown_until // 0) <= ($now|tonumber))
       | . as $m
-      | ($m.routes[] | select(.agent == $b.preferred_agent)) as $r
+      # Every route this bucket can reach a model through, not just its
+      # preferred_agent - a harness picked once at discover time (whichever
+      # adapter happened to enumerate first) and never re-ranked since. The
+      # capability select() right below is now the only gate on which agents
+      # get offered; agent_stats (below) then ranks between them the same
+      # way cat_stats already ranks between models.
+      | $m.routes[] as $r
       # Filter by required capabilities for this category.
       # req_cap may be comma-separated ("web,research") — match if ANY required cap is present.
       | select($r.agent as $a | $acaps | has($a) and (.[$a] | split(",") | map(select(. as $c | $req_cap | split(",") | index($c))) | length > 0))
@@ -233,12 +241,37 @@ candidates() {
                            # null/false, so an explicit tier 0 ("avoid") is
                            # never silently overridden by a fallback default.
                            + ((($m.seed_tiers // {})[$cat] // $m.seed_tier // 1) - 1),
-                           3 ] | min, -3 ] | max ) ) ) }
+                           3 ] | min, -3 ] | max ) )
+                   # AGENT/HARNESS axis, additive and independent of the model
+                   # score above: which of routes[] tends to actually get
+                   # results, learned the same shape as model stats but keyed
+                   # by agent instead of model. A Beta-mean, not raw counts,
+                   # so a harness with 2 tries is not read as confidently as
+                   # one with 200 - and hard-bounded to [-weight,+weight]
+                   # (default [-3,3], one less than a single observed model-
+                   # level category success) so this axis can rank BETWEEN
+                   # equally-good models on different harnesses but can never
+                   # by itself flip a real model-quality gap. At full cold
+                   # start (no agent evidence anywhere) this is an EXACT
+                   # algebraic no-op: beta_post reduces to the neutral prior
+                   # p0=0.5 on both levels, giving cat_post=0.5 and
+                   # 2*0.5-1=0, so every single-agent wallet (the overwhelming
+                   # majority today) scores identically to before this axis
+                   # existed.
+                   + ( ($astats[$r.agent].stats.ok // 0) as $aok
+                     | ($astats[$r.agent].stats.fail // 0) as $afail
+                     | ($astats[$r.agent].cat_stats[$cat].ok // 0) as $acok
+                     | ($astats[$r.agent].cat_stats[$cat].fail // 0) as $acfail
+                     | beta_post($aok; $afail; ($k0|tonumber); 0.5) as $overall_post
+                     | beta_post($acok; $acfail; ($k1|tonumber); $overall_post) as $cat_post
+                     | ($weight|tonumber) * (2*$cat_post - 1) ) ) }
     ]
     | sort_by(.metered, .bucket_last_used, -.score)
     | .[] | [.bucket, .agent, .model, .provider] | @tsv
   ' --arg pin "$PIN_BUCKET" --arg now "$now" --argjson ex "$ex_json" \
-    --arg cat "$CATEGORY" --argjson acaps "$acaps" --arg req_cap "$req_cap"
+    --arg cat "$CATEGORY" --argjson acaps "$acaps" --arg req_cap "$req_cap" \
+    --arg k0 "${FA_AGENT_PRIOR_K0:-2}" --arg k1 "${FA_AGENT_PRIOR_K1:-4}" \
+    --arg weight "${FA_AGENT_WEIGHT:-3}"
 }
 
 # ------------------------------------------------------------------- leasing --
@@ -284,8 +317,8 @@ invoke() { # $1=agent $2=model $3=provider $4=prompt
 # NOTE on what counts as evidence: a bucket-level failure (rate limit, billing)
 # says nothing about whether this model is good at this category, so it must not
 # be scored against the model. Only ok / timeout / dead / provider_error do.
-record() { # $1=bucket $2=model $3=state $4=ms $5=output(optional)
-  local bucket="$1" model="$2" state="$3" ms="$4" out="${5:-}" cd_secs until_ts=0 hint
+record() { # $1=bucket $2=model $3=agent $4=state $5=ms $6=output(optional)
+  local bucket="$1" model="$2" agent="$3" state="$4" ms="$5" out="${6:-}" cd_secs until_ts=0 hint
   [[ "$state" == "local_network" || "$state" == "context_overflow" ]] && return 0
   # Pass the failure count so a first, possibly transient failure gets a short
   # window and only a repeatedly-failing wallet earns the long one.
@@ -337,7 +370,20 @@ record() { # $1=bucket $2=model $3=state $4=ms $5=output(optional)
                             else (.cooldown_until // 0) end),
            last_used:($now|tonumber)}
       else . + {last_used:($now|tonumber)} end)
-  ' --arg b "$bucket" --arg m "$model" --arg s "$state" --arg ms "$ms" \
+  # Learned per-agent/harness reliability, same shape and same fault-gating
+  # as .stats/.cat_stats above (a bucket-level fault says nothing about
+  # whether THIS harness is any good, any more than it says so about the
+  # model) but keyed by agent and stored once at the registry root, not
+  # per-bucket - see the agent_term inside candidates() for how it is read.
+  | .agent_stats = (.agent_stats // {})
+  | .agent_stats[$a] = ( (.agent_stats[$a] // {stats:{ok:0, fail:0}, cat_stats:{}})
+      | if $fault then .
+        else ( .stats |= (if $s == "ok" then .ok += 1 else .fail += 1 end)
+             | .cat_stats[$cat] = ((.cat_stats[$cat] // {ok:0, fail:0})
+                                   | if $s == "ok" then .ok += 1 else .fail += 1 end)
+             )
+        end )
+  ' --arg b "$bucket" --arg m "$model" --arg a "$agent" --arg s "$state" --arg ms "$ms" \
     --arg at "$(iso_now)" --arg now "$(now_epoch)" --arg until "$until_ts" \
     --arg trip "${BREAKER_TRIP:-2}" --argjson fault "$bucket_fault" \
     --arg cat "$CATEGORY"
@@ -497,7 +543,7 @@ for row in "${CHAIN[@]}"; do
     continue
   fi
 
-  record "$bucket" "$model" "$state" "$ms" "$out"
+  record "$bucket" "$model" "$agent" "$state" "$ms" "$out"
   lease_release
 
   if [[ "$state" == "ok" ]]; then

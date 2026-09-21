@@ -236,6 +236,12 @@ cmd_discover() {
                       else (map(.wallet) | unique | sort_by(length) | last) end) })
       | from_entries) as $canon
   | ($prev[0].buckets // {}) as $old
+  # A harness reliability signal is a property of the CLI, not of which wallet
+  # holds the credential, so agent_stats lives at the registry ROOT,
+  # sibling to buckets - one shared table, not one per bucket. Forward-
+  # carried whole, same reasoning as the per-model stats/cat_stats above:
+  # without this, every discover()/refresh() would silently zero it too.
+  | ($prev[0].agent_stats // {}) as $old_agent_stats
 
   | ($models | map(select($byap[.agent+"|"+.provider] == null))) as $phantom
   | ($models | map(select($byap[.agent+"|"+.provider] != null))) as $real
@@ -326,6 +332,7 @@ cmd_discover() {
       # which refreshing will not change.
       examined_agents: $examined,
       buckets: $buckets,
+      agent_stats: $old_agent_stats,
       phantom_routes: ($phantom | map({agent, provider, model_arg})),
       counts: {
         buckets: ($buckets | length),
@@ -506,6 +513,33 @@ cmd_show() {
   ' "$REGISTRY"
 }
 
+# Read-only view into .agent_stats: which HARNESS tends to actually get
+# results, learned the same shape candidates()'s agent_term reads, and the
+# one thing a person (or the coordinating LLM) could not otherwise see
+# without reading and mentally executing the ranking formula in run.sh.
+# Never spends a request; this only ever reads what record() already wrote.
+cmd_profile() {
+  [[ -f "$REGISTRY" ]] || die "no registry; run: $0 discover"
+  local all_agents; all_agents="$(printf '%s\n' "${FA_AGENTS[@]}" | jq -R . | jq -sc .)"
+  jq -r --argjson all "$all_agents" '
+    def pct($ok; $fail): (($ok + $fail) as $n | if $n > 0 then "\(($ok*100/$n)|round)%" else "n/a" end);
+    (.agent_stats // {}) as $a
+    | ($all - ($a | keys)) as $unseen
+    | "agent profile (learned harness reliability - independent of which wallet)",
+      "",
+      ( $a | to_entries[] | .key as $agent | .value as $v |
+        "\($agent)",
+        "   overall: \($v.stats.ok // 0) ok / \($v.stats.fail // 0) fail  (\(pct($v.stats.ok // 0; $v.stats.fail // 0)))",
+        ( ($v.cat_stats // {}) | to_entries
+          | if length == 0 then "   (no per-category data yet)"
+            else (.[] | "   \(.key):  \(.value.ok // 0) ok / \(.value.fail // 0) fail  (\(pct(.value.ok // 0; .value.fail // 0)))") end
+        ),
+        ""
+      ),
+      (if ($unseen | length) > 0 then "no data yet for: \($unseen | join(", "))" else empty end)
+  ' "$REGISTRY"
+}
+
 usage() {
   cat >&2 <<EOF
 usage: $(basename "$0") <command>
@@ -514,6 +548,7 @@ usage: $(basename "$0") <command>
   discover [--probe]  build the registry from real credentials + model lists
   probe [--all]       prove reachability (default: one free model per bucket)
   show                human-readable summary
+  profile             per-agent/harness learned reliability (fa profile)
 
 state: ${REGISTRY}
 EOF
@@ -526,5 +561,6 @@ case "${1:-}" in
   discover) shift; cmd_discover "$@" ;;
   probe)    shift; cmd_probe "$@" ;;
   show)     shift; cmd_show "$@" ;;
+  profile)  shift; cmd_profile "$@" ;;
   *) usage ;;
 esac

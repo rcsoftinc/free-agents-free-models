@@ -151,5 +151,22 @@ else
   fail "discover wrote no registry"
 fi
 
+# --- 8. agent_stats (the harness/agent ranking axis) survives a refresh too -
+# Lives at the registry ROOT, not per-model, so the forward-carry above does
+# not cover it - a separate, direct pass-through.
+if [[ -s "$REG" ]]; then
+  jq '.agent_stats = {opencode: {stats:{ok:9, fail:1}, cat_stats:{coding:{ok:4, fail:0}}}}' \
+    "$REG" > "$REG.tmp" && mv "$REG.tmp" "$REG"
+
+  timeout 150 "$REPO/bin/buckets.sh" discover >/dev/null 2>&1
+
+  assert_eq "agent_stats.opencode.stats.ok survives a second discover" \
+    "$(jq '.agent_stats.opencode.stats.ok' "$REG")" "9"
+  assert_eq "agent_stats.opencode.cat_stats.coding.ok survives a second discover" \
+    "$(jq '.agent_stats.opencode.cat_stats.coding.ok' "$REG")" "4"
+else
+  fail "discover wrote no registry"
+fi
+
 end_suite
 final_report

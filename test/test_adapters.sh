@@ -23,10 +23,10 @@ BIN="$REPO/bin"
 # The list used to be copied in six places; every copy that was absent meant a
 # harness the tool already knew was invisible somewhere. It must now live only
 # in bin/lib/adapters.sh and be LOADED from there everywhere else.
-cnt="$(grep -rh -- 'opencode kilo hermes copilot cursor agy' "$BIN" | wc -l)"
+cnt="$(grep -rh -- 'opencode kilo hermes copilot cursor agy pi' "$BIN" | wc -l)"
 assert_eq "the canonical list appears exactly once under bin/" "$cnt" "1"
 assert_eq "and that one copy is adapters.sh" \
-  "$(grep -rl -- 'opencode kilo hermes copilot cursor agy' "$BIN")" "$BIN/lib/adapters.sh"
+  "$(grep -rl -- 'opencode kilo hermes copilot cursor agy pi' "$BIN")" "$BIN/lib/adapters.sh"
 assert_eq "no call site hardcodes a for-agent loop" \
   "$(grep -rn -- 'for a in opencode\|for a in kilo\|for a in hermes' "$BIN" | wc -l)" "0"
 
@@ -35,8 +35,8 @@ assert_eq "no call site hardcodes a for-agent loop" \
 # with no edit anywhere else.
 COMMON="$REPO/bin/lib/common.sh"
 n="$(bash -c '. '"$COMMON"'; printf "%s" "${#FA_AGENTS[@]}"')"
-assert_eq "the adapter list has six harnesses" "$n" "6"
-for a in opencode kilo hermes copilot cursor agy; do
+assert_eq "the adapter list has seven harnesses" "$n" "7"
+for a in opencode kilo hermes copilot cursor agy pi; do
   have_fn="$(bash -c '. '"$COMMON"'; type -t '"$a"'_invoke')"
   assert_eq "$a has an invoke contract" "$have_fn" "function"
 done

@@ -73,7 +73,7 @@ PROJECT:
 $(survey)
 
 Required shape:
-{"tasks":[{"id":"short-slug","prompt":"self-contained instruction","deps":[],"files":["path"],"category":"coding"}]}
+{"tasks":[{"id":"short-slug","prompt":"self-contained instruction","deps":[],"files":["path"],"category":"coding","complexity":"standard"}]}
 
 Rules:
 - Each task's "prompt" must be self-contained: a worker executes it with NO other
@@ -85,6 +85,12 @@ Rules:
 - "category" is one of: coding (default), reasoning, research, general, fast.
   - coding: produces code changes
   - research: produces an investigation report (write to docs/ or .orch/reports/)
+- "complexity" is one of: trivial, standard (default), substantial.
+  - trivial: a one-line fix, a rename, a config tweak - writing the spec costs
+    about as much as just doing it
+  - standard: a typical, self-contained feature or fix
+  - substantial: real design or interface work, touching multiple files, with
+    decisions a later task might need to know about
 EOF
 }
 
@@ -111,7 +117,8 @@ valid_plan() { # $1=file
     (.tasks | type == "array") and (.tasks | length > 0)
     and all(.tasks[]; (.id | type == "string" and length > 0)
                   and (.prompt | type == "string" and length > 0)
-                  and ((.category // "coding") | test("^(coding|reasoning|research|general|fast)$")))
+                  and ((.category // "coding") | test("^(coding|reasoning|research|general|fast)$"))
+                  and ((.complexity // "standard") | test("^(trivial|standard|substantial)$")))
   ' "$1" >/dev/null 2>&1
 }
 

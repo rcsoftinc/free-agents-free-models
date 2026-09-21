@@ -197,6 +197,15 @@ case "$MODE" in
     printf '{"tasks":[{"id":"a","prompt":"x","deps":[],"files":["a.txt"],"category":"coding"},{"id":"a","prompt":"y","deps":[],"files":["b.txt"],"category":"coding"}]}'
     exit 0
     ;;
+  planparallel)
+    # Two genuinely independent, TRIVIAL tasks - used to test `fa dispatch`'s
+    # ORCHESTRATE decision and its "every task is trivial" hint together.
+    # No declared files (nothing for orch.sh's own verification step to
+    # check) - this fixture is about dispatch MECHANICS, not file
+    # verification, which is already covered elsewhere.
+    printf '{"tasks":[{"id":"x","prompt":"do x","deps":[],"files":[],"category":"coding","complexity":"trivial"},{"id":"y","prompt":"do y","deps":[],"files":[],"category":"coding","complexity":"trivial"}]}'
+    exit 0
+    ;;
   slow)
     # Like success but sleeps first, so parallel tasks overlap long enough for
     # agent-distribution assertions.

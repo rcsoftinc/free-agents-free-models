@@ -24,10 +24,14 @@ set -euo pipefail
 #                       --validate  run syntax check on result (fail fast)
 #   fa plan "goal"     goal -> .orch/tasks.json
 #                       --graph     print the task graph as an ASCII diagram
-#   fa go "goal"       plan, then run it
+#   fa dispatch "goal" plan, then decide DIRECT vs ORCHESTRATE for real -
+#                      prints a SPLIT EVALUATION line instead of a coordinator
+#                      computing the gate itself. DIRECT means: read the plan
+#                      that was just written and do the work yourself.
 #                       --graph     print the task graph after planning
 #                       --validate  validate each task after build
 #                       --isolate   use git worktrees for parallel tasks (no collisions)
+#   fa go "goal"       same as `fa dispatch` - the name people type instead
 #   fa graph           render the current .orch/tasks.json as a diagram
 #   fa status          progress of the current project
 #   fa resume          continue after any interruption
@@ -53,6 +57,93 @@ prompt_yn() { # $1=prompt -> 0 if yes
   local ans
   read -rp "$1 [y/N] " ans
   [[ "${ans,,}" == "y" || "${ans,,}" == "yes" ]]
+}
+
+# The orchestrate-vs-direct gate, as real code instead of prose a
+# coordinator LLM computes in its head. `fa go` used to call orch.sh
+# unconditionally - nothing actually checked AGENTS.md's own gate before
+# dispatching, so the gate existed only as an instruction to trust.
+#
+# Two calling shapes:
+#   fa dispatch "<goal>"   plan fresh (a cold, context-less LLM call through
+#                          the fallback chain), THEN decide. For a one-shot
+#                          invocation with no coordinator already holding
+#                          context on the goal.
+#   fa dispatch            no goal: evaluate whatever is ALREADY at
+#                          .orch/tasks.json. This is the one a coordinator
+#                          actually wants - AGENTS.md's own Phase 1 has it
+#                          write tasks.json directly, in its own already-
+#                          loaded context, which is strictly cheaper than
+#                          paying for plan.sh's cold re-derivation of a
+#                          project the coordinator already understands.
+#
+# Mirrors AGENTS.md's documented gate exactly: orchestrate only when BOTH
+# (1) at least one pair of tasks has no direct dependency on each other
+# (plan.sh's own check_boundaries() already guarantees any such pair has
+# disjoint files too, as a precondition for the plan being written at all -
+# this does not need to re-check that; a hand-authored tasks.json makes the
+# same promise, per AGENTS.md's own Phase 1 note that `files` is enforced,
+# not documentation) and (2) fa lanes reports >= 2.
+#
+# complexity (plan.sh's per-task field) does not gate the DIRECT/ORCHESTRATE
+# decision yet - that branch is BATCH mode, not built. When every task is
+# trivial, this only surfaces a note; it still decides DIRECT/ORCHESTRATE
+# the same as before, honestly, rather than pretending a third option
+# exists.
+cmd_dispatch() { # $@ = [--graph] [--validate] [--isolate] ["goal"]
+  local graph_flag=() extra_args=() goal=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --graph)    graph_flag=("--graph"); shift ;;
+      --validate) extra_args+=("--validate"); shift ;;
+      --isolate)  extra_args+=("--isolate"); shift ;;
+      *) goal="$1"; shift ;;
+    esac
+  done
+
+  local tasks_file="${PWD}/.orch/tasks.json"
+  if [[ -n "$goal" ]]; then
+    "${HERE}/plan.sh" -w "$(pwd)" "${graph_flag[@]}" "$goal" || exit $?
+  else
+    [[ -f "$tasks_file" ]] || { echo "fa dispatch: no goal given and no plan at ${tasks_file} - either pass a goal, or write tasks.json yourself first" >&2; exit 3; }
+    jq -e '.tasks | type == "array" and length > 0' "$tasks_file" >/dev/null 2>&1 \
+      || { echo "fa dispatch: ${tasks_file} has no tasks" >&2; exit 3; }
+    [[ ${#graph_flag[@]} -gt 0 ]] && "${HERE}/lib/graph.sh" -w "$(pwd)" "$tasks_file"
+  fi
+
+  local n lanes has_pair trivial_n decision
+  n="$(jq '.tasks | length' "$tasks_file")"
+  lanes="$("${HERE}/buckets.sh" lanes 2>/dev/null || echo 0)"
+  has_pair="$(jq -r '
+    [.tasks[] | {id, deps: (.deps // [])}] as $t
+    | [ $t[] as $a | $t[] as $b
+        | select($a.id != $b.id)
+        | select(($a.deps | index($b.id)) == null and ($b.deps | index($a.id)) == null)
+      ] | length > 0
+  ' "$tasks_file")"
+  trivial_n="$(jq '[.tasks[] | select((.complexity // "standard") == "trivial")] | length' "$tasks_file")"
+
+  if [[ "$n" -le 1 || "$has_pair" != "true" || "$lanes" -lt 2 ]]; then
+    decision=DIRECT
+  else
+    decision=ORCHESTRATE
+  fi
+
+  echo "[fa] SPLIT EVALUATION: tasks=${n}  disjoint_pair=${has_pair}  lanes=${lanes}  trivial=${trivial_n}  -> ${decision}" >&2
+  if [[ "$trivial_n" -eq "$n" && "$n" -gt 1 ]]; then
+    echo "[fa]   note: every task is trivial - batch dispatch (not yet implemented) would suit this better than ${decision}" >&2
+  fi
+
+  case "$decision" in
+    DIRECT)
+      echo "[fa] work directly: ${n} task(s), no genuine parallel split available (or fewer than 2 lanes)." >&2
+      echo "[fa] plan is at ${tasks_file} - read it and do the work yourself, in this session." >&2
+      exit 0
+      ;;
+    ORCHESTRATE)
+      exec "${HERE}/orch.sh" run "${extra_args[@]}"
+      ;;
+  esac
 }
 
 # Anchored to the HERE= line (self-maintaining), not a magic line range - a
@@ -164,27 +255,12 @@ case "$cmd" in
   resume)   exec "${HERE}/orch.sh" resume "$@" ;;
   orch)     exec "${HERE}/orch.sh" "$@" ;;
 
-  go)
-    [[ $# -gt 0 ]] || { echo "fa go: needs a goal" >&2; exit 3; }
-    local graph_flag=()
-    while [[ $# -gt 1 ]]; do
-      case "$1" in
-        --graph) graph_flag=("--graph"); shift ;;
-        *) shift ;;
-      esac
-    done
-    "${HERE}/plan.sh" -w "$(pwd)" "${graph_flag[@]}" "$1" || exit $?
-    shift
-    # Pass through --validate and --isolate if provided
-    local extra_args=()
-    while [[ $# -gt 0 ]]; do
-      case "$1" in
-        --validate) extra_args+=("--validate"); shift ;;
-        --isolate)  extra_args+=("--isolate"); shift ;;
-        *) shift ;;
-      esac
-    done
-    exec "${HERE}/orch.sh" run "${extra_args[@]}" ;;
+  dispatch) cmd_dispatch "$@" ;;
+  # `fa go` used to call orch.sh unconditionally, regardless of whether the
+  # plan actually split into anything worth orchestrating - dispatch is now
+  # the one place that decides, so go is just its name for people who type
+  # that instead.
+  go)       cmd_dispatch "$@" ;;
 
   findings)
     . "${HERE}/lib/common.sh"; . "${HERE}/lib/findings.sh"

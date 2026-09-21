@@ -15,37 +15,44 @@ only when the work genuinely splits.
 
 Do **not** decide from the wording of the request. "Big project", "architecture" and
 "full-stack" are not evidence, and a plainly-worded request can be perfectly
-parallel. Decide from the structure of the work and the state of the machine.
-
-Orchestrate only when **both** hold:
-
-1. **The work splits.** You can name **≥2 tasks** that
-   - touch **disjoint sets of files**, and
-   - do **not** depend on each other's output.
-2. **There is somewhere to run them.** `fa lanes` reports **≥2**.
-
-If (1) fails, parallelism has nothing to do — work directly.
-If (2) fails, parallelism has nowhere to go: with one healthy lane, concurrent
-tasks queue behind one credential and simply collide. **Work directly.**
+parallel. Decide from the structure of the work and the state of the machine —
+and do not compute this gate in your head. Write the task graph (Phase 1 below),
+then run `fa dispatch` and trust its printed decision:
 
 ```sh
-fa lanes        # -> integer; offline, cheap, safe to call every time
-fa lanes -v     # which wallets, which agents, how many free models
+fa dispatch     # no goal: evaluates the tasks.json you already wrote (Phase 1)
 ```
 
+This is real code, not a restatement of the rule for you to re-derive: it checks
+whether at least one pair of tasks has no dependency on each other (a genuine
+split) and whether `fa lanes` reports **≥2**, and prints a `SPLIT EVALUATION`
+line naming both, then either tells you to work directly or dispatches
+`fa orch run` itself. `fa dispatch "<goal>"` (with a goal) also plans first —
+useful for a one-shot invocation with no context already loaded, but paying for
+that cold re-derivation of a project you already understand is rarely what you
+want mid-conversation.
+
+If it says work directly, parallelism has nothing to do (no real split) or
+nowhere to go (fewer than 2 lanes — concurrent tasks would queue behind one
+credential and collide). **Work directly.**
+
 (If `fa` is not on PATH this project was installed `--standalone`; use
-`bash bin/buckets.sh lanes` instead.)
+`bash bin/orch.sh` and `bash bin/buckets.sh lanes` directly instead.)
 
 A useful check before committing to a split: if you cannot write each task's file
 boundary down, the tasks are not actually independent and you have not found a
-split — you have found one task.
+split — you have found one task. `files` is enforced, not documentation: two
+tasks declaring the same file are never run concurrently, and `fa dispatch`'s
+own split check relies on that guarantee already holding for any two tasks it
+considers independent.
 
 ## Orchestrate workflow
 
 ### Phase 0 — Declare (cheap)
-State: mode = ORCHESTRATE, the tasks you foresee with their file boundaries, and
-the lane count you got. Do not write code yet. If the user has not approved a plan,
-outline it in ≤10 lines and ask.
+State the tasks you foresee, with their file boundaries. Do not write code yet.
+If the user has not approved a plan, outline it in ≤10 lines and ask. Whether
+this actually orchestrates is `fa dispatch`'s call, not a mode you declare here
+— see Phase 2.
 
 ### Phase 1 — Plan in ONE context
 Produce a task graph. Every task is **self-contained**: it carries its own spec and
@@ -72,12 +79,17 @@ loaded; a worker starts cold, on a weaker model, and cannot ask you anything.
 
 ### Phase 2 — Dispatch
 ```sh
-fa orch run tasks.json     # parallel width = healthy lanes, automatically
-fa status                  # progress, from the journal
-fa resume                  # after any interruption
+fa dispatch     # decides DIRECT vs ORCHESTRATE for real (see "The gate" above),
+                # and dispatches fa orch run itself when it decides ORCHESTRATE
+fa status       # progress, from the journal
+fa resume       # after any interruption
 ```
-The runner holds **one lane per credential**, routes around busy and rate-limited
-wallets, and journals every transition. You do not schedule; you specify.
+If `fa dispatch` prints `-> DIRECT`, the mechanical check did not confirm a real
+split (or there is nowhere to run one) — do Phase 1's tasks yourself instead of
+continuing this workflow. If it prints `-> ORCHESTRATE`, it has already run
+`fa orch run`: the runner holds **one lane per credential**, routes around busy
+and rate-limited wallets, and journals every transition. You do not schedule;
+you specify.
 
 ### Phase 3 — Review and integrate
 Run the declared verification (tests, lint, build). Review by **diff and test

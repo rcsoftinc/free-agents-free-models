@@ -108,6 +108,12 @@ case "$MODE" in
     printf 'generic failure: something went wrong'
     exit 1
     ;;
+  contextoverflow)
+    # A "neither" fault per classify.sh: the CALLER's prompt was too big, not
+    # a fact about this model or wallet's quality.
+    printf 'Error: context length exceeded for this model, please shorten your prompt'
+    exit 1
+    ;;
   hang)
     # Simulate a combo that never returns (e.g. network stall). The runner's
     # ATTEMPT_TIMEOUT should kill it and move on.

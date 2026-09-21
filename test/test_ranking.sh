@@ -53,18 +53,54 @@ echo "=== Test 3: wallet fault not scored against model ==="
 mode_for opencode ratelimit
 
 before_state=$(jq -r '.buckets["b0:fp0"].health.state' "$REG")
+# Seed a known probe result so a bucket fault clobbering it is detectable -
+# the fixture's default is "unprobed", which a bug that resets .probe to
+# "rate_limited" would be indistinguishable from without this.
+jq '.buckets["b0:fp0"].models[0].probe = {state:"ok", at:"2026-01-01T00:00:00Z", ms:1}' \
+  "$REG" > "$REG.tmp" && mv "$REG.tmp" "$REG"
 
 "$REPO/bin/run.sh" -b b0:fp0 "do a thing" >/dev/null 2>run3_err.txt || true
 
 after_fail=$(jq '.buckets["b0:fp0"].models[0].stats.fail' "$REG")
 after_state=$(jq -r '.buckets["b0:fp0"].health.state' "$REG")
+after_probe=$(jq -r '.buckets["b0:fp0"].models[0].probe.state' "$REG")
+after_catfail=$(jq '.buckets["b0:fp0"].models[0].cat_stats.general.fail // 0' "$REG")
 
 # Fixture models start with no .stats key at all; a bucket fault must not
 # invent a failure against the model, so .stats.fail stays 0 (the default).
 assert_eq "Test 3a: model .stats.fail not incremented" "$after_fail" "0"
 assert_eq "Test 3b: bucket health became rate_limited" "$after_state" "rate_limited"
+assert_eq "Test 3c: model .cat_stats.*.fail not incremented" "$after_catfail" "0"
+# A bucket-level fault is a fact about the WALLET, not this model - it must
+# not overwrite the model's own last probe result either.
+assert_eq "Test 3d: bucket fault does not clobber the model's .probe" "$after_probe" "ok"
 
 rm -f run3_err.txt
+clear_modes
+
+# ---------------------------------------------------------------- Test 4
+# context_overflow is "neither" attribution per classify.sh (same as
+# local_network): the CALLER's prompt was too big, which says nothing about
+# whether the model or wallet is any good. Nothing should be recorded at all.
+echo "=== Test 4: context_overflow is recorded nowhere ==="
+
+mode_for opencode contextoverflow
+
+before_probe=$(jq -r '.buckets["b0:fp0"].models[0].probe.state' "$REG")
+before_fail=$(jq '.buckets["b0:fp0"].models[0].stats.fail // 0' "$REG")
+before_state4=$(jq -r '.buckets["b0:fp0"].health.state' "$REG")
+
+"$REPO/bin/run.sh" -b b0:fp0 "do a thing" >/dev/null 2>run4_err.txt || true
+
+after_probe4=$(jq -r '.buckets["b0:fp0"].models[0].probe.state' "$REG")
+after_fail4=$(jq '.buckets["b0:fp0"].models[0].stats.fail // 0' "$REG")
+after_state4=$(jq -r '.buckets["b0:fp0"].health.state' "$REG")
+
+assert_eq "Test 4a: model .probe untouched by context_overflow" "$after_probe4" "$before_probe"
+assert_eq "Test 4b: model .stats.fail not incremented" "$after_fail4" "$before_fail"
+assert_eq "Test 4c: bucket health untouched by context_overflow" "$after_state4" "$before_state4"
+
+rm -f run4_err.txt
 
 # ---------------------------------------------------------------- cleanup
 clear_modes

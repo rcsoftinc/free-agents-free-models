@@ -374,13 +374,17 @@ SCENARIO: "Build a React dashboard with tests"
 cd myproject
 gh repo clone rcsoftinc/free-agents-free-models .free-agents
 .free-agents/setup.sh
-.free-agents/bin/fa bootstrap          # discover credentials, install skills
-.free-agents/bin/fa lanes -v           # see your lanes
 ```
+
+That one script is the whole setup: it installs missing system dependencies
+and agent CLIs, provisions credentials where it safely can, guides you
+through the rest, and bootstraps the registry — all before printing "Ready."
+The three subsections below are what it does, in detail, not separate steps
+you also need to run.
 
 > **Windows note:** all agents must be installed inside WSL2, and `.free-agents` runs from there. See [Environment](README.md#environment).
 
-### Auto-install
+### Missing dependencies and agent CLIs
 
 `setup.sh` checks for missing system dependencies (jq, curl, flock, sqlite3, timeout)
 and missing agent CLIs (opencode, kilo, hermes, copilot, cursor, agy, pi), then
@@ -403,16 +407,28 @@ handles credentials, in two tiers:
   no-op.
 - **copilot, cursor, agy, hermes** need a real account login, which nothing
   can safely do on your behalf. `setup.sh` detects who's already logged in,
-  offers each remaining one's login step interactively, and prints a final
-  summary of every account still not logged in either way — so a login
-  nobody got around to is reported, not silently skipped.
+  offers each remaining one's login step interactively, and — whether you
+  logged in right there or skipped it — prints a final summary of every
+  account still not logged in, with the exact command for each, plus what to
+  run afterward: `.free-agents/setup.sh` or `fa bootstrap` again, to pick up
+  whatever you just logged into.
 
 Full detail, including the exact file each credential lives in and why some
 of the guided-login commands are marked "unverified guess": `docs/SETUP.md`.
 
+### Registry bootstrap
+
+On a machine with no registry yet, `setup.sh` runs `fa bootstrap` itself
+(~2 min, contacts each provider once to see what your credentials reach,
+stores no secrets) and prints your lane count when it's done — you do not
+need to run it separately. Skip this with `--no-bootstrap` if you want to
+review credentials first and bootstrap later by hand.
+
 ### First run
 
-Start your preferred agent (opencode, kilo, hermes, pi, agy, copilot, cursor) and pass it the coordinator prompt:
+If `setup.sh` flagged any accounts as not yet logged in and you want them,
+log in now and re-run `.free-agents/setup.sh` (its own summary tells you
+this). Otherwise, start your preferred agent (opencode, kilo, hermes, pi, agy, copilot, cursor) and pass it the coordinator prompt:
 
 ```
 .free-agents/prompts/coordinator.md
@@ -616,6 +632,11 @@ Each agent declares what it can do. The scheduler matches task requirements to a
 | **general** | `code` | all |
 
 ## Bootstrap (once per machine)
+
+`setup.sh` already runs this for you on a machine with no registry (see
+[Setup](#setup-one-time)) — this section is what that step actually does,
+for running it by hand later (a new credential, a second machine) or after
+`setup.sh --no-bootstrap`:
 
 ```sh
 fa bootstrap    # discover credentials, probe wallets, install skills

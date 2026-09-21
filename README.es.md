@@ -378,11 +378,15 @@ ESCENARIO: "Construir un dashboard React con tests"
 cd mi-proyecto
 gh repo clone rcsoftinc/free-agents-free-models .free-agents
 .free-agents/setup.sh
-.free-agents/bin/fa bootstrap          # descubrir credenciales, instalar habilidades
-.free-agents/bin/fa lanes -v           # ver tus carriles
 ```
 
-### Auto-instalación
+Ese único script es toda la configuración: instala las dependencias del
+sistema y los CLIs de agente que falten, aprovisiona credenciales donde
+puede hacerlo con seguridad, te guía en el resto, y arranca el registro —
+todo antes de imprimir "Ready." Las tres subsecciones de abajo son lo que
+hace, en detalle, no pasos separados que también debas ejecutar.
+
+### Dependencias y CLIs de agente faltantes
 
 `setup.sh` verifica las dependencias del sistema (jq, curl, flock, sqlite3, timeout)
 y los CLIs de agente faltantes (opencode, kilo, hermes, copilot, cursor, agy, pi),
@@ -406,17 +410,30 @@ también maneja las credenciales, en dos niveles:
 - **copilot, cursor, agy, hermes** necesitan un inicio de sesión real de
   cuenta, algo que nada puede hacer de forma segura en tu nombre. `setup.sh`
   detecta quién ya inició sesión, ofrece el paso de login de cada uno de los
-  restantes de forma interactiva, y al final imprime un resumen de toda
-  cuenta que sigue sin iniciar sesión — así un login que nadie completó
-  queda reportado, no silenciosamente omitido.
+  restantes de forma interactiva, y — hayas iniciado sesión ahí mismo o lo
+  hayas omitido — al final imprime un resumen de toda cuenta que sigue sin
+  iniciar sesión, con el comando exacto para cada una, más qué ejecutar
+  después: `.free-agents/setup.sh` o `fa bootstrap` de nuevo, para recoger
+  lo que acabas de iniciar sesión.
 
 Detalle completo, incluyendo el archivo exacto donde vive cada credencial y
 por qué algunos de los comandos de login guiado están marcados como
 "adivinanza sin verificar": `docs/SETUP.md`.
 
+### Arranque del registro
+
+En una máquina sin registro todavía, `setup.sh` ejecuta `fa bootstrap` por
+sí mismo (~2 min, contacta a cada proveedor una vez para ver qué alcanzan
+tus credenciales, no almacena secretos) e imprime tu número de carriles al
+terminar — no necesitas ejecutarlo por separado. Omite esto con
+`--no-bootstrap` si prefieres revisar credenciales primero y arrancar el
+registro más tarde a mano.
+
 ### Primera ejecución
 
-Inicia tu agente preferido (opencode, kilo, hermes, pi, agy, copilot, cursor) y pásale el prompt del coordinator:
+Si `setup.sh` marcó alguna cuenta como sin iniciar sesión y la quieres,
+inicia sesión ahora y vuelve a ejecutar `.free-agents/setup.sh` (su propio
+resumen te lo indica). Si no, inicia tu agente preferido (opencode, kilo, hermes, pi, agy, copilot, cursor) y pásale el prompt del coordinator:
 
 ```
 .free-agents/prompts/coordinator.md
@@ -623,6 +640,11 @@ Cada agente declara lo que puede hacer. El planificador empareja los requisitos 
 | **general** | `code` | todos |
 
 ## Bootstrap (una vez por máquina)
+
+`setup.sh` ya ejecuta esto por ti en una máquina sin registro (ver
+[Configuración](#configuración-una-vez)) — esta sección es lo que ese paso
+realmente hace, para ejecutarlo a mano más tarde (una credencial nueva, una
+segunda máquina) o después de `setup.sh --no-bootstrap`:
 
 ```sh
 fa bootstrap    # descubrir credenciales, probar billeteras, instalar habilidades

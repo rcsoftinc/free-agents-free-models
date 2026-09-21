@@ -1,6 +1,9 @@
 # Multi-Agent Workflow Paradigms: Analysis for fa
 
-*September 2026 — design note*
+*September 2026 — design note. Gap analysis last reconciled against reality
+2026-09-21 — see the resolution table below. This file is a point-in-time
+analysis, not a live roadmap: for what's actually still open, read
+`docs/dev/SESSION.md` → "Next, if resuming" instead.*
 
 This document maps the multi-agent orchestration concepts that appear in
 industry practice to what fa already covers, and identifies what's still
@@ -92,141 +95,21 @@ findings that a human can review and act on.
 
 ---
 
-## What fa does NOT yet cover
+## What this analysis flagged as missing (resolved 2026-09-21, mostly)
 
-### 8. The explicit "direct mode" decision
+This section is kept as a record of what the analysis found, not as a live
+roadmap — **for what's actually still open, see `docs/dev/SESSION.md` →
+"Next, if resuming"**, which is the file kept current on every session.
+Duplicating a prioritized list in two files is exactly the "two copies of
+one thing" drift `CLAUDE.md` warns about, so this one stops trying to be that.
 
-Currently, "work direct" is an internal heuristic in orch.sh. It should be
-a named, first-class paradigm:
-
-```
-fa run "task"          → single agent, full fallback chain (DIRECT MODE)
-fa orch run tasks.json → multi-agent orchestration (ORCHE MODE)
-```
-
-The distinction should be documented as a decision, not hidden:
-
-| Mode | When | Why |
-|------|------|-----|
-| **Direct** (`fa run`) | One conceptual unit, shared files, < 2 healthy lanes | No serialization loss, no coordination overhead, faster |
-| **Orch** (`fa orch`) | 2+ tasks, disjoint files, 2+ healthy lanes | Real parallelism across independent wallets |
-
-fa already has the `project modes` (strict/push/local). A "dispatch mode"
-(direct/orch) is orthogonal and more fundamental.
-
-### 9. The Loop as a named concept
-
-fa's fallback chain IS a loop: observe → reason → act → check → repeat.
-But it's never named as one. Naming it would:
-
-- Connect to the Graph/Loop/Harness framework
-- Clarify that `fa run` is not "just a fallback" — it's a full cognitive
-  cycle
-- Make the tool's model comprehensible to people who've seen the framework
-
-### 10. Pre-dispatch "should I split?" check
-
-fa has the heuristic (≥2 tasks + disjoint files + ≥2 lanes), but it's
-implicit in orch.sh. An explicit pre-dispatch evaluation that says "this
-task is better done directly" would be valuable — especially for the
-free-model case where a strong model on one lane can outperform splitting
-across weak lanes.
-
-### 11. Harness quality metrics
-
-The video's "Harness = container" maps to fa's adapter layer. But fa doesn't
-measure harness quality per-agent: reliability, average task time, file
-conflict rate. This data is already in the journal — it's just not surfaced
-as a per-agent profile.
-
-### 12. Explicit handoff semantics
-
-fa's `---HANDOFF---` line is minimal. Stronger handoff semantics —
-declaring not just "what I decided" but "what I tried and rejected" — would
-reduce the information loss at dependency boundaries. This is the single
-biggest failure mode in multi-agent systems.
-
----
-
-## What to build next (prioritized)
-
-### P0 — Name the concepts in documentation
-
-Update the README and skill docs to explicitly name:
-
-- **Graph** = the task graph (`fa plan`, `fa graph`, `tasks.json`)
-- **Loop** = the fallback cycle (`fa run`, `run.sh`)
-- **Harness** = the container (adapters, modes, verification)
-
-And add **Direct mode** as a first-class concept alongside **Orch mode**.
-
-This is zero code, high clarity.
-
-### P1 — Add `fa dispatch` as the explicit entry point
-
-Currently `fa run` does direct mode and `fa orch` does orch mode. They're
-different code paths. Unify the entry point:
-
-```
-fa dispatch "task"           → picks direct vs orch based on heuristics
-fa dispatch --mode direct "task"  → force single-agent
-fa dispatch --mode orch tasks.json → force orchestration
-```
-
-The heuristics are already in orch.sh. Surfacing them as a decision makes
-the tool teach the user when to split and when not to.
-
-### P2 — Pre-dispatch split evaluation
-
-Before dispatching, print a short evaluation:
-
-```
-$ fa dispatch "Add auth + tests"
-SPLIT EVALUATION:
-  Tasks planned: 2
-  Disjoint files: yes
-  Healthy lanes: 4
-  → Orchestrating: 2 tasks across 2 lanes
-```
-
-Or:
-
-```
-$ fa dispatch "Fix the login bug"
-SPLIT EVALUATION:
-  Tasks planned: 1
-  Disjoint files: n/a
-  → Single agent: working directly (no split needed)
-```
-
-This makes the tool's decision transparent and teaches the user the
-difference.
-
-### P3 — Per-agent harness profile
-
-Surface per-agent reliability data from the journal:
-
-```
-$ fa profile
-opencode    94% success   avg 45s/task   2 conflicts   0.8MB context
-kilo       87% success   avg 62s/task   5 conflicts   1.2MB context
-hermes      91% success   avg 51s/task   1 conflict    0.9MB context
-```
-
-This tells you which agents are reliable workers, which need tighter specs,
-and which are burning lanes on conflicts.
-
-### P4 — Richer handoff semantics
-
-Currently a handoff is one line. Expand to a structured handoff that can
-include:
-
-- Decisions made (what was chosen)
-- Rejected approaches (what was tried and why it failed)
-- Open questions (what the next task must decide)
-
-This addresses the #1 failure mode in multi-agent systems: information
-loss at handoff boundaries.
+| # | Gap identified here | Status | Where it actually lives now |
+|---|---|---|---|
+| 8 | Explicit direct-vs-orchestrate decision, not a hidden heuristic | **Done** | `fa dispatch` — prints a `SPLIT EVALUATION` line and the DIRECT/ORCHESTRATE decision as real code, not prose a coordinator computes by hand. No `--mode direct/orch` override flag was added — the decision is always mechanical, by design. See `AGENTS.md`'s "The gate" section and README's Features table. |
+| 9 | Naming the fallback cycle "Loop", to match this framework | **Not done** | The mechanism (fallback chain + now agent/harness ranking) is documented on its own terms in README, but the word "Loop" itself never made it into user-facing docs — it stayed internal vocabulary, here and in `SESSION.md`. Low value on its own; revisit only if it'd clarify something concrete. |
+| 10 | Pre-dispatch "should I split?" check | **Done** | Same as #8 — `fa dispatch`'s `SPLIT EVALUATION` line, including a `trivial=` count and a note when batch dispatch (still unbuilt) would suit a task set better. |
+| 11 | Harness quality metrics per agent | **Done** | `fa profile` — per-agent, per-category success rate from the journal (`bin/buckets.sh cmd_profile`). Output is a plain ok/fail-rate breakdown, not the avg-task-time/conflict-count mockup originally sketched here — that data isn't tracked per-agent. |
+| 12 | Richer handoff semantics (decisions/rejected/open) | **Done, before this analysis was ever updated** | Landed in `a7a903f` — before the security-note update (`dcc4294`) to this very file, which should have caught it and didn't. Since extended further (2026-09-21) with an optional `result:` line and `when` conditional graph edges — see README's Handoffs section. |
 
 ---
 
@@ -318,7 +201,16 @@ fa's core insight (credential = scheduling unit) is unique and correct.
 The file-bounded split criterion is the right one. The fallback chain is
 the Loop. The adapters are the Harness.
 
-The most valuable additions are **naming what's already there** and **making
-the direct-vs-orch decision explicit and teachable**. The graph
-visualization (just merged) is the Graph made inspectable. The remaining
-work is clarity, not complexity.
+As of 2026-09-21, the direct-vs-orchestrate decision is explicit and
+mechanical (`fa dispatch`), the Harness now has both a model-ranking axis
+and an agent/harness-ranking axis with real per-category learning, handoffs
+carry structured decisions/rejected/open plus an optional conditional
+`result:`/`when` edge, and the graph has its first real branch. What
+started as five documented gaps (§8–12 above) is now four resolved and one
+(naming the Loop in user-facing docs) judged low-value on its own.
+
+The one paradigm axis still genuinely unbuilt is **`until`** — loop until a
+condition converges across a subgraph, not just within one task's own
+fallback chain. It was evaluated and deliberately deferred; see
+`docs/dev/SESSION.md` for the current status and reasoning, and for
+whatever else is next — that file, not this one, is the live roadmap.

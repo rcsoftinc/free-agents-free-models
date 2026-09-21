@@ -260,7 +260,20 @@ build_prompt() { # $1=task id
   while IFS= read -r d; do
     [[ -z "$d" ]] && continue
     h="$(cat "${HANDOFFS}/${d}.txt" 2>/dev/null || true)"
-    [[ -n "$h" ]] && ctx+="- ${d}: ${h}"$'\n'
+    if [[ -n "$h" ]]; then
+      ctx+="- ${d}: ${h}"$'\n'
+    else
+      # A dependency that completed but left no handoff used to be an empty
+      # context slot - silently worse, not louder: the dependent had no way
+      # to know it was missing anything at all. capture_handoff() already
+      # records a missing_handoff finding for the DEPENDENCY's side; this is
+      # the DEPENDENT's side - a fixed, deterministic caution line, not a
+      # model call (no extra request, no lane spent), so a worker is at
+      # least told to verify rather than silently assume an interface no one
+      # ever described.
+      ctx+="- ${d}: (no handoff was provided - verify this dependency's output directly; do not assume its interface, naming, or format)"$'\n'
+      journal handoff_recovery_injected "$id" "dependency=${d}"
+    fi
   done < <(task_deps "$id")
   [[ -n "$ctx" ]] && ctx="Context from the tasks you depend on (already finished):"$'\n'"${ctx}"$'\n'
 

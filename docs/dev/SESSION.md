@@ -1,6 +1,6 @@
 # SESSION STATE — read this first on resume
 
-**Last updated:** 2026-09-10
+**Last updated:** 2026-09-21
 
 ---
 
@@ -8,7 +8,7 @@
 
 **Complete, working, and proven on a real project.** Published privately at
 `github.com/rcsoftinc/free-agents-free-models`. Full suite green:
-**245 assertions, 15 suites, ~5m, offline.**
+**404 assertions, 23 suites, offline.**
 
 **It has built real software unattended.** All independently verified against what
 the code does rather than what the agents reported:
@@ -99,15 +99,16 @@ constantly. Fingerprints do not move — the nous one is the token's `sub` claim
 ## Layout
 
 ```
-bin/fa            entry point: bootstrap doctor lanes run plan go orch status resume
-bin/buckets.sh    credential registry      lanes | discover | probe | show
-bin/run.sh        dispatch engine          fallback chain, bucket lease, breaker
-bin/plan.sh       goal -> task graph       planning itself has fallback
-bin/orch.sh       per-project task graph   run | status | resume (journal replay)
+bin/fa            entry point: bootstrap doctor lanes run plan dispatch/go rank profile orch status resume findings
+bin/buckets.sh    credential registry      lanes | discover | probe | show | profile
+bin/run.sh        dispatch engine          fallback chain, bucket lease, breaker, agent/harness ranking
+bin/plan.sh       goal -> task graph       planning itself has fallback, rejects malformed graphs locally
+bin/orch.sh       per-project task graph   run | status | resume (journal replay), "when" conditional edges
 bin/lib/          common.sh, deps.sh, adapters.sh, classify.sh + adapters/ (one file per harness)
+data/model-seed.json  OPTIONAL cold-start opinion per model/category - hand-edit or delete, nothing breaks
 prompts/          coordinator.md - the single pasted prompt
 skills/           skill cards, linked into the project by bootstrap
-test/             16 suites, stub agents, fixture registry - fully offline
+test/             23 suites, stub agents, fixture registry - fully offline
 ```
 
 ## Lanes on this machine
@@ -137,13 +138,14 @@ shows credits left, and a spent allowance drops off the lane list on its own.
 - **Verify, do not trust.** A task's declared `files` must exist afterwards AND,
   on an existing codebase, must have **changed** — a file left byte-identical is
   as unverified as one never written. An agent reporting success is not evidence.
-- **Findings are the feedback path**, and cover six kinds: `unclassified`,
-  `all_lanes_failed`, `unverified_repeat`, `missing_handoff`, `deadlock`, `note`.
-  The first five are the tool noticing something about itself; **`note` is the
-  manual channel** for what no heuristic reaches (an ambiguous spec, a plan that
-  split the work wrong) — without it that class of failure dies with the
-  terminal session. Never auto-filed; the coordinator reports, the user decides.
-  Everything is redacted on the way in, and repeats collapse by fingerprint.
+- **Findings are the feedback path**, and cover eight kinds: `unclassified`,
+  `all_lanes_failed`, `unverified_repeat`, `missing_handoff`, `deadlock`,
+  `orphan_abandoned`, `malformed_result`, `note`. The first seven are the tool
+  noticing something about itself; **`note` is the manual channel** for what no
+  heuristic reaches (an ambiguous spec, a plan that split the work wrong) —
+  without it that class of failure dies with the terminal session. Never
+  auto-filed; the coordinator reports, the user decides. Everything is
+  redacted on the way in, and repeats collapse by fingerprint.
 - **Containment differs per agent**: `opencode --dir`, `kilo --dir`, hermes via
   `HOME` (it honours neither `cwd` nor `--in`). There is no uniform flag.
 - **These CLIs exit 0 on hard failures.** Classify on output, never on rc.
@@ -212,10 +214,92 @@ with auto-fix loop. `fa run --validate` runs `node --check`, `python3 -m py_comp
 per task. Flag `--validate-all` reserved for tests + lint (future phases).
 Journal records `validation_failed` events for `fa analyze`.
 
+**Agent/harness ranking + graph conditionals (2026-09-21)** — see the session
+section below for the full build and the bugs it surfaced.
+
+## This session: the ranking axis + graph conditionals
+
+The user's original idea from before this project started — rank and switch
+between model/agent/harness combinations per task type, defaulting to the
+next-best on failure — was only half-built: model ranking existed per
+category, but the *agent/harness* axis did not, and cold-start behaviour
+gated on overall history instead of per-category history. Both are now built:
+
+- **Per-category cold-start seed opinion.** `data/model-seed.json` can carry
+  an optional per-category `tiers` override (context size + name heuristics
+  otherwise), consulted only until real per-category evidence exists — the
+  moment it does, the seed opinion stops competing with it. Deliberately
+  **not** live-fetched from a leaderboard (evaluated and rejected — see
+  ALIGNMENT-style reasoning: a hand-edited/generated static file is
+  reproducible and auditable, a live fetch is neither).
+- **Agent/harness ranking.** The same model reachable through two CLIs on one
+  wallet is now ranked between them too (Beta-smoothed per-category success
+  rate), with automatic fallback to the next-best harness on the *same*
+  wallet and model before ever trying a different model or wallet. Exposed
+  read-only via `fa profile` (per-agent/harness rate) and `fa rank <category>`
+  (the full candidate chain) — no request spent to see either.
+- **`fa dispatch`** — the orchestrate-vs-direct gate, previously prose in
+  `AGENTS.md` that a coordinator had to compute correctly by hand, is now
+  real code: it plans (if given a goal) or reads the existing `tasks.json`,
+  checks for a genuinely disjoint task pair and `fa lanes ≥ 2`, prints a
+  `SPLIT EVALUATION`, and dispatches `fa orch run` itself when it decides to.
+  `AGENTS.md`'s gate section now points at it instead of restating the rule.
+- **`when` conditional graph edges.** A task can declare
+  `{"when": {"dep", "path", "equals"}}` to run only if a finished dependency's
+  captured `result:` line matches — the first real branch in the task graph,
+  distinct from a plain `deps` entry (wait for it vs. run only if it says so).
+  Built on the existing handoff transport: `result: <one-line JSON>` is an
+  optional extra line in the same `---HANDOFF---` block, requested only when
+  some other task's `when` actually reads it. A new terminal journal event,
+  `skipped`, is distinct from `done`/`failed` — nothing attempted, nothing
+  wrong — and `deps_met()` treats it as resolved so downstream tasks are never
+  stuck behind a skip.
+- **Soft-injected handoff caution.** A dependency that leaves no handoff no
+  longer produces a silent gap — its dependent's prompt gets a fixed caution
+  line telling it to verify that dependency's output directly.
+- **`fa dispatch`/`fa go` no-goal mode.** Evaluating an existing `tasks.json`
+  no longer requires re-planning from scratch.
+
+**Real bugs the work surfaced, all fixed and covered by new tests** (not an
+exhaustive list — see `git log` for the full sequence):
+- The `--validate` gate and `run_task()`'s worktree merge-back each crashed on
+  their own success path — both were `set -e` plus a plain assignment of a
+  function whose last statement can legitimately return non-zero on success.
+  The merge-back bug additionally **silently reverted earlier tasks' work**
+  on every successful worktree merge — the most serious bug found this
+  session, caught only by an end-to-end test asserting file content survived
+  a second task's merge, not by reading the code.
+- `discover()` silently wiped all learned per-model and per-agent ranking
+  evidence on every refresh — the exact data the whole ranking system exists
+  to protect — fixed by forward-carrying `.stats`/`.cat_stats`/
+  `.cooldown_until` and the new root-level `.agent_stats` across a refresh.
+- `fa lanes` always counted a cooling-down bucket as live (jq compared a
+  number to a string and the comparison silently never matched).
+- Resume could dispatch a duplicate `run_task()` for an orphaned task whose
+  previous process had died mid-run but left no terminal journal event —
+  fixed with a new `orphan_abandoned` finding and liveness check via
+  `$BASHPID` (not `$$`, which stays the parent shell's PID inside a
+  backgrounded subshell).
+- The auto-isolate heuristic guessed at file overlap instead of checking it;
+  replaced with a real pairwise `comm -12` check.
+- Three `classify.sh` regex patterns were over-broad enough to misclassify
+  real provider text, and the cooldown escalation loop was capped at a fixed
+  3 iterations instead of continuing to the real cap.
+
+`until` (loop-until-converged, the third axis of the Graph/Loop/Harness
+framework in `docs/dev/PARADIGMS.md`, alongside the now-built Graph
+conditionals and the Harness ranking above) was discussed and **deliberately
+deferred, not started** — it would be a genuine new primitive (not covered by
+the existing per-task fallback chain, which retries a single task, not a
+subgraph), but its value was judged narrow without a concrete real-project
+need driving it. That discussion was not persisted to a file or commit; if
+resuming this thread, re-evaluate fresh rather than hunting for it.
+
 ## Next, if resuming
 
-Nothing is outstanding and the tool has been proven on a real project. Options,
-roughly in order of value:
+The ranking system (the user's original idea) and the Graph/Harness halves of
+the paradigm framework are now built and tested. Options, roughly in order of
+value:
 
 0. **A real provider failure mid-build — still unobserved.** Three projects,
    19 tasks, and not one genuine mid-flight failure. coldrun was built to force
@@ -223,9 +307,25 @@ roughly in order of value:
    breaker, cooldown escalation and cross-wallet rerouting remain verified only by
    the test suite. **Do not force this by hammering providers** — it will close by
    itself during a genuinely large build.
-1. **Token accounting** was assessed and deliberately not built: worth it only
+1. **`until` (loop-until-converged)** — the deferred Loop axis. Evaluated and
+   set aside this session; worth re-evaluating if a real project surfaces a
+   concrete convergence-style need (e.g. "retry until tests pass" across a
+   whole subgraph, not just one task's fallback chain).
+2. **BATCH mode for trivial tasks.** `fa dispatch` already surfaces when every
+   task in a batch is `"complexity": "trivial"` but does not yet group them
+   onto one lane — noted as roadmap, not built, in the README's Workers
+   section.
+3. **Project modes (strict/push/local) do not yet change dispatch behavior.**
+   `mode` and `automerge` are read from `.orch/config.yaml` but every task
+   goes through the same isolated-worktree-and-commit merge-back regardless.
+   Documented as an honesty note in both READMEs; closing the gap is
+   unstarted.
+4. **Token accounting** was assessed and deliberately not built: worth it only
    for the two lanes that publish a budget (`nous` tph, `copilot` credits).
    A general ledger for the five lanes with no budget changes no decision.
+5. Smaller should-do items raised but not built this session: a known-bad
+   demotion band (distinct from cold-start), and deciding whether to trust
+   cached wallet health vs. re-probing before a large dispatch.
 
 **Do not** add: token budgets on unmetered lanes, live leaderboard fetching (see
 ALIGNMENT for why gateway metadata beats it), or a summariser-based handoff — each

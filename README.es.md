@@ -456,6 +456,7 @@ Sus restricciones:
 - **Sin conversación** — el prompt debe estar completo. El trabajador nunca ve esta conversación.
 - **Archivos declarados son obligatorios** — tareas superpuestas nunca corren juntas. Los archivos se verifican después de la ejecución; archivos byte-identicos cuentan como no verificados.
 - **La categoría importa** — las tareas declaran una categoría (`coding`, `reasoning`, `research`, `general`, `fast`). El planificador rastrea qué modelos tienen éxito por categoría y clasifica las elecciones futuras acordemente. Un modelo bueno para coding puede ser malo para investigación — la categoría mantiene esa señal separada.
+- **La complejidad es contexto opcional, no una puerta (todavía)** — una tarea puede declarar `"complexity": "trivial" | "standard" | "substantial"`. `fa dispatch` la muestra (una pista cuando todas las tareas de un lote son triviales) pero aún no ramifica según ella; un modo real de envío por lotes para agrupar tareas triviales en un solo carril está en el roadmap, no construido.
 
 ### Trabajo que espera
 
@@ -472,9 +473,11 @@ rejected: <alternativas consideradas y por qué fueron rechazadas>
 open: <preguntas o decisiones que la siguiente tarea debe tomar>
 ```
 
-Este bloque se da a las tareas que declararon esta como dependencia. Si una tarea no escribe nada, todo degrada al comportamiento anterior — sin fallo, solo menos contexto.
+Este bloque se da a las tareas que declararon esta como dependencia. Si una tarea no escribe nada, su dependiente recibe una línea fija de advertencia en vez de un vacío silencioso — "no se proveyó handoff, verifica la salida de esta dependencia directamente".
 
 El handoff **no** es un resumen — no hay llamada de modelo extra, no se gasta un carril. El trabajador ya está generando salida; solo estructuramos su final.
+
+Una tarea puede añadir una línea más — `result: <JSON de una línea>` — pero solo cuando algo río abajo realmente la necesita: una tarea dependiente que declare `"when": {"dep": "api", "path": ".decision", "equals": "yes"}` en su propia especificación solo pedirá esa línea, y solo correrá si el valor coincide. Un `when` insatisfecho **omite** la tarea (no es un fallo — cualquier cosa que dependa de la tarea omitida sigue su curso normal).
 
 ### Categorías de trabajo
 
@@ -498,7 +501,47 @@ Cuánta autonomía tienen los trabajadores, por proyecto:
 | **push** | Proyectos personales, carriles confiables | Trabajadores fusionan sus propios worktrees después de pasar verificación |
 | **local** | Trabajo experimental, ramas de prueba | Trabajadores operan en el árbol principal, sin aislamiento |
 
-Configura con `fa config --mode push` o editando `.orch/config.yaml`. El orquestador (`fa orch run`) lee el modo y ajusta el comportamiento de aislamiento acordemente.
+Se configura editando `.orch/config.yaml` directamente (no existe un comando `fa config`). **Nota de honestidad:** hoy `mode` y `automerge` se leen pero todavía no cambian el comportamiento del envío según el modo — toda tarea pasa por el mismo ciclo de worktree-aislado-y-commit-de-fusión sin importar qué modo esté configurado. Trata esta tabla como la intención documentada de hacia dónde va la autonomía por proyecto, no como comportamiento ya exigido.
+
+## Cómo se clasifican modelos y agentes
+
+Cada envío recorre una cadena clasificada de candidatos `(billetera, modelo, agente)` —
+qué billetera, qué modelo y a través de qué CLI enrutarlo. Nada está fijado de
+antemano; todo se aprende de lo que realmente ha funcionado, por separado para
+cada categoría de tarea, en dos ejes independientes:
+
+**Clasificación de modelos.** Conteos de éxito/fallo por categoría, así un modelo
+bueno en `coding` nunca se asume bueno en `reasoning`. Un modelo sin historial
+todavía en una categoría cae de vuelta a una estimación de arranque en frío —
+tamaño de contexto, un par de heurísticas de nombre, y una opinión semilla
+opcional que puedes editar a mano o generar a partir de un leaderboard en
+`data/model-seed.json` (ver su propia clave `_README` para el formato,
+incluyendo overrides por categoría). En el momento en que existe evidencia real
+para esa categoría, gana sin discusión — la estimación nunca vuelve a competir
+con ella.
+
+**Clasificación de agente/contenedor.** El mismo modelo, alcanzable a través de
+dos CLIs distintos en una billetera (digamos, tanto opencode como kilo tienen
+la misma clave de OpenRouter), también se clasifica entre ellos — y si el
+contenedor mejor clasificado empieza a fallar, el siguiente intento cae
+automáticamente al otro contenedor sobre la **misma** billetera y modelo,
+antes de siquiera intentar un modelo o una billetera diferente.
+
+Mira lo que la herramienta ha aprendido, sin gastar una petición:
+
+```sh
+fa rank coding      # la cadena completa de candidatos clasificados para una categoría
+fa profile          # tasa de éxito por agente/contenedor, aprendida de ejecuciones reales
+```
+
+Y si una meta de varias partes vale la pena dividirla entre carriles —
+en lugar de que tú (o el agente) lo adivinen — es en sí misma una verificación
+mecánica:
+
+```sh
+fa dispatch "meta"  # planifica, y luego imprime su decisión DIRECT vs ORCHESTRATE
+fa dispatch         # el mismo chequeo, contra un grafo de tareas que ya escribiste
+```
 
 ## Agentes soportados
 
@@ -520,14 +563,17 @@ Configura con `fa config --mode push` o editando `.orch/config.yaml`. El orquest
 | **Envío paralelo** | Ejecuta tareas independientes en carriles separados simultáneamente |
 | **Ejecución aislada** | Ejecuta tareas en worktrees de git para prevenir colisiones (`--isolate`) |
 | **Cadena de alternativas** | Intenta el siguiente carril sano cuando uno falla — sin intervención manual |
+| **Clasificación de agente/contenedor** | Aprende qué CLI realmente obtiene resultados por categoría, y cae al siguiente mejor contenedor sobre la misma billetera y modelo antes de intentar cualquier otra cosa (`fa profile`) |
 | **Disyuntor de bucket** | Congela una billetera después de fallos consecutivos, omite todos sus modelos instantáneamente |
-| **Clasificaciones aprendidas** | Clasifica modelos por resultados observados por categoría (coding, reasoning, research) |
+| **`fa dispatch`** | La decisión orquestar-vs-directo como código real, no una regla que un coordinador tiene que calcular bien a mano — imprime su evaluación, envía cuando decide hacerlo |
+| **`fa rank`** | Vista de solo lectura de la cadena de candidatos clasificados para una categoría — ve por qué se eligió un modelo/agente, sin gastar una petición |
 | **Visualización de grafo** | Renderiza el grafo de tareas como diagrama ASCII (`fa graph`, `fa plan --graph`) — verifica la división antes de gastar tokens |
-| **Resumen seguro** | Registro de solo añadir; resume cualquier ejecución después de interrupción |
+| **Bordes condicionales `when`** | Una tarea puede correr solo si el resultado reportado de una dependencia completada coincide — una rama real en el grafo de tareas, no solo una espera |
+| **Resumen a prueba de caídas** | Registro de solo añadir; resume cualquier ejecución después de una interrupción, sin reenviar una tarea cuyo proceso hijo de una ejecución matada sigue vivo |
 | **Carriles medidos** | Auto-incluye copilot/cursor cuando se detectan con créditos, intentados últimos |
 | **Puerta de verificación** | Verificación de sintaxis post-construcción opcional con bucle de auto-arreglo (`--validate`) |
-| **Modos de proyecto** | Autonomía por proyecto: strict (default), push, local |
-| **Handoffs** | Bloque estructurado (decisions, rejected, open) pasado a dependientes; sin llamada de modelo extra |
+| **Modos de proyecto** | Autonomía por proyecto: strict (default), push, local — ver la nota de honestidad arriba de la tabla de modos |
+| **Handoffs** | Bloque estructurado (decisions, rejected, open) pasado a dependientes; sin llamada de modelo extra. Una dependencia que no deja handoff hace que se inyecte una advertencia suave en el prompt de su dependiente, en vez de un vacío silencioso |
 | **Findings** | Registra lo que la herramienta notó que manejó mal; copiable a issues |
 
 ## Capacidades
@@ -592,6 +638,9 @@ Cada adaptador identifica credenciales, lista modelos (TSV prefijado por agente)
 │   ├── analyze.sh             análisis post-ejecución del journal + aprendizajes
 │   └── lib/                   common.sh, deps.sh, adapters.sh, classify.sh
 │       └── adapters/          un archivo por agente (opencode, kilo, hermes, copilot, cursor, agy, pi)
+├── data/model-seed.json       opinión OPCIONAL de arranque en frío - edítala a mano o
+│                               genérala de un leaderboard; bórrala y nada se rompe (ver su
+│                               propia clave "_README" para el formato)
 ├── skills/                    tarjetas de habilidades, enlazadas por `fa bootstrap`
 ├── state/                     el registro de credenciales (ignorado por git, regenerado)
 ├── docs/                      SETUP.md, historial de diseño en dev/
@@ -625,8 +674,8 @@ Un **proyecto** es reproducible: confirma `.orch/tasks.json`, y cualquiera con s
 ## Pruebas
 
 ```sh
-bash test/run_all.sh               # 16 suites offline: CLIs de agente stub, registro fixture
-bin/lib/classify.sh --self-test    # taxonomía de errores, 28 casos, offline, ~1s
+bash test/run_all.sh               # 23 suites offline: CLIs de agente stub, registro fixture
+bin/lib/classify.sh --self-test    # taxonomía de errores, 43 casos, offline, ~1s
 bin/fa doctor                      # deps, CLIs de agente+versiones, presencia, self-test, lanes
 bin/fa lanes                       # verificación de humo: >0 significa que las credenciales funcionan
 DRY_RUN_LIMIT=0 bin/run.sh --dry-run   # la cadena candidata completa, gasta nada
@@ -648,3 +697,5 @@ Estos CLIs **salen 0 en fallos duros** (hermes devuelve 0 en HTTP 404 y en un re
 - Un modelo aún puede escribir a una ruta absoluta sin importar cualquier bandera. **Verifica los archivos.**
 - **El campo `free` en la salida del adaptador debe ser literal `true` o `false`** — el analizador en `buckets.sh` verifica `(.[4]==\"true\")`, no una etiqueta libre como `"free"`.
 - **Mantén el formato TSV estricto**: 7 campos separados por tabulaciones para modelos (`agente proveedor model_arg upstream free context max_output`), 6 para identidades (`agente proveedor billetera ident source extra`). Cualquier nueva línea literal en el campo `extra` rompe el constructor de registros.
+- **Un `when.dep` también debe estar listado en el propio `deps` de esa tarea.** `when` solo decide si correr una vez que su dependencia ya terminó; sin la entrada `deps` correspondiente, la tarea podría volverse elegible antes de que esa dependencia llegue a correr. `fa plan`/`check_graph_integrity` rechazan un plan que se equivoca en esto, pero un `tasks.json` editado a mano no se detecta hasta el envío.
+- **`fa dispatch`/`fa go` sin meta lee el `tasks.json` que ya está en disco** — nunca vuelve a planificar si ya existe uno. Pasa una meta explícitamente (`fa dispatch "meta"`) cuando quieras un plan nuevo en vez de evaluar lo que ya está ahí.

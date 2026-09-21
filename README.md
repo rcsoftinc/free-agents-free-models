@@ -456,6 +456,7 @@ Their constraints:
 - **No conversation** — the prompt must be complete. The worker never sees this conversation.
 - **Declared files are enforced** — overlapping tasks never run together. Files are checked after execution; byte-identical files count as unverified.
 - **Category matters** — tasks declare a category (`coding`, `reasoning`, `research`, `general`, `fast`). The scheduler tracks which models succeed per category and ranks future picks accordingly. A model good at coding may be bad at research — the category keeps that signal separate.
+- **Complexity is optional context, not a gate (yet)** — a task can declare `"complexity": "trivial" | "standard" | "substantial"`. `fa dispatch` surfaces it (a hint when every task in a batch is trivial) but does not yet branch on it; a real batch-dispatch mode for grouping trivial tasks onto one lane is on the roadmap, not built.
 
 ### Work that waits
 
@@ -472,9 +473,11 @@ rejected: <alternatives considered and why they were rejected>
 open: <questions or decisions the next task must make>
 ```
 
-This block is given to tasks that declared this one as a dependency. If a task writes nothing, everything degrades to the old behavior — no failure, just less context.
+This block is given to tasks that declared this one as a dependency. If a task writes nothing, its dependent gets a fixed caution line instead of a silent gap — "no handoff was provided, verify this dependency's output directly."
 
 The handoff is **not** a summarizer — no extra model call, no lane spent. The worker is already generating output; we just structure its ending.
+
+A task can add one more line — `result: <one-line JSON>` — but only when something downstream actually needs it: a dependent task declaring `"when": {"dep": "api", "path": ".decision", "equals": "yes"}` in its own spec will only be asked for that line, and will only run at all if the value matches. An unsatisfied `when` **skips** the task (not a failure — anything depending on the skipped task still proceeds normally).
 
 ### Categories of work
 
@@ -496,7 +499,44 @@ How much autonomy workers get, per project:
 | **push** | Personal projects, trusted lanes | Workers merge their own worktrees after passing verification |
 | **local** | Experimental work, scratch branches | Workers operate in the main working tree, no isolation |
 
-Set with `fa config --mode push` or by editing `.orch/config.yaml`. The orchestrator (`fa orch run`) reads the mode and adjusts isolation behavior accordingly.
+Set by editing `.orch/config.yaml` directly (there is no `fa config` command). **Honesty note:** `mode` and `automerge` are read today but do not yet change dispatch behavior differently per mode — every task goes through the same isolated-worktree-and-commit merge-back regardless of which mode is set. Treat this table as the documented intent for where project autonomy is headed, not as enforced behavior yet.
+
+## How models and harnesses are ranked
+
+Every dispatch walks a ranked chain of `(bucket, model, agent)` candidates —
+which wallet, which model, and which CLI harness to route it through. Nothing
+is fixed in advance; everything is learned from what has actually worked,
+separately per task category, on two independent axes:
+
+**Model ranking.** Per-category success/failure counts, so a model good at
+`coding` is never assumed good at `reasoning`. A model with no history yet in
+a category falls back to a cold-start guess — context size, a few name
+heuristics, and an optional seed opinion you can hand-edit or generate from a
+leaderboard in `data/model-seed.json` (see its own `_README` key for the
+format, including per-category overrides). The moment real evidence exists
+for that category, it wins outright — the guess never competes with it again.
+
+**Agent/harness ranking.** The same model, reachable through two different
+CLIs on one wallet (say, both opencode and kilo hold the same OpenRouter
+key), is ranked between them too — and if the higher-ranked harness starts
+failing, the next attempt automatically falls back to the other harness on
+the *same* wallet and model, before ever trying a different model or a
+different wallet.
+
+See what the tool has learned, without spending a request:
+
+```sh
+fa rank coding      # the full ranked candidate chain for a category
+fa profile          # per-agent/harness success rate, learned from real runs
+```
+
+And when a multi-part goal is worth splitting across lanes at all — instead
+of you (or the agent) guessing — is itself a mechanical check:
+
+```sh
+fa dispatch "goal"  # plans, then prints its DIRECT vs ORCHESTRATE decision
+fa dispatch         # same check, against a task graph you already wrote
+```
 
 ## Supported agents
 
@@ -518,13 +558,17 @@ Set with `fa config --mode push` or by editing `.orch/config.yaml`. The orchestr
 | **Parallel dispatch** | Runs independent tasks on separate lanes simultaneously |
 | **Isolated execution** | Runs tasks in git worktrees to prevent collisions (`--isolate`) |
 | **Fallback chain** | Tries the next healthy lane when one fails — no manual intervention |
+| **Agent/harness ranking** | Learns which CLI actually gets results per category, and falls back to the next-best harness on the same wallet and model before trying anything else (`fa profile`) |
 | **Bucket circuit breaker** | Freezes a wallet after consecutive failures, skips all its models instantly |
+| **`fa dispatch`** | The orchestrate-vs-direct decision as real code, not a rule a coordinator has to compute correctly by hand — prints its evaluation, dispatches when it decides to |
+| **`fa rank`** | Read-only view of the ranked candidate chain for a category — see why a model/agent was picked, without spending a request |
 | **Graph visualization** | Render the task graph as an ASCII diagram (`fa graph`, `fa plan --graph`) — verify the split before spending tokens |
-| **Crash-safe resume** | Append-only journal; resume any run after interruption |
+| **`when` conditional edges** | A task can run only if a completed dependency's reported result matches — a real branch in the task graph, not just a wait |
+| **Crash-safe resume** | Append-only journal; resume any run after interruption, without redispatching a task whose child from a killed process is still running |
 | **Metered lanes** | Auto-includes copilot/cursor when detected with credits, tried last |
 | **Validation gate** | Optional post-build syntax check with auto-fix loop (`--validate`) |
-| **Project modes** | Per-project autonomy: strict (default), push, local |
-| **Handoffs** | Structured decisions + rejected + open block passed to dependents; no extra model call |
+| **Project modes** | Per-project autonomy: strict (default), push, local — see the honesty note above the mode table |
+| **Handoffs** | Structured decisions + rejected + open block passed to dependents; no extra model call. A dependency that leaves no handoff gets a soft caution injected into its dependent's prompt instead of a silent gap |
 | **Findings** | Records what the tool noticed it handled badly; pasteable into issues |
 
 ## Capabilities
@@ -588,6 +632,9 @@ Each adapter identifies credentials, lists models (agent-prefixed TSV), and invo
 │   ├── analyze.sh            post-run journal analysis + learnings
 │   └── lib/                  common.sh, deps.sh, adapters.sh, classify.sh
 │       └── adapters/         one file per harness (opencode, kilo, hermes, copilot, cursor, agy, pi)
+├── data/model-seed.json      OPTIONAL cold-start opinion - hand-edit or generate from
+│                             a leaderboard; delete it and nothing breaks (see its own
+│                             "_README" key for the format)
 ├── skills/                   skill cards, linked by `fa bootstrap`
 ├── state/                    the credential registry (gitignored, regenerated)
 ├── docs/                     SETUP.md, design history in dev/
@@ -621,8 +668,8 @@ A **project** is reproducible: commit `.orch/tasks.json`, and anyone with their 
 ## Tests
 
 ```sh
-bash test/run_all.sh               # 16 offline suites: stub agent CLIs, fixture registry
-bin/lib/classify.sh --self-test    # error taxonomy, 28 cases, offline, ~1s
+bash test/run_all.sh               # 23 offline suites: stub agent CLIs, fixture registry
+bin/lib/classify.sh --self-test    # error taxonomy, 43 cases, offline, ~1s
 bin/fa doctor                      # deps, harness CLIs+versions, presence, self-test, lanes
 bin/fa lanes                       # smoke check: >0 means credentials work
 DRY_RUN_LIMIT=0 bin/run.sh --dry-run   # the full candidate chain, spends nothing
@@ -644,3 +691,5 @@ DRY_RUN_LIMIT=0 bin/run.sh --dry-run   # the full candidate chain, spends nothin
 - A model can still write to an absolute path regardless of any flag. **Verify the files.**
 - **The `free` field in adapter output must be literal `true` or `false`** — the parser in `buckets.sh` checks `(.[4]==\"true\")`, not a freeform label like `"free"`.
 - **Keep TSV format strict**: 7 tab-separated fields for models (`agent provider model_arg upstream free context max_output`), 6 for identities (`agent provider wallet ident source extra`). Any literal newline in the `extra` field breaks the registry builder.
+- **A `when.dep` must also be listed in that task's own `deps`.** `when` only decides whether to run once its dependency has already finished; without the matching `deps` entry the task could become eligible before that dependency ever runs. `fa plan`/`check_graph_integrity` reject a plan that gets this wrong, but a hand-edited `tasks.json` will not be caught until dispatch.
+- **`fa dispatch`/`fa go` with no goal reads the `tasks.json` already on disk** — it never re-plans if one exists. Pass a goal explicitly (`fa dispatch "goal"`) when you want a fresh plan instead of evaluating what is already there.

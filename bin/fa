@@ -16,6 +16,7 @@ set -euo pipefail
 #   fa init            set up the current directory (same as .free-agents/setup.sh)
 #   fa lanes [-v]      how many independent credential lanes are healthy
 #   fa profile         per-agent/harness learned reliability (read-only)
+#   fa rank [category] the ranked candidate chain for a category (read-only)
 #   fa discover        rebuild the credential registry (after adding/removing keys)
 #   fa probe [--all]   prove each wallet answers
 #   fa doctor          verify this machine is set up correctly
@@ -54,12 +55,15 @@ prompt_yn() { # $1=prompt -> 0 if yes
   [[ "${ans,,}" == "y" || "${ans,,}" == "yes" ]]
 }
 
-# 6,41: the whole header block (through "fa where"), not a magic prefix of
-# it - a fixed range here already went stale once (it used to cut off `fa
-# go`'s own --graph/--validate/--isolate flags before this comment existed),
-# which is exactly the kind of drift a hardcoded sed slice with no anchor to
-# the content it is supposed to track produces on every edit to the header.
-usage() { sed -n '6,41p' "$0" >&2; exit 3; }
+# Anchored to the HERE= line (self-maintaining), not a magic line range - a
+# fixed range here already went stale TWICE from a single-line addition each
+# time (it silently cut off `fa go`'s own --graph/--validate/--isolate
+# flags, then `fa where`), which is exactly the drift a hardcoded slice with
+# no anchor to the content it is supposed to track produces on every edit to
+# the header. NR>=6 skips the shebang/set -e lines; awk exits before ever
+# printing the HERE= line itself, so the boundary tracks the header no
+# matter how many lines get added to it.
+usage() { awk '/^HERE=/{exit} NR>=6{print}' "$0" >&2; exit 3; }
 cmd="${1:-}"; shift || true
 
 case "$cmd" in
@@ -140,6 +144,15 @@ case "$cmd" in
   probe)    exec "${HERE}/buckets.sh" probe "$@" ;;
   show)     exec "${HERE}/buckets.sh" show "$@" ;;
   profile)  exec "${HERE}/buckets.sh" profile "$@" ;;
+  rank)
+    # The ranked candidate chain for a category, read-only - exactly what
+    # candidates() computes before dispatching, just without dispatching.
+    # DRY_RUN_LIMIT defaults to 0 (show every candidate) here, unlike
+    # run.sh --dry-run's own default of 20: the whole point of a dedicated
+    # command is seeing the full ranking, not a truncated preview.
+    export DRY_RUN_LIMIT="${DRY_RUN_LIMIT:-0}"
+    exec "${HERE}/run.sh" -w "$(pwd)" --dry-run -c "${1:-general}"
+    ;;
   run)      exec "${HERE}/run.sh" -w "$(pwd)" "$@" ;;
   plan)     exec "${HERE}/plan.sh" -w "$(pwd)" "$@" ;;
 

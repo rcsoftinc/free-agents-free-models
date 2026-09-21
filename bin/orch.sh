@@ -420,12 +420,33 @@ cmd_run() {
   local width="${MAX_PARALLEL:-$(healthy_buckets)}"
   [[ "$width" -ge 1 ]] || width=1
   
-  # Auto-enable isolation when multiple tasks have disjoint file sets
+  # Auto-enable isolation when at least two tasks have GENUINELY disjoint
+  # file sets - a real pairwise overlap check (the same comm -12 technique
+  # files_conflict() below already applies to running tasks at dispatch
+  # time, just run up front against the whole static task list), not merely
+  # "more than one task declares a files array". That used to just count
+  # tasks regardless of overlap, so it was right only by accident: a graph
+  # where every task deliberately shares one file (a valid, plan.sh-permitted
+  # pattern between a dependent pair) still had isolation silently switched
+  # on, when isolation buys nothing for tasks that can never run concurrently
+  # anyway (files_conflict() already blocks that) and are dispatched with no
+  # dependency relationship in mind here.
   # Only works in git repos — skip if project isn't a git repo
   if [[ $ISOLATE -eq 0 ]]; then
-    local disjoint_count=0
-    # Count tasks with disjoint file sets (simplified check)
-    disjoint_count=$(jq '[.tasks[] | .files // []] | length' "$TASKS_FILE")
+    local disjoint_count=0 _ids=() _files=() _i _j _clean
+    mapfile -t _ids < <(task_ids)
+    for _i in "${_ids[@]}"; do _files+=("$(task_files "$_i" | sort -u)"); done
+    for ((_i=0; _i<${#_ids[@]}; _i++)); do
+      [[ -z "${_files[$_i]}" ]] && continue
+      _clean=1
+      for ((_j=0; _j<${#_ids[@]}; _j++)); do
+        [[ $_i -eq $_j || -z "${_files[$_j]}" ]] && continue
+        if [[ -n "$(comm -12 <(printf '%s\n' "${_files[$_i]}") <(printf '%s\n' "${_files[$_j]}"))" ]]; then
+          _clean=0; break
+        fi
+      done
+      [[ $_clean -eq 1 ]] && disjoint_count=$((disjoint_count+1))
+    done
     [[ $disjoint_count -gt 1 && $width -gt 1 ]] && git -C "$PROJECT" rev-parse --is-inside-work-tree 2>/dev/null && ISOLATE=1 && log "auto-enabled isolation for parallel disjoint tasks"
   fi
   

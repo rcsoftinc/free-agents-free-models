@@ -84,7 +84,7 @@ fa findings --issue            # format them as GitHub issues
 fa findings --ack              # mark as seen
 ```
 
-Six kinds, and the split matters:
+Seven kinds, and the split matters:
 
 | kind | what it means |
 |---|---|
@@ -93,9 +93,10 @@ Six kinds, and the split matters:
 | `unverified_repeat` | a task claimed success without producing its files, more than once |
 | `missing_handoff` | a task with dependents wrote no handoff line, so they ran blind. Nothing failed; the work quietly got worse |
 | `deadlock` | a task graph could not progress |
+| `orphan_abandoned` | a task's previous attempt vanished mid-run (no PID left alive, no terminal event) — resume redispatched it fresh |
 | `note` | recorded by hand — the channel for what no heuristic reaches |
 
-The first five are the tool noticing something about itself. **`note` is the one
+The first six are the tool noticing something about itself. **`note` is the one
 that catches "the spec was ambiguous" or "the plan split this wrong"** — real
 failures that no detector will ever see. If you are the coordinator and you
 notice one, record it; otherwise it dies with the terminal session.

@@ -264,13 +264,16 @@ invoke() { # $1=agent $2=model $3=provider $4=prompt
 
 # -------------------------------------------------------------------- record --
 # The single write path into the learning store. Nothing else writes outcomes,
-# and nothing at all is written for local_network.
+# and nothing at all is written for local_network or context_overflow - per
+# classify.sh's attribution table both are "neither/nobody": local_network is
+# our own network dying, context_overflow is the CALLER's prompt being too
+# big, and neither says anything about whether this model or wallet is good.
 # NOTE on what counts as evidence: a bucket-level failure (rate limit, billing)
 # says nothing about whether this model is good at this category, so it must not
 # be scored against the model. Only ok / timeout / dead / provider_error do.
 record() { # $1=bucket $2=model $3=state $4=ms $5=output(optional)
   local bucket="$1" model="$2" state="$3" ms="$4" out="${5:-}" cd_secs until_ts=0 hint
-  [[ "$state" == "local_network" ]] && return 0
+  [[ "$state" == "local_network" || "$state" == "context_overflow" ]] && return 0
   # Pass the failure count so a first, possibly transient failure gets a short
   # window and only a repeatedly-failing wallet earns the long one.
   local nfail
@@ -292,7 +295,10 @@ record() { # $1=bucket $2=model $3=state $4=ms $5=output(optional)
     .buckets[$b].health.last_used = ($now|tonumber)
   | .buckets[$b].models |= map(
       if ([.routes[].model_arg] | index($m)) != null then
-        .probe = {state:$s, at:$at, ms:($ms|tonumber)}
+        # A bucket-level fault (rate limit/billing/auth) is a fact about the
+        # WALLET, not this model - it must not clobber this models last probe
+        # result any more than it may touch .stats/.cat_stats below.
+        .probe = (if $fault then .probe else {state:$s, at:$at, ms:($ms|tonumber)} end)
       | .stats = (if $fault then (.stats // {ok:0, fail:0})
                   else (.stats // {ok:0, fail:0})
                   | if $s == "ok" then .ok += 1 else .fail += 1 end end)

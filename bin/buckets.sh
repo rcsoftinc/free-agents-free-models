@@ -259,7 +259,9 @@ cmd_discover() {
               meter: ($id.extra | del(.limits, .metered) | if length > 0 then . else null end),
               health: ($old[$bid].health //
                        {state:"unknown", consecutive_failures:0, cooldown_until:null}),
-              models: ([ .[] | . as $m | {
+              models: ([ .[] | . as $m
+                | (($old[$bid].models // [] | map(select(.upstream == $m.upstream)) | .[0]) // {}) as $prevm
+                | {
                   upstream: $m.upstream,
                   free: $m.free,
                   context: (if $m.context > 0 then $m.context else ($meta[$m.upstream].context // 0) end),
@@ -290,9 +292,15 @@ cmd_discover() {
                     else null end),
                   routes: [{agent:$m.agent, model_arg:$m.model_arg,
                             provider:$m.provider}],
-                  probe: (($old[$bid].models // []
-                           | map(select(.upstream == $m.upstream)) | .[0].probe)
-                          // {state:"unprobed", at:null, ms:null})
+                  # Every field below is LEARNED - carried forward from the
+                  # previous registry by upstream id, exactly like .probe
+                  # already was. Without this, every `fa discover`/`fa
+                  # refresh` (the daily cron) silently zeroed all observed
+                  # ranking evidence and any active model-level cooldown.
+                  stats: ($prevm.stats // {ok:0, fail:0}),
+                  cat_stats: ($prevm.cat_stats // {}),
+                  cooldown_until: ($prevm.cooldown_until // 0),
+                  probe: ($prevm.probe // {state:"unprobed", at:null, ms:null})
                 } ] | group_by(.upstream)
                     | map(.[0] + {routes: (map(.routes[0]) | unique)}) )
             } } ) | from_entries) as $buckets

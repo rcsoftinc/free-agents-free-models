@@ -119,5 +119,37 @@ rm -f "$OPENCODE_AUTH"
 out="$(ids)"
 assert_not_contains "an agent with no credentials contributes no bucket" "$out" "$OWN_KEY"
 
+# --- 7. learned evidence survives a refresh ---------------------------------
+# `fa discover`/`fa refresh` runs on a DAILY CRON. Every model object used to
+# be rebuilt from scratch, forward-carrying only .probe and bucket-level
+# .health - so every ranking signal candidates() relies on (per-model and
+# per-category ok/fail counts, and any active model cooldown) was silently
+# zeroed once every 24h. Prove a second discover() keeps what the first one
+# (plus a run) produced, matched by upstream model id.
+write_configs "sk-or-v1-DIFFERENTKEY99999999999"
+timeout 150 "$REPO/bin/buckets.sh" discover >/dev/null 2>&1
+if [[ -s "$REG" ]]; then
+  field_of() { jq -r --arg m "$1" --arg f "$2" \
+    '[.buckets[].models[]|select(.upstream==$m)|.[$f]][0]' "$REG"; }
+
+  jq '(.buckets[] | select(.models[]?.upstream == "free-a") | .models[]
+       | select(.upstream == "free-a"))
+      |= (.stats = {ok:7, fail:2}
+        | .cat_stats = {coding:{ok:3, fail:1}}
+        | .cooldown_until = 9999999999)' \
+    "$REG" > "$REG.tmp" && mv "$REG.tmp" "$REG"
+
+  timeout 150 "$REPO/bin/buckets.sh" discover >/dev/null 2>&1
+
+  assert_eq "stats.ok survives a second discover" "$(field_of free-a stats | jq .ok)" "7"
+  assert_eq "stats.fail survives a second discover" "$(field_of free-a stats | jq .fail)" "2"
+  assert_eq "cat_stats survives a second discover" \
+    "$(field_of free-a cat_stats | jq .coding.ok)" "3"
+  assert_eq "an active model cooldown survives a second discover" \
+    "$(field_of free-a cooldown_until)" "9999999999"
+else
+  fail "discover wrote no registry"
+fi
+
 end_suite
 final_report

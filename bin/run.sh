@@ -324,6 +324,91 @@ record() { # $1=bucket $2=model $3=state $4=ms $5=output(optional)
     --arg cat "$CATEGORY"
 }
 
+# ------------------------------------------------------------------ validate --
+# Phase 1: syntax check only. No auto-fix loop, no tests, no lint.
+# Fails fast — if syntax is broken, the task is marked failed immediately.
+# Rationale: catch the most common agent error (unparseable code) before it
+# reaches production.
+# Defined here, ABOVE the main loop that calls it: a bash function must be
+# defined (the statement executed) before anything calls it, and this used to
+# sit after the main loop, so calling it would fail with "command not found"
+# the moment the `local`-outside-function crash below it was fixed.
+validate_build() {
+  local out_file="$1"
+  local workdir="${WORKDIR:-$(pwd)}"
+  local errors_file
+  errors_file="$(mktemp)"
+  local errors=()
+
+  # Find all JS/TS/Python/sh files in the workdir and check syntax
+  while IFS= read -r -d '' file; do
+    case "$file" in
+      *.js|*.mjs|*.cjs)
+        if ! node --check "$file" 2>/dev/null; then
+          errors+=("$file: node --check failed")
+        fi
+        ;;
+      *.py)
+        if ! python3 -m py_compile "$file" 2>/dev/null; then
+          errors+=("$file: python3 -m py_compile failed")
+        fi
+        ;;
+      *.sh)
+        if command -v shellcheck >/dev/null 2>&1; then
+          if ! shellcheck "$file" 2>/dev/null; then
+            errors+=("$file: shellcheck failed")
+          fi
+        fi
+        ;;
+    esac
+  done < <(find "$workdir" -type f \( -name "*.js" -o -name "*.mjs" -o -name "*.cjs" -o -name "*.py" -o -name "*.sh" \) -print0 2>/dev/null)
+
+  if [[ ${#errors[@]} -gt 0 ]]; then
+    printf '%s\n' "${errors[@]}" > "$errors_file"
+    log "validation FAILED:"
+    for e in "${errors[@]}"; do
+      log "  - $e"
+    done
+    # Emit validation failure marker to stderr so callers can parse it
+    printf '%s %s\n' '---VALIDATION-FAILED---' \
+      "$(jq -cn --argjson count "${#errors[@]}" --arg errors "$(printf '%s\n' "${errors[@]}")" \
+        '{count:$count, errors:$errors}')" >&2
+    # Return the errors file path via stdout for the caller
+    printf '%s\n' "$errors_file"
+    return 1
+  fi
+
+  rm -f "$errors_file"
+  log "validation passed"
+  return 0
+}
+
+# Validation gate: after a successful build, verify the output before
+# reporting done. Phase 1 = syntax check above. Phase 2 = auto-fix loop, same
+# lane, no extra credential cost. Wrapped in its own function because `local`
+# is only legal inside one - this used to be inlined in the dispatch loop and
+# crashed under `set -euo pipefail` on every successful --validate run.
+# Reads/updates the caller's $out (not local here), so the final, possibly
+# fixed output is what the main loop prints.
+run_validate_gate() { # $1=agent $2=model $3=provider -> 0 ok, 1 exhausted
+  local agent="$1" model="$2" provider="$3"
+  local round=0 errors_file
+  while [[ $round -lt $VALIDATE_ROUNDS ]]; do
+    errors_file="$(validate_build "$out")" && return 0
+    round=$((round + 1))
+    if [[ $round -ge $VALIDATE_ROUNDS ]]; then
+      log "validation FAILED after ${VALIDATE_ROUNDS} round(s) — exhausted"
+      return 1
+    fi
+    # Auto-fix loop: send the errors back to the same agent to fix.
+    # Same lane, no extra credential cost.
+    local fix_prompt="VALIDATION FAILED. Fix these errors:\n$(cat "$errors_file")\n\nRe-output the corrected file(s)."
+    log "validation failed, fix round ${round}/${VALIDATE_ROUNDS}"
+    out="$(invoke "$agent" "$model" "$provider" "$fix_prompt")" || true
+    rm -f "$errors_file"
+  done
+}
+
 # ---------------------------------------------------------------------- main --
 mapfile -t CHAIN < <(candidates)
 [[ ${#CHAIN[@]} -gt 0 ]] && [[ -n "${CHAIN[0]}" ]] || {
@@ -400,22 +485,7 @@ for row in "${CHAIN[@]}"; do
     # Validation gate: after a successful build, verify the output before
     # reporting done. Phase 1 = syntax check only. Phase 2 = auto-fix loop.
     if [[ $VALIDATE -eq 1 ]]; then
-      local round=0
-      local errors_file
-      while [[ $round -lt $VALIDATE_ROUNDS ]]; do
-        errors_file="$(validate_build "$out")" && break
-        round=$((round + 1))
-        if [[ $round -ge $VALIDATE_ROUNDS ]]; then
-          log "validation FAILED after ${VALIDATE_ROUNDS} round(s) — exhausted"
-          exit 1
-        fi
-        # Auto-fix loop: send the errors back to the same agent to fix.
-        # Same lane, no extra credential cost.
-        local fix_prompt="VALIDATION FAILED. Fix these errors:\n$(cat "$errors_file")\n\nRe-output the corrected file(s)."
-        log "validation failed, fix round ${round}/${VALIDATE_ROUNDS}"
-        out="$(invoke "$agent" "$model" "$provider" "$fix_prompt")" || true
-        rm -f "$errors_file"
-      done
+      run_validate_gate "$agent" "$model" "$provider" || exit 1
     fi
     printf '%s\n' "$out"
     printf '%s %s\n' '---RUN-META---' \
@@ -465,59 +535,3 @@ log "exhausted after ${attempt} attempt(s)"
 printf '%s %s\n' '---RUN-META---' \
   "$(jq -cn --argjson n "$attempt" '{attempts:$n, state:"exhausted"}')" >&2
 exit 2
-
-# ──────────────────────────────────────────────────────────────────── Validation
-# Phase 1: syntax check only. No auto-fix loop, no tests, no lint.
-# Fails fast — if syntax is broken, the task is marked failed immediately.
-# Rationale: catch the most common agent error (unparseable code) before it
-# reaches production.
-
-validate_build() {
-  local out_file="$1"
-  local workdir="${WORKDIR:-$(pwd)}"
-  local errors_file
-  errors_file="$(mktemp)"
-  local errors=()
-
-  # Find all JS/TS/Python/sh files in the workdir and check syntax
-  while IFS= read -r -d '' file; do
-    case "$file" in
-      *.js|*.mjs|*.cjs)
-        if ! node --check "$file" 2>/dev/null; then
-          errors+=("$file: node --check failed")
-        fi
-        ;;
-      *.py)
-        if ! python3 -m py_compile "$file" 2>/dev/null; then
-          errors+=("$file: python3 -m py_compile failed")
-        fi
-        ;;
-      *.sh)
-        if command -v shellcheck >/dev/null 2>&1; then
-          if ! shellcheck "$file" 2>/dev/null; then
-            errors+=("$file: shellcheck failed")
-          fi
-        fi
-        ;;
-    esac
-  done < <(find "$workdir" -type f \( -name "*.js" -o -name "*.mjs" -o -name "*.cjs" -o -name "*.py" -o -name "*.sh" \) -print0 2>/dev/null)
-
-  if [[ ${#errors[@]} -gt 0 ]]; then
-    printf '%s\n' "${errors[@]}" > "$errors_file"
-    log "validation FAILED:"
-    for e in "${errors[@]}"; do
-      log "  - $e"
-    done
-    # Emit validation failure marker to stderr so callers can parse it
-    printf '%s %s\n' '---VALIDATION-FAILED---' \
-      "$(jq -cn --argjson count "${#errors[@]}" --arg errors "$(printf '%s\n' "${errors[@]}")" \
-        '{count:$count, errors:$errors}')" >&2
-    # Return the errors file path via stdout for the caller
-    printf '%s\n' "$errors_file"
-    return 1
-  fi
-
-  rm -f "$errors_file"
-  log "validation passed"
-  return 0
-}

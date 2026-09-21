@@ -70,6 +70,13 @@ pi_install() { # -> 0 if install was run (or already installed)
   fi
 }
 
+pi_provision_key() { # $1=provider (default openrouter) $2=key -> 0 on success
+  local provider="${1:-openrouter}" key="${2:-}"
+  [[ -z "$key" ]] && return 1
+  json_merge_file "$PI_AUTH" '.[$p] = {"key":$k}' \
+    --arg p "$provider" --arg k "$key"
+}
+
 pi_invoke() { # $1=model $2=provider $3=prompt ; echoes output, returns rc
   local model="$1" prompt="$3" rc=0 out=""
   local t="${INVOKE_TIMEOUT:-${ATTEMPT_TIMEOUT:-${PROBE_TIMEOUT:-300}}}"

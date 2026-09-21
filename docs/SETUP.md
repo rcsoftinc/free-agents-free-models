@@ -18,7 +18,7 @@ GitHub account — it does not by default.
 gh auth login                                    # once per machine
 gh repo clone rcsoftinc/free-agents-free-models \
    ~/.local/share/free-agents-free-models
-~/.local/share/free-agents-free-models/install.sh
+~/.local/share/free-agents-free-models/setup.sh
 ```
 
 ## 1. Agent CLIs
@@ -70,6 +70,58 @@ Produces `{"<provider>": {"type":"api","key":"..."}}`. Providers seen here:
   `credential_pool` entry holds only a `base_url` and a pointer
   (`source: env:KILOCODE_API_KEY`) — not the secret.
 
+## 2b. Automating what can be automated (`keys.env`, optional)
+
+Everything in step 2 above can be done by hand, but three of the seven agents
+— opencode, kilo, pi — need nothing but a raw API key dropped into a JSON
+file, with no OAuth and no browser. `setup.sh` will do that part for you:
+
+```sh
+cp .free-agents/keys.env.example .free-agents/keys.env
+# edit keys.env: paste a DIFFERENT OpenRouter key on each line you want to use
+.free-agents/setup.sh
+```
+
+`setup.sh` reads `keys.env` (gitignored, never committed, chmod'd to `600`
+after it's read) and writes each key straight into that agent's own config
+file — `~/.local/share/opencode/auth.json`, `~/.config/kilo/kilo.jsonc`,
+`~/.pi/agent/auth.json` — in the exact shape each one's own parser expects.
+It never touches this tool's own registry, which still never stores a raw
+key. If `keys.env` doesn't exist, this step is a silent no-op; nothing about
+setup breaks if you never create it.
+
+**Use a different key on every line you fill in.** The same OpenRouter key
+pasted into two lines is not two lanes — it's one wallet racing itself for
+the same rate limit, which is the exact thing this whole tool exists to
+avoid. `setup.sh` warns if it catches a repeat, but can only compare what you
+gave it.
+
+The remaining four agents — copilot, cursor, agy, and hermes — need a real
+account login, which nothing here can safely do on your behalf: consenting
+to an OAuth flow is a decision only you should make. `setup.sh` instead
+**detects** who is already logged in (by running each agent's own identity
+check, the same one `fa discover` uses), offers to run the one command each
+still-missing agent needs, one at a time, and — this is the part that used
+to be silent — **prints a final summary of every account still not logged
+in**, with the command for each, so nothing gets lost just because it needed
+a human:
+
+```
+[fa] copilot: already logged in
+[fa] cursor: not logged in - cursor-agent login   (unverified guess...)
+[fa]   attempt that now? [y/N]
+[fa] accounts not yet logged in (2):
+[fa]   cursor - cursor-agent login   (unverified guess at the subcommand...)
+[fa]   agy - agy login   (unverified guess at the subcommand...)
+```
+
+Two of those four commands are verified (`gh auth login` for copilot,
+`hermes login` for hermes — both documented above). The other two
+(`cursor-agent login`, `agy login`) are educated guesses at the CLI's own
+subcommand name, never confirmed against a real machine — the hint text says
+so, and if the guess is wrong, running the agent's own binary once and
+following its prompt works instead.
+
 ## 3. Build the registry and verify
 
 `.free-agents/setup.sh` does this for you on a machine with no registry — it runs
@@ -114,6 +166,8 @@ metadata, which produced 7 unreachable routes and missed an entire wallet.
 myproject/
 ├── .free-agents/          the tool clone                    ~458 KB
 │   ├── bin/ prompts/ skills/ data/ docs/ test/ AGENTS.md setup.sh
+│   ├── keys.env.example  template - tracked, no secret in it
+│   ├── keys.env           optional, YOUR keys - gitignored, chmod 600
 │   └── (no state/ — the registry is machine-wide, see below)
 ├── .orch/                 this project's run state
 │   ├── tasks.json         THE SPEC — commit this

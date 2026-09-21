@@ -28,6 +28,11 @@ cursor_models() { # -> model rows, agent-prefixed (see buckets.sh)
 
 cursor_caps() { printf 'web,code,reasoning,shell,git,file'; }
 
+# Unverified guess: this project never confirmed cursor-agent's own login
+# subcommand (only `status`, `-p`, `--output-format`, `-f` are exercised
+# elsewhere). Says so rather than stating a guess as fact.
+cursor_login_hint() { printf 'cursor-agent login   (unverified guess at the subcommand - if it errors, just run `cursor-agent` once and follow its own prompt instead)'; }
+
 cursor_install() { # -> 0 if install was run (or already installed)
   command -v cursor-agent >/dev/null 2>&1 && return 1  # already installed
   if [[ "${FA_AUTO_INSTALL:-0}" == "1" ]] || prompt_yn "cursor-agent not installed. Install now?"; then

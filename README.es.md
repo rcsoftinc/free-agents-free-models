@@ -392,6 +392,28 @@ luego pregunta si desea instalarlos. Use `FA_AUTO_INSTALL=1` para omitir las pre
 FA_AUTO_INSTALL=1 .free-agents/setup.sh
 ```
 
+### Credenciales en una máquina nueva
+
+Instalar los CLIs no es lo mismo que iniciar sesión en ellos. `setup.sh`
+también maneja las credenciales, en dos niveles:
+
+- **opencode, kilo, pi** no necesitan más que una clave de API en texto
+  plano. Copia `keys.env.example` a `keys.env` (ignorado por git), pega una
+  clave de OpenRouter **diferente** en cada línea que quieras usar — la
+  misma clave dos veces es una sola billetera, no dos — y `setup.sh` escribe
+  cada una directamente en el archivo de configuración propio de ese agente.
+  Sin `keys.env`, no hay problema: este paso es un no-op silencioso.
+- **copilot, cursor, agy, hermes** necesitan un inicio de sesión real de
+  cuenta, algo que nada puede hacer de forma segura en tu nombre. `setup.sh`
+  detecta quién ya inició sesión, ofrece el paso de login de cada uno de los
+  restantes de forma interactiva, y al final imprime un resumen de toda
+  cuenta que sigue sin iniciar sesión — así un login que nadie completó
+  queda reportado, no silenciosamente omitido.
+
+Detalle completo, incluyendo el archivo exacto donde vive cada credencial y
+por qué algunos de los comandos de login guiado están marcados como
+"adivinanza sin verificar": `docs/SETUP.md`.
+
 ### Primera ejecución
 
 Inicia tu agente preferido (opencode, kilo, hermes, pi, agy, copilot, cursor) y pásale el prompt del coordinator:
@@ -627,6 +649,7 @@ Cada adaptador identifica credenciales, lista modelos (TSV prefijado por agente)
 ├── README.md
 ├── README.es.md               versión en español
 ├── setup.sh                   hace del directorio padre un proyecto
+├── keys.env.example           plantilla para configuración de claves no interactiva (opcional)
 ├── AGENTS.md                  la puerta de enrutamiento que sigue el coordinador
 ├── prompts/coordinator.md     pega esto en cualquier TUI de agente
 ├── bin/
@@ -636,7 +659,7 @@ Cada adaptador identifica credenciales, lista modelos (TSV prefijado por agente)
 │   ├── plan.sh                meta -> grafo de tareas
 │   ├── orch.sh                grafo de tareas + resumen basado en journal
 │   ├── analyze.sh             análisis post-ejecución del journal + aprendizajes
-│   └── lib/                   common.sh, deps.sh, adapters.sh, classify.sh
+│   └── lib/                   common.sh, deps.sh, adapters.sh, classify.sh, keys.sh
 │       └── adapters/          un archivo por agente (opencode, kilo, hermes, copilot, cursor, agy, pi)
 ├── data/model-seed.json       opinión OPCIONAL de arranque en frío - edítala a mano o
 │                               genérala de un leaderboard; bórrala y nada se rompe (ver su
@@ -674,7 +697,7 @@ Un **proyecto** es reproducible: confirma `.orch/tasks.json`, y cualquiera con s
 ## Pruebas
 
 ```sh
-bash test/run_all.sh               # 23 suites offline: CLIs de agente stub, registro fixture
+bash test/run_all.sh               # 24 suites offline: CLIs de agente stub, registro fixture
 bin/lib/classify.sh --self-test    # taxonomía de errores, 43 casos, offline, ~1s
 bin/fa doctor                      # deps, CLIs de agente+versiones, presencia, self-test, lanes
 bin/fa lanes                       # verificación de humo: >0 significa que las credenciales funcionan

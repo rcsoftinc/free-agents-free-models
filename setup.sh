@@ -32,6 +32,8 @@ PROJECT="${PROJECT:-$(cd "${HERE}/.." && pwd)}"
 # shellcheck source=bin/lib/common.sh
 . "${HERE}/bin/lib/common.sh"
 STATE="$STATE_DIR"
+# shellcheck source=bin/lib/keys.sh
+. "${HERE}/bin/lib/keys.sh"
 
 say() { printf '[fa] %s\n' "$*"; }
 
@@ -76,6 +78,22 @@ done
 
 chmod +x "${HERE}"/bin/*.sh "${HERE}"/bin/lib/*.sh "${HERE}/bin/fa" \
          "${HERE}/setup.sh" 2>/dev/null || true
+
+# Credentials, in two tiers because the seven agents are not symmetric - see
+# bin/lib/keys.sh and docs/SETUP.md for the full picture.
+#
+# Tier A (opencode, kilo, pi): a raw key is all they need, so it is fully
+# scriptable from .free-agents/keys.env (copy keys.env.example, gitignored).
+# Silently a no-op if that file does not exist - this is entirely optional.
+provision_keys
+
+# Tier B (copilot, cursor, agy, hermes): real OAuth/account login. This
+# cannot safely automate consenting on your behalf, so it only detects who
+# is not logged in yet, offers each agent's own login step one at a time,
+# and reports what is still outstanding either way - so nothing is silently
+# skipped just because it needed a human.
+guided_logins
+
 # Let orch.sh define what .orch/ contains. This used to be open-coded here, and
 # the copy drifted: it omitted handoffs/, ran first, and orch.sh's own writer
 # no-ops when the file already exists - so every project committed its handoffs.

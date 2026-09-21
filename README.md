@@ -390,6 +390,26 @@ prompts to install them. Use `FA_AUTO_INSTALL=1` to skip prompts:
 FA_AUTO_INSTALL=1 .free-agents/setup.sh
 ```
 
+### Credentials on a fresh machine
+
+Installing the CLIs is not the same as logging into them. `setup.sh` also
+handles credentials, in two tiers:
+
+- **opencode, kilo, pi** need nothing but a raw API key. Copy
+  `keys.env.example` to `keys.env` (gitignored), paste a **different**
+  OpenRouter key on each line you want to use — the same key twice is one
+  wallet, not two — and `setup.sh` writes each one straight into that
+  agent's own config file. No `keys.env`, no problem: this step is a silent
+  no-op.
+- **copilot, cursor, agy, hermes** need a real account login, which nothing
+  can safely do on your behalf. `setup.sh` detects who's already logged in,
+  offers each remaining one's login step interactively, and prints a final
+  summary of every account still not logged in either way — so a login
+  nobody got around to is reported, not silently skipped.
+
+Full detail, including the exact file each credential lives in and why some
+of the guided-login commands are marked "unverified guess": `docs/SETUP.md`.
+
 ### First run
 
 Start your preferred agent (opencode, kilo, hermes, pi, agy, copilot, cursor) and pass it the coordinator prompt:
@@ -621,6 +641,7 @@ Each adapter identifies credentials, lists models (agent-prefixed TSV), and invo
 .free-agents/
 ├── README.md
 ├── setup.sh                  make the parent directory a project
+├── keys.env.example          template for optional non-interactive key setup
 ├── AGENTS.md                 the routing gate the coordinator follows
 ├── prompts/coordinator.md    paste this into any agent TUI
 ├── bin/
@@ -630,7 +651,7 @@ Each adapter identifies credentials, lists models (agent-prefixed TSV), and invo
 │   ├── plan.sh               goal -> task graph
 │   ├── orch.sh               task graph + journal-based resume
 │   ├── analyze.sh            post-run journal analysis + learnings
-│   └── lib/                  common.sh, deps.sh, adapters.sh, classify.sh
+│   └── lib/                  common.sh, deps.sh, adapters.sh, classify.sh, keys.sh
 │       └── adapters/         one file per harness (opencode, kilo, hermes, copilot, cursor, agy, pi)
 ├── data/model-seed.json      OPTIONAL cold-start opinion - hand-edit or generate from
 │                             a leaderboard; delete it and nothing breaks (see its own
@@ -668,7 +689,7 @@ A **project** is reproducible: commit `.orch/tasks.json`, and anyone with their 
 ## Tests
 
 ```sh
-bash test/run_all.sh               # 23 offline suites: stub agent CLIs, fixture registry
+bash test/run_all.sh               # 24 offline suites: stub agent CLIs, fixture registry
 bin/lib/classify.sh --self-test    # error taxonomy, 43 cases, offline, ~1s
 bin/fa doctor                      # deps, harness CLIs+versions, presence, self-test, lanes
 bin/fa lanes                       # smoke check: >0 means credentials work

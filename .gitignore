@@ -1,6 +1,7 @@
 # secrets
 .env
 *.key
+keys.env
 
 # per-project run state (regenerated)
 .orch/

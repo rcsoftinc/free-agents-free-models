@@ -49,6 +49,10 @@ agy_models() { # -> model rows, agent-prefixed (see buckets.sh)
 
 agy_caps() { printf 'web,code,research,reasoning,file'; }
 
+# Unverified guess: this project never confirmed agy's own login subcommand.
+# Says so rather than stating a guess as fact.
+agy_login_hint() { printf 'agy login   (unverified guess at the subcommand - if it errors, just run `agy` once and follow its Google OAuth prompt instead)'; }
+
 agy_install() { # -> 0 if install was run (or already installed)
   command -v agy >/dev/null 2>&1 && return 1  # already installed
   if [[ "${FA_AUTO_INSTALL:-0}" == "1" ]] || prompt_yn "agy not installed. Install now?"; then

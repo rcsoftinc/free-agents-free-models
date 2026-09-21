@@ -109,3 +109,33 @@ registry_read() { # $1=jq program; remaining args passed to jq
   [[ -f "$REGISTRY" ]] || die "no registry; run: bin/buckets.sh discover"
   jq -r "$@" "$prog" "$REGISTRY"
 }
+
+# Read-modify-write an arbitrary JSON file atomically - NOT the registry, an
+# AGENT'S OWN credential file (opencode's auth.json, pi's auth.json, kilo's
+# kilo.jsonc). Used by the optional <agent>_provision_key adapter functions so
+# `setup.sh` can add a key non-interactively instead of requiring each agent's
+# own interactive login flow.
+#
+# Refuses rather than clobbers when the target exists and is not plain JSON -
+# kilo.jsonc in particular may carry comments a jq merge would silently drop.
+# A failed merge leaves the real file untouched: the seed for a missing file is
+# a throwaway temp, never the target itself, so nothing is written until the
+# atomic `mv` at the end.
+json_merge_file() { # $1=file $2=jq filter; remaining args -> jq (e.g. --arg k v)
+  local file="$1" filter="$2"; shift 2
+  mkdir -p "$(dirname "$file")"
+  local seed
+  if [[ -f "$file" ]]; then
+    jq -e . "$file" >/dev/null 2>&1 || {
+      log "refusing to touch $file - not plain JSON (comments?); add the key by hand"
+      return 1
+    }
+    seed="$file"
+  else
+    seed="$(mktemp)"; printf '{}' > "$seed"
+  fi
+  local rc=0
+  jq "$@" "$filter" "$seed" > "${file}.tmp" && mv "${file}.tmp" "$file" && chmod 600 "$file" || rc=$?
+  if [[ "$seed" != "$file" ]]; then rm -f "$seed"; fi
+  return $rc
+}

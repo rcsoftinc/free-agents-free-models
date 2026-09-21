@@ -128,6 +128,72 @@ check_boundaries() { # $1=file -> prints offending pairs
     | .[]' "$1" 2>/dev/null
 }
 
+task_deps_of() { jq -r --arg id "$1" '.tasks[] | select(.id==$id) | (.deps // [])[]' "$2"; }
+
+# Cross-task checks graph.sh's BFS layering (and orch.sh's own scheduling
+# loop) cannot survive: a "deps" entry naming a task id that does not exist,
+# or a dependency cycle. Both are exactly the "the graph could not progress"
+# failure orch.sh's own deadlock detector reports at RUN time - catching
+# them here costs zero lane requests instead of a wasted dispatch. A cycle
+# specifically sends graph.sh's depth-BFS into an ACTUAL infinite loop
+# whenever it is reachable from a root (each pass around the cycle strictly
+# increases a node's computed depth, unbounded) - confirmed by hand before
+# writing this check, not assumed from the code alone.
+check_graph_integrity() { # $1=file -> prints one problem per line, or nothing
+  local file="$1" ids dupes id d dangling=0
+  ids="$(jq -r '.tasks[].id' "$file")"
+
+  dupes="$(printf '%s\n' "$ids" | sort | uniq -d)"
+  [[ -n "$dupes" ]] && printf 'duplicate task id: %s\n' $dupes
+
+  while IFS= read -r id; do
+    [[ -z "$id" ]] && continue
+    while IFS= read -r d; do
+      [[ -z "$d" ]] && continue
+      if ! grep -qxF "$d" <<<"$ids"; then
+        printf '%s depends on unknown task id: %s\n' "$id" "$d"
+        dangling=1
+      fi
+    done < <(task_deps_of "$id" "$file")
+  done <<<"$ids"
+
+  # A cycle check only means something once every dep reference is known to
+  # exist - a dangling reference (already reported above) would otherwise
+  # look identical to a cycle here, since its target is never "resolved"
+  # either.
+  [[ $dangling -eq 1 ]] && return 0
+
+  # Kahn's algorithm: repeatedly remove tasks whose deps are all already
+  # removed. Whatever is left once no more progress can be made is a cycle.
+  local removed="" progress=1 unresolved
+  while [[ $progress -eq 1 ]]; do
+    progress=0
+    while IFS= read -r id; do
+      [[ -z "$id" ]] && continue
+      grep -qxF "$id" <<<"$removed" && continue
+      unresolved=0
+      while IFS= read -r d; do
+        [[ -z "$d" ]] && continue
+        grep -qxF "$d" <<<"$removed" && continue
+        unresolved=1; break
+      done < <(task_deps_of "$id" "$file")
+      [[ $unresolved -eq 0 ]] && { removed+="${id}"$'\n'; progress=1; }
+    done <<<"$ids"
+  done
+  local stuck; stuck="$(comm -23 <(printf '%s\n' "$ids" | sort -u) <(printf '%s\n' "$removed" | sort -u))"
+  [[ -n "$stuck" ]] && printf 'dependency cycle among: %s\n' "$(tr '\n' ' ' <<<"$stuck")"
+  # Callers capture this function's OUTPUT (empty = clean) via a plain
+  # assignment, e.g. `defects="$(check_graph_integrity ...)"` - under
+  # set -euo pipefail that checks the ASSIGNMENT's exit status, which is
+  # this function's last command. Without an explicit, unconditional
+  # `return 0` here, the clean/no-defects case (the [[ -n ]] test above
+  # being false) would make the function return 1 and abort the whole
+  # script on every well-formed plan - the exact class of bug already fixed
+  # twice elsewhere in this project (run.sh's --validate gate, orch.sh's
+  # orphan_alive_pid).
+  return 0
+}
+
 mkdir -p "$(dirname "$OUT")"
 tmp="$(mktemp)"; trap 'rm -f "$tmp" "${tmp}.json"' EXIT
 prompt_for > "$tmp"
@@ -158,6 +224,13 @@ while [[ $try -lt $MAX_TRIES ]]; do
   if [[ -n "$local_conflicts" ]]; then
     log "  plan violates file boundaries - rejecting:"
     printf '    %s\n' $local_conflicts >&2
+    continue
+  fi
+
+  graph_defects="$(check_graph_integrity "${tmp}.json")"
+  if [[ -n "$graph_defects" ]]; then
+    log "  plan graph is malformed - rejecting:"
+    printf '    %s\n' "$graph_defects" >&2
     continue
   fi
 

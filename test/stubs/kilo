@@ -177,6 +177,23 @@ case "$MODE" in
     printf '{"tasks":[{"id":"a","prompt":"x","deps":[],"files":["shared.txt"],"category":"coding"},{"id":"b","prompt":"y","deps":[],"files":["shared.txt"],"category":"coding"}]}'
     exit 0
     ;;
+  plancycle)
+    # A dependency cycle reachable from a real root (r). Left undetected,
+    # this sends bin/lib/graph.sh's depth-BFS into an actual unbounded loop.
+    printf '{"tasks":[{"id":"r","prompt":"r","deps":[],"files":["r.txt"],"category":"coding"},{"id":"a","prompt":"a","deps":["r","b"],"files":["a.txt"],"category":"coding"},{"id":"b","prompt":"b","deps":["a"],"files":["b.txt"],"category":"coding"}]}'
+    exit 0
+    ;;
+  plandangling)
+    # A dep naming a task id that was never declared.
+    printf '{"tasks":[{"id":"a","prompt":"x","deps":["ghost"],"files":["a.txt"],"category":"coding"}]}'
+    exit 0
+    ;;
+  planduplicate)
+    # Two tasks sharing the same id - downstream lookups (task_field et al.)
+    # key on id and would silently merge/corrupt both.
+    printf '{"tasks":[{"id":"a","prompt":"x","deps":[],"files":["a.txt"],"category":"coding"},{"id":"a","prompt":"y","deps":[],"files":["b.txt"],"category":"coding"}]}'
+    exit 0
+    ;;
   slow)
     # Like success but sleeps first, so parallel tasks overlap long enough for
     # agent-distribution assertions.

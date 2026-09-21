@@ -153,7 +153,7 @@ jq '.examined_agents |= map(select(. != "opencode"))' \
 assert_eq "an agent never examined reads as stale" "$(st)" "stale:new-agent"
 
 # ...but an agent that WAS examined and reached nothing is a known fact.
-jq '.examined_agents = ["opencode","kilo","hermes","copilot","cursor"]
+jq '.examined_agents = ["opencode","kilo","hermes","copilot","cursor","agy","pi"]
     | .buckets |= with_entries(.value.models |= map(.routes |= map(select(.agent != "kilo"))))' \
    "$FRESH/keep.json" > "$FRESH/buckets.json"
 assert_eq "an examined agent that reached nothing is not stale news" "$(st)" "current"

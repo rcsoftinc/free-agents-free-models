@@ -627,5 +627,14 @@ found for Nous Portal login. Run `hermes model` to re-authenticate." -
 it logs in inline while picking a model/provider, bypassing the buggy
 precondition the same way `auth add nous --type oauth` does. Led with this
 in SETUP.md (hermes's own first-party suggestion, printed at the point of
-failure) and kept `auth add` as the fallback. Still not verified end-to-end
-by this project - no Nous account here to complete the actual browser flow.
+failure) and kept `auth add` as the fallback.
+
+**Confirmed working end to end**: the same second machine ran `hermes
+model`, completed the browser OAuth, and its very next `setup.sh` reported
+`hermes: already logged in` - closing the loop on a real account. Four
+messages, one real machine, one afternoon: a removed CLI subcommand, a
+hand-typed roster that drifted, a credential fa was reading from the wrong
+field, and a hermes-side false positive correctly told apart from an fa bug
+- each one found from evidence (real output, real installed source, a real
+second machine), not guessed, and the last one ends with independent
+confirmation that the fix actually works.

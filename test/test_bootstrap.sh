@@ -185,8 +185,16 @@ assert_true "the ignore body is defined in orch.sh alone, not copied into setup.
 # drifted once already (silently missing agy and pi ever since they were
 # added), caught only because a user actually read the banner and asked why
 # two logged-in agents were absent from it.
+#
+# It must print the COMMAND (adapter_field VERSION_BIN), not the bare
+# adapter name - a real machine ran the banner's literal suggestion, `cursor`,
+# and got "No Cursor IDE installation found. Use 'cursor agent' or 'agent' to
+# run the agent." cursor's own working binary is cursor-agent; bare `cursor`
+# is only a secondary presence-detection signal, never something to invoke.
 assert_contains "the banner lists all seven agents, not a stale five" \
-  "$out" "opencode | kilo | hermes | copilot | cursor | agy | pi"
+  "$out" "opencode | kilo | hermes | copilot | cursor-agent | agy | pi"
+assert_not_contains "the banner never suggests the bare, non-working 'cursor'" \
+  "$(printf '%s\n' "$out" | grep 'Start any agent')" "| cursor |"
 
 # An older project keeps its incomplete file; repair the one missing line without
 # clobbering anything the user added by hand.

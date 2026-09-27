@@ -702,3 +702,22 @@ in `test_provision.sh` (#12: a login that succeeds populates
 `NEWLY_LOGGED_IN`; #13: nothing to attempt leaves it empty).
 
 Full suite: 29 suites / 497 assertions, offline.
+
+## Policy: no external project names in runtime output (2026-09-27, same day)
+
+`fa refresh`'s own printed output surfaced the earlier ToS-notes feature's
+`note` text naming the outside project its ratings were seeded from
+directly in `fa show`'s `** TOS AVOID/CAUTION: ... **` line. The user's
+policy, stated plainly: adapt ideas from other projects freely, never large
+chunks of code, no runtime credit is ever needed for that, and if
+provenance is worth keeping at all it belongs in dev docs/comments -
+never in what the tool actually says to whoever is running it.
+
+Rewrote every `note` field in `data/provider-notes.json` to drop the name
+while keeping the same facts and caution level ("external research flags
+this as risky" instead of naming who). The specific provenance (which
+project, what date, methodology) now lives in exactly one place structurally
+guaranteed to never print: the file's own `_README` key, already filtered
+out (`startswith("_")`) before anything loads into the registry. This
+session's own build-history mention above (search "OmniRoute") is left
+alone on purpose - this is a dev log, never something `fa` runs or prints.

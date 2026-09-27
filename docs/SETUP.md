@@ -63,13 +63,32 @@ Produces `{"<provider>": {"type":"api","key":"..."}}`. Providers seen here:
 ### hermes → two separate places
 
 - **Nous (its own free tier)**: `hermes auth upgrade` → OAuth, stored in
-  `~/.hermes/auth.json` under `credential_pool`. (Older hermes versions used
-  `hermes login` for this - removed upstream at some point after v0.20.5;
-  a v0.21.3 install refuses it outright and points at `auth`/`setup` instead.
-  `auth upgrade` is the direct replacement, confirmed against a real
-  v0.21.3 install's own `--help`, 2026-09-27.) The access token **rotates
-  hourly**, which is why bucket identity uses the JWT `sub` claim rather than the
-  token. Its free tier publishes real limits (50 rpm / 2100 rph).
+  `~/.hermes/auth.json` under **`.providers.nous`** (a flat object, hermes's own
+  "singleton provider state" - what `hermes auth status nous` actually checks),
+  mirrored into `.credential_pool.nous` (an array) for hermes's internal
+  pool-select mechanism; `fa` prefers the singleton whenever it holds a real
+  `access_token`, falling back to the pool copy otherwise (see
+  `bin/lib/adapters/hermes.sh`). (Older hermes versions used `hermes login`
+  for this - removed upstream at some point after v0.20.5; a v0.21.3 install
+  refuses it outright and points at `auth`/`setup` instead. `auth upgrade` is
+  the direct replacement, confirmed against a real v0.21.3 install's own
+  `--help`, 2026-09-27.) The access token **rotates hourly**, which is why
+  bucket identity uses the JWT `sub` claim rather than the token. Its free
+  tier publishes real limits (50 rpm / 2100 rph).
+  - **Known hermes quirk, not an `fa` bug**: `hermes auth upgrade` can print
+    `Already signed in.` even when `.providers.nous` has no token at all -
+    confirmed on two separate machines, and confirmed against `hermes`'s own
+    installed source (`hermes_cli/anon_auth.py`'s `is_guest_state()` checks
+    only an `auth_method` field, never whether a usable token actually
+    exists; a leftover provider "shell" config with no token and no
+    `auth_method` key reads as "not a guest" and short-circuits the whole
+    login flow). `hermes auth status nous` is the trustworthy check - if it
+    says `logged out` right after `auth upgrade` claimed success, believe
+    `status`, not `upgrade`. Try `hermes auth add nous --type oauth` instead,
+    which goes through hermes's generic pooled-credential OAuth path rather
+    than this one. (Not verified end-to-end by this project - no Nous
+    account to test the full browser flow with - but it avoids the exact
+    code path that misfires here.)
 - **Gateway keys**: `~/.hermes/.env`, e.g. `KILOCODE_API_KEY=...`. The matching
   `credential_pool` entry holds only a `base_url` and a pointer
   (`source: env:KILOCODE_API_KEY`) — not the secret.

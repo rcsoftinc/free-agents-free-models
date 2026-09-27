@@ -597,3 +597,27 @@ findings system exists for, arriving faster than any of it could have been
 guessed at a desk.
 
 Full suite: 29 suites / 493 assertions, offline.
+
+## Not a bug: hermes's own "Already signed in" can lie (2026-09-27, same day)
+
+The same second machine hit the exact same symptom again *after* the
+`.providers.nous` fix above, which briefly looked like the fix hadn't
+landed. It had (confirmed: `git log -1` showed `c6ed2bf`). The real
+diagnosis, this time entirely from hermes's own source, without needing
+anything from the second machine beyond two safe, secret-free commands:
+`hermes auth status nous` (hermes's own authoritative check) agreed with fa
+exactly - both said logged out, no token anywhere, on both machines. The
+`Already signed in.` from `hermes auth upgrade` was hermes's OWN
+inconsistency: `anon_sign_in.py`'s precondition check
+(`state and not is_guest_state(state)`) calls something "already signed in"
+based only on whether `.providers.nous.auth_method` is missing the
+anonymous-tier marker - it never checks whether a token actually exists.
+Both machines have a leftover `.providers.nous` "shell" (host/scope/client_id
+config with no token, presumably from an interrupted `hermes setup`) that
+happens to trip exactly this gap.
+
+**No fa code changed** - its detection was already correct, and loosening it
+to agree with the misleading message would mean trusting a credential that
+provably doesn't work. Documented as a known hermes quirk in `docs/SETUP.md`
+instead, with the untested-but-code-path-verified workaround (`hermes auth
+add nous --type oauth`, which bypasses the buggy precondition entirely).

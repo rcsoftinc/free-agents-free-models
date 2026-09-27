@@ -172,7 +172,7 @@ assert_true "age alone never reports STALE" '[[ "$out" != *"STALE"* ]]'
 # file exists - so every project silently committed its handoffs. One writer now.
 SP="$PROJ/setup-orch"; mkdir -p "$SP"
 cp "$REPO/setup.sh" "$TOOL/setup.sh"
-FREE_AGENTS_STATE="$PROJ/nostate" bash "$TOOL/setup.sh" --no-bootstrap "$SP" >/dev/null 2>&1
+out="$(FREE_AGENTS_STATE="$PROJ/nostate" bash "$TOOL/setup.sh" --no-bootstrap "$SP" 2>&1)"
 assert_true "setup seeds .orch/tasks.json" '[[ -f "$SP/.orch/tasks.json" ]]'
 for pat in journal.ndjson results/ handoffs/ '*.lock'; do
   assert_contains "setup's .orch/.gitignore excludes $pat" \
@@ -180,6 +180,13 @@ for pat in journal.ndjson results/ handoffs/ '*.lock'; do
 done
 assert_true "the ignore body is defined in orch.sh alone, not copied into setup.sh" \
   '[[ "$(grep -c "journal.ndjson" "$TOOL/setup.sh")" -eq 0 ]]'
+
+# The "Ready." banner's agent list is BUILT from FA_AGENTS, not hand-typed - it
+# drifted once already (silently missing agy and pi ever since they were
+# added), caught only because a user actually read the banner and asked why
+# two logged-in agents were absent from it.
+assert_contains "the banner lists all seven agents, not a stale five" \
+  "$out" "opencode | kilo | hermes | copilot | cursor | agy | pi"
 
 # An older project keeps its incomplete file; repair the one missing line without
 # clobbering anything the user added by hand.

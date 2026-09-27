@@ -618,6 +618,14 @@ happens to trip exactly this gap.
 
 **No fa code changed** - its detection was already correct, and loosening it
 to agree with the misleading message would mean trusting a credential that
-provably doesn't work. Documented as a known hermes quirk in `docs/SETUP.md`
-instead, with the untested-but-code-path-verified workaround (`hermes auth
-add nous --type oauth`, which bypasses the buggy precondition entirely).
+provably doesn't work. Documented as a known hermes quirk in `docs/SETUP.md`.
+
+Better remedy surfaced right after, straight from hermes itself: starting
+plain `hermes` in this state prints its own diagnosis - "No access token
+found for Nous Portal login. Run `hermes model` to re-authenticate." -
+`hermes model --help` confirms it carries its own Nous OAuth login flags, so
+it logs in inline while picking a model/provider, bypassing the buggy
+precondition the same way `auth add nous --type oauth` does. Led with this
+in SETUP.md (hermes's own first-party suggestion, printed at the point of
+failure) and kept `auth add` as the fallback. Still not verified end-to-end
+by this project - no Nous account here to complete the actual browser flow.

@@ -46,7 +46,7 @@ collapses automatically.
 cd myproject
 gh repo clone rcsoftinc/free-agents-free-models .free-agents
 .free-agents/setup.sh
-opencode                                    # or kilo / hermes / cursor / copilot
+opencode                                    # or kilo / hermes / cursor-agent / copilot
 > paste .free-agents/prompts/coordinator.md # one prompt; it routes on intent
 ```
 
@@ -638,3 +638,27 @@ field, and a hermes-side false positive correctly told apart from an fa bug
 - each one found from evidence (real output, real installed source, a real
 second machine), not guessed, and the last one ends with independent
 confirmation that the fix actually works.
+
+## Fix: the banner's fix for the LAST bug introduced a fifth (2026-09-27, same day)
+
+Same real-usage thread, one more: running `cursor` (the banner's own literal
+suggestion, from the agy/pi fix earlier today) on the second machine failed
+outright - `Error: No Cursor IDE installation found. Use 'cursor agent' or
+'agent' to run the agent.` The adapter name "cursor" (fa's own internal key,
+`FA_AGENTS`) and the actual command a human types are the same string for
+six of the seven agents, but NOT for cursor: `FA_cursor_VERSION_BIN` has
+always been `cursor-agent`, with bare `cursor` listed in
+`FA_cursor_BINARY="cursor-agent,cursor"` only as an alternate presence-
+detection signal - `cursor_identify`/`cursor_invoke` have only ever shelled
+out to `cursor-agent`, never bare `cursor`. This exact wrong suggestion
+existed in the OLD hand-typed banner string too (it also said plain
+`cursor`) - today's fix just made all seven agents visible, which is what
+finally got a real human to try the wrong one.
+
+`setup.sh`'s banner now joins `adapter_field "$agent" VERSION_BIN` per
+agent instead of the bare `FA_AGENTS` name - identical output for six
+agents, `cursor-agent` instead of `cursor` for the seventh. Same fix applied
+to the one other place a literal invocation was suggested (this file's own
+quick-start snippet, three sections up). `test_bootstrap.sh` now pins
+`cursor-agent` in the banner and asserts the bare, non-working `cursor`
+never appears there again.

@@ -138,9 +138,18 @@ esac
 # adapters.sh already warns against (it drifted once before: this exact line
 # used to read "opencode | kilo | hermes | copilot | cursor", silently
 # missing agy and pi ever since they were added).
+#
+# The COMMAND to type is adapter_field VERSION_BIN, not the bare adapter
+# name - they are the same string for six of the seven agents, but cursor's
+# own binary is `cursor-agent`; bare `cursor` is only an alternate presence-
+# detection signal (FA_cursor_BINARY="cursor-agent,cursor") and, on a real
+# machine, running it directly refuses outright: "No Cursor IDE installation
+# found. Use 'cursor agent' or 'agent' to run the agent." VERSION_BIN is
+# already the one binary each adapter is pinned/verified against, which is
+# exactly "the one that actually works" for every agent, cursor included.
 agent_list=""
 for agent in "${FA_AGENTS[@]}"; do
-  agent_list="${agent_list:+${agent_list} | }${agent}"
+  agent_list="${agent_list:+${agent_list} | }$(adapter_field "$agent" VERSION_BIN)"
 done
 
 cat <<EOF

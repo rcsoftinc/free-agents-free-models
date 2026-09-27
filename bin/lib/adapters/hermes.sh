@@ -19,7 +19,23 @@ FA_hermes_METERED=0
 FA_hermes_VERIFIED_VERSION="0.20.5"
 FA_hermes_VERSION_BIN="hermes"
 
-# -> provider<TAB>token<TAB>base_url, from BOTH sources in auth.json (see header)
+# -> provider<TAB>token<TAB>base_url, from up to three sources in auth.json:
+#   1. .credential_pool.<provider>[0]   the generic multi-credential pool
+#   2. .env gateway keys                (KILOCODE_API_KEY etc - see header)
+#   3. .providers.nous                  nous's own OAuth singleton (below)
+#
+# (3) exists because a real machine showed hermes's OWN "Already signed in"
+# for nous (its login check) while credential_pool.nous was EMPTY - fa saw
+# no credential at all. Traced into hermes's own installed source
+# (hermes_cli/auth_nous.py, persist_nous_credentials()): a nous login writes
+# .providers.nous FIRST (the "singleton provider state", a flat object - NOT
+# an array like the pool entries), then mirrors into credential_pool.nous for
+# the runtime pool-select mechanism - and that mirror step is exactly where
+# hermes's own docstring says a bug once left the pool stale ("a pool-only
+# write broke expiry recovery"). The singleton is what hermes's own login
+# check actually trusts, so it wins here too whenever it holds a real
+# access_token; credential_pool.nous is only the fallback, same as before -
+# this never changes behaviour for any other provider (kilocode, etc.).
 hermes_endpoints() {
   [[ -f "$HERMES_AUTH" ]] || return 0
   local provider tok base envvar val
@@ -36,11 +52,16 @@ hermes_endpoints() {
     fi
     [[ -z "$tok" ]] && continue
     printf '%s\x1f%s\x1f%s\n' "$provider" "$tok" "$base"
-  done < <(jq -r '.credential_pool // {} | to_entries[]
-                  | . as $e | ($e.value[0] // {})
-                  | [$e.key, (.access_token // .api_key // ""),
-                     (.inference_base_url // .base_url // "")]
-                  | join("\u001f")' "$HERMES_AUTH" 2>/dev/null)
+  done < <(jq -r '
+      (.credential_pool // {} | to_entries
+        | map({key: .key, value: (.value[0] // {})}) | from_entries) as $pool
+      | (.providers.nous // {}) as $nous
+      | ($pool + (if (($nous.access_token // "") != "") then {nous: $nous} else {} end)) as $merged
+      | $merged | to_entries[]
+      | [.key, (.value.access_token // .value.api_key // ""),
+               (.value.inference_base_url // .value.base_url // "")]
+      | join("\u001f")
+    ' "$HERMES_AUTH" 2>/dev/null)
 }
 
 hermes_identify() {

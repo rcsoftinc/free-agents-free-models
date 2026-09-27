@@ -81,6 +81,9 @@ back here:
 fa findings                    # what the tool noticed it handled badly
 fa findings --note "..."       # something only you or the coordinator saw
 fa findings --issue            # format them as GitHub issues
+fa findings --issue --post     # same, then actually file each NEW one via
+                                # `gh issue create`, after listing them and
+                                # asking once (needs `gh`, installed + logged in)
 fa findings --ack              # mark as seen
 ```
 
@@ -102,10 +105,16 @@ that catches "the spec was ambiguous" or "the plan split this wrong"** — real
 failures that no detector will ever see. If you are the coordinator and you
 notice one, record it; otherwise it dies with the terminal session.
 
-Findings are never auto-filed — the coordinator reports, the human decides.
-Everything is redacted on the way in (keys, JWTs, bearer tokens, emails) so a
-finding is safe to paste into a public issue. Repeats collapse by fingerprint,
-so twenty occurrences are one row with a count.
+Findings are never auto-filed **without asking** — `--issue` alone only ever
+prints; `--issue --post` will actually open each new one on GitHub (against
+this clone's own `origin` remote, never the project you happen to be
+standing in), but only after listing every title it is about to file and
+getting one explicit yes. An already-filed fingerprint is skipped on every
+later `--post`, so a repeat occurrence never opens a second issue for the
+same thing. Everything is redacted on the way in (keys, JWTs, bearer tokens,
+emails) so a finding is safe to paste into a public issue — or to file
+directly. Repeats collapse by fingerprint, so twenty occurrences are one row
+with a count.
 
 **Real provider error text is the only source of truth for the taxonomy**: two of
 the first four real messages we saw were misclassified, and no amount of invented

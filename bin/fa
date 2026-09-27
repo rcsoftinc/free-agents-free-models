@@ -44,6 +44,9 @@ set -euo pipefail
 #   fa findings --note "..."   record something only you or the coordinator saw
 #                        --new    only ones not yet acknowledged
 #                        --issue  emit a ready-to-file GitHub issue
+#                        --issue --post  same, then file each NEW one via `gh
+#                                 issue create` after listing them and asking
+#                                 once - never files an already-filed fp twice
 #                        --ack    mark all as seen
 #   fa where           print install paths
 
@@ -289,7 +292,7 @@ case "$cmd" in
           "source=manual" ${kv+"${kv[@]}"}
         echo "[fa] noted. See it with: fa findings"
         ;;
-      --issue) findings_issue "${2:-all}" ;;
+      --issue) shift; findings_issue_cmd "$@" ;;
       --ack)   findings_ack; echo "[fa] findings marked as seen" ;;
       --new)   findings_show new ;;
       --count) findings_count "${2:-all}" ;;

@@ -616,7 +616,7 @@ fa dispatch         # el mismo chequeo, contra un grafo de tareas que ya escribi
 | **Puerta de verificación** | Verificación de sintaxis post-construcción opcional con bucle de auto-arreglo (`--validate`) |
 | **Modos de proyecto** | Autonomía por proyecto: strict (default), push, local — ver la nota de honestidad arriba de la tabla de modos |
 | **Handoffs** | Bloque estructurado (decisions, rejected, open) pasado a dependientes; sin llamada de modelo extra. Una dependencia que no deja handoff hace que se inyecte una advertencia suave en el prompt de su dependiente, en vez de un vacío silencioso |
-| **Findings** | Registra lo que la herramienta notó que manejó mal; copiable a issues |
+| **Findings** | Registra lo que la herramienta notó que manejó mal; copiable a issues, o archivado directamente con `fa findings --issue --post` (pregunta una vez antes de archivar algo) |
 
 ## Capacidades
 

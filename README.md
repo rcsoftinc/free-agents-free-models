@@ -608,7 +608,7 @@ fa dispatch         # same check, against a task graph you already wrote
 | **Validation gate** | Optional post-build syntax check with auto-fix loop (`--validate`) |
 | **Project modes** | Per-project autonomy: strict (default), push, local — see the honesty note above the mode table |
 | **Handoffs** | Structured decisions + rejected + open block passed to dependents; no extra model call. A dependency that leaves no handoff gets a soft caution injected into its dependent's prompt instead of a silent gap |
-| **Findings** | Records what the tool noticed it handled badly; pasteable into issues |
+| **Findings** | Records what the tool noticed it handled badly; pasteable into issues, or filed directly with `fa findings --issue --post` (asks once before filing anything) |
 
 ## Capabilities
 

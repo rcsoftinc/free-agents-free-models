@@ -606,6 +606,9 @@ fa dispatch         # el mismo chequeo, contra un grafo de tareas que ya escribi
 | **Disyuntor de bucket** | Congela una billetera después de fallos consecutivos, omite todos sus modelos instantáneamente |
 | **`fa dispatch`** | La decisión orquestar-vs-directo como código real, no una regla que un coordinador tiene que calcular bien a mano — imprime su evaluación, envía cuando decide hacerlo |
 | **`fa rank`** | Vista de solo lectura de la cadena de candidatos clasificados para una categoría — ve por qué se eligió un modelo/agente, sin gastar una petición |
+| **Rastro de exclusión** | `--dry-run` y la guarda de cadena vacía explican POR QUÉ un bucket/modelo/ruta no entró en la cadena de candidatos (enfriándose, excluido, no apto, capacidad no coincide) — no solo que ninguno lo hizo |
+| **`fa quota`** | Verificación en vivo, opcional, contra el propio libro de cuentas publicado por OpenRouter (uso/límite) — el único lugar donde esta herramienta le pregunta a un proveedor directamente en vez de inferir la cuota de un intento fallido |
+| **Notas de ToS por proveedor** | Nota de ToS/evidencia mantenida a mano por proveedor (`data/provider-notes.json`, opcional, mismas reglas que la semilla de modelos); `fa show`/`fa lanes -v` marca una billetera calificada con precaución o evitar |
 | **Visualización de grafo** | Renderiza el grafo de tareas como diagrama ASCII (`fa graph`, `fa plan --graph`) — verifica la división antes de gastar tokens |
 | **Bordes condicionales `when`** | Una tarea puede correr solo si el resultado reportado de una dependencia completada coincide — una rama real en el grafo de tareas, no solo una espera |
 | **Resumen a prueba de caídas** | Registro de solo añadir; resume cualquier ejecución después de una interrupción, sin reenviar una tarea cuyo proceso hijo de una ejecución matada sigue vivo |
@@ -681,11 +684,13 @@ Cada adaptador identifica credenciales, lista modelos (TSV prefijado por agente)
 │   ├── plan.sh                meta -> grafo de tareas
 │   ├── orch.sh                grafo de tareas + resumen basado en journal
 │   ├── analyze.sh             análisis post-ejecución del journal + aprendizajes
-│   └── lib/                   common.sh, deps.sh, adapters.sh, classify.sh, keys.sh
+│   └── lib/                   common.sh, deps.sh, adapters.sh, classify.sh, keys.sh, quota.sh
 │       └── adapters/          un archivo por agente (opencode, kilo, hermes, copilot, cursor, agy, pi)
 ├── data/model-seed.json       opinión OPCIONAL de arranque en frío - edítala a mano o
 │                               genérala de un leaderboard; bórrala y nada se rompe (ver su
 │                               propia clave "_README" para el formato)
+├── data/provider-notes.json   nota OPCIONAL de ToS/evidencia por proveedor - mismas reglas
+│                               que model-seed.json arriba
 ├── skills/                    tarjetas de habilidades, enlazadas por `fa bootstrap`
 ├── state/                     el registro de credenciales (ignorado por git, regenerado)
 ├── docs/                      SETUP.md, historial de diseño en dev/

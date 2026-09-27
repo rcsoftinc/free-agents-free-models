@@ -19,6 +19,8 @@ set -euo pipefail
 #   fa rank [category] the ranked candidate chain for a category (read-only)
 #   fa discover        rebuild the credential registry (after adding/removing keys)
 #   fa probe [--all]   prove each wallet answers
+#   fa quota           live check against OpenRouter's own published ledger
+#                       (opt-in, one network call - see bin/lib/quota.sh)
 #   fa doctor          verify this machine is set up correctly
 #   fa run "task"      one task, with fallback across every lane
 #                       --validate  run syntax check on result (fail fast)
@@ -235,6 +237,7 @@ case "$cmd" in
   probe)    exec "${HERE}/buckets.sh" probe "$@" ;;
   show)     exec "${HERE}/buckets.sh" show "$@" ;;
   profile)  exec "${HERE}/buckets.sh" profile "$@" ;;
+  quota)    exec "${HERE}/buckets.sh" quota "$@" ;;
   rank)
     # The ranked candidate chain for a category, read-only - exactly what
     # candidates() computes before dispatching, just without dispatching.

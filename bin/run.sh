@@ -274,6 +274,68 @@ candidates() {
     --arg weight "${FA_AGENT_WEIGHT:-3}"
 }
 
+# Why something did NOT make candidates()'s chain, grouped and counted by
+# reason. Surfaced only where a human or the coordinator is actually looking
+# (the empty-chain guard, and --dry-run) - never on an ordinary successful
+# run, which stays exactly as quiet as before. Every field read here
+# (unsuitable_reason, health.state, cooldown_until) is already computed by
+# discover()/record(); this adds no new signal, only visibility into signal
+# that already existed. Deliberately does not replicate candidates()'s
+# ranking SCORE - ranking only orders what already qualifies, it never
+# excludes, so it has nothing to explain here.
+explain_exclusions() {
+  local now; now="$(now_epoch)"
+  local ex_json; ex_json="$(printf '%s\n' "${EXCLUDES[@]:-}" | jq -R . | jq -sc 'map(select(length>0))')"
+  local metered_include; metered_include="$(metered_include_pred)"
+
+  local acaps="{" first=1
+  for agent in "${FA_AGENTS[@]}"; do
+    [ $first -eq 0 ] && acaps+=","
+    acaps+="\"${agent}\":\"$(adapter_caps "$agent")\""
+    first=0
+  done
+  acaps+="}"
+  local req_cap; req_cap="$(category_caps "$CATEGORY")"
+
+  registry_read '
+    [ .buckets[] as $b
+      | ( if ($pin != "" and $b.id != $pin) then "pinned out by -b"
+          elif ($b.id | IN($ex[])) then "excluded via -x"
+          elif ($b.health.state == "no_credits") then "bucket out of credits"
+          elif ($b.health.state == "auth_error") then "bucket auth failing"
+          elif (($b.health.cooldown_until // 0) > ($now|tonumber)) then "bucket cooling down"
+          elif (('"$metered_include"') | not) then "metered wallet excluded"
+          elif ([$b.models[] | select(.free)] | length == 0) then "bucket has no free models"
+          else null end ) as $why
+      | if $why != null then
+          [ { reason: $why, bucket: $b.id } ]
+        else
+          [ $b.models[] | select(.free) | . as $m
+            | ( if ($m.suitable == false)
+                then "model unsuitable: \($m.unsuitable_reason // "n/a")"
+                elif (($m.cooldown_until // 0) > ($now|tonumber)) then "model cooling down"
+                else null end ) as $mwhy
+            | if $mwhy != null then
+                { reason: $mwhy, bucket: $b.id }
+              else
+                ( $m.routes[] as $r
+                  | ( $acaps | has($r.agent)
+                      and (.[$r.agent] | split(",")
+                           | map(select(. as $c | $req_cap | split(",") | index($c))) | length > 0)
+                    ) as $cap_ok
+                  | select($cap_ok | not)
+                  | { reason: "\($r.agent) lacks capability for \($cat)", bucket: $b.id } )
+              end
+          ]
+        end
+      | .[]
+    ]
+    | group_by(.reason) | map({reason: .[0].reason, n: length})
+    | sort_by(-.n) | .[] | "\(.n)\t\(.reason)"
+  ' --arg pin "$PIN_BUCKET" --arg now "$now" --argjson ex "$ex_json" \
+    --arg cat "$CATEGORY" --argjson acaps "$acaps" --arg req_cap "$req_cap"
+}
+
 # ------------------------------------------------------------------- leasing --
 # ONE LANE PER BUCKET. Several agents may be able to reach a wallet, but they all
 # spend the same quota, so a second concurrent task there buys no throughput and
@@ -478,6 +540,11 @@ run_validate_gate() { # $1=agent $2=model $3=provider -> 0 ok, 1 exhausted
 mapfile -t CHAIN < <(candidates)
 [[ ${#CHAIN[@]} -gt 0 ]] && [[ -n "${CHAIN[0]}" ]] || {
   log "no candidates: every bucket is in cooldown, excluded, or has no free models"
+  log "why:"
+  while IFS=$'\t' read -r excl_n excl_reason; do
+    [[ -z "$excl_n" ]] && continue
+    log "  ${excl_n}x  ${excl_reason}"
+  done < <(explain_exclusions 2>/dev/null)
   exit 2
 }
 
@@ -489,6 +556,13 @@ if [[ $DRY_RUN -eq 1 ]]; then
   else printf '%s\n' "${CHAIN[@]}" | head -n "$lim"; fi \
     | awk -F'\t' '{printf "%-28s %-9s %-46s %s\n", $1,$2,$3,$4}'
   echo "(${#CHAIN[@]} candidates)" >&2
+  excl="$(explain_exclusions 2>/dev/null)"
+  if [[ -n "$excl" ]]; then
+    echo "excluded:" >&2
+    while IFS=$'\t' read -r excl_n excl_reason; do
+      printf '  %sx  %s\n' "$excl_n" "$excl_reason" >&2
+    done <<<"$excl"
+  fi
   exit 0
 fi
 

@@ -40,5 +40,21 @@ JSON
 JSON
     exit 0
   fi
+  # lib/quota.sh's live check. STUB_QUOTA_MODE picks the canned response so a
+  # test can exercise both the happy path and "endpoint returned garbage"
+  # without touching the network.
+  if [[ "$a" == *"openrouter.ai/api/v1/auth/key"* ]]; then
+    case "${STUB_QUOTA_MODE:-ok}" in
+      ok)
+        emit <<'JSON'
+{"data":{"label":"test-key","usage":1.5,"limit":null,"limit_remaining":null,
+         "is_free_tier":true,"rate_limit":{"requests":20,"interval":"10s"}}}
+JSON
+        ;;
+      malformed) emit <<<'not json' ;;
+      *) emit <<<'{}' ;;
+    esac
+    exit 0
+  fi
 done
 exit 0

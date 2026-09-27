@@ -108,7 +108,25 @@ fi
 
 # The registry lives wherever the engine says it does - inside this clone by
 # default, or at FREE_AGENTS_STATE if set, in which case projects share it.
-case "$(registry_status)" in
+_status="$(registry_status)"
+
+# guided_logins() just took someone from "not logged in" to "now logged in" -
+# don't make them remember to run `fa refresh` by hand, or wait for the
+# daily cron, to actually get a lane out of it. Registry HEALTH is otherwise
+# deliberately never proactively re-checked (it self-corrects at the first
+# real dispatch attempt - see common.sh's own registry_status() comment);
+# this is the one exception, scoped to the exact moment something we just
+# watched happen would otherwise stay invisible. Skipped when there is no
+# registry yet at all (the `missing` branch below bootstraps unconditionally
+# regardless - refreshing here too would just probe everything twice) or
+# under --no-bootstrap (which means "no network calls", full stop).
+if [[ "$_status" != "missing" && "$DO_BOOTSTRAP" -eq 1 && "${#NEWLY_LOGGED_IN[@]}" -gt 0 ]]; then
+  say "just signed in: ${NEWLY_LOGGED_IN[*]} - refreshing now to pick up the new lane(s)"
+  "${HERE}/bin/fa" refresh || say "refresh failed - run it yourself: .free-agents/bin/fa refresh"
+  _status="$(registry_status)"
+fi
+
+case "$_status" in
   missing)
     if [[ "$DO_BOOTSTRAP" -eq 0 ]]; then
       say "no registry - run: .free-agents/bin/fa bootstrap"

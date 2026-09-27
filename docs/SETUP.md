@@ -158,6 +158,17 @@ subcommand name, never confirmed against a real machine — the hint text says
 so, and if the guess is wrong, running the agent's own binary once and
 following its prompt works instead.
 
+**If an attempt above actually succeeds, `setup.sh` refreshes the registry
+right then** instead of leaving a working credential invisible until the
+daily cron (`fa schedule`, installed by the first `fa bootstrap` on this
+machine) gets to it or you remember to run `fa refresh` yourself. This is
+the one deliberate exception to registry health being otherwise entirely
+reactive (it self-corrects at the first real dispatch attempt, never
+proactively re-checked — see `bin/lib/common.sh`'s own `registry_status()`
+comment) — scoped to exactly the moment a login was just watched succeeding,
+never anything broader. Skipped when there is no registry yet at all (the
+next step bootstraps unconditionally regardless) or under `--no-bootstrap`.
+
 ## 3. Build the registry and verify
 
 `.free-agents/setup.sh` does this for you on a machine with no registry — it runs

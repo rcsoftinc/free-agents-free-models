@@ -94,10 +94,14 @@ Produces `{"<provider>": {"type":"api","key":"..."}}`. Providers seen here:
       picking a provider/model, bypassing the buggy `auth upgrade`
       precondition entirely. This is hermes telling you the fix itself, at
       the point of failure - more trustworthy than the alternative below.
+      **Confirmed working end to end, 2026-09-27**: a real second machine
+      ran `hermes model`, completed the browser OAuth, and its very next
+      `setup.sh` run reported `hermes: already logged in` - the whole
+      diagnosis, from "fa says no but hermes says yes" through to a real
+      fix, closed the loop on a real account.
     - Alternative if that doesn't work: `hermes auth add nous --type oauth`,
       hermes's generic pooled-credential OAuth path (also bypasses the
-      buggy precondition). Neither has been verified end-to-end by this
-      project - no Nous account here to complete the actual browser flow.
+      buggy precondition) - not itself tested, since `hermes model` worked.
 - **Gateway keys**: `~/.hermes/.env`, e.g. `KILOCODE_API_KEY=...`. The matching
   `credential_pool` entry holds only a `base_url` and a pointer
   (`source: env:KILOCODE_API_KEY`) — not the secret.

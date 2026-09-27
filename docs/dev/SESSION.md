@@ -662,3 +662,43 @@ to the one other place a literal invocation was suggested (this file's own
 quick-start snippet, three sections up). `test_bootstrap.sh` now pins
 `cursor-agent` in the banner and asserts the bare, non-working `cursor`
 never appears there again.
+
+## Feature: `setup.sh` refreshes right away when a login just succeeded (2026-09-27, same day)
+
+Prompted by discussing the hermes/nous saga above: since the registry
+correctly did NOT flag itself stale when a broken-then-fixed credential kept
+the same fingerprint, the user asked whether `setup.sh` could refresh
+proactively, and what the real drawbacks would be beyond wait time. Landed
+on a deliberately narrow answer rather than "always refresh": the real cost
+of an unconditional refresh is quota, not time (`fa refresh` PROBES every
+bucket with a real API call, and state is machine-wide, so N project
+folders would mean N redundant probe rounds against the same credentials
+for no benefit) - and the tool already self-heals within 24h for free via
+the existing daily cron. The one genuine gap was "I just watched a login
+succeed, right now, in this exact run" - a signal only `setup.sh` itself
+has, that the cron and a later manual `fa refresh` both miss until the next
+tick.
+
+- `guided_logins()` (`bin/lib/keys.sh`) now sets a GLOBAL `NEWLY_LOGGED_IN`
+  array (reset every call) naming exactly which agent(s) went from
+  not-logged-in to logged-in during THIS run.
+- `setup.sh` reads it right after the `registry_status()` case block's
+  status is computed (not after, so the case block's own report reflects
+  the refresh) and calls `fa refresh` when it is non-empty - skipped when
+  there is no registry yet (the `missing` branch already bootstraps
+  unconditionally; refreshing twice would double-probe for nothing) or under
+  `--no-bootstrap`.
+
+**Real bug caught while testing this, not by inspection**: the obvious way
+to simulate "hermes was logged out, then a login attempt succeeded" in an
+offline test is a counter variable incremented inside a stubbed
+`hermes_identify()`. It silently never worked - `adapter_logged_in()` calls
+`*_identify()` through a pipe (`"$fn" | awk ...`), and bash forks a subshell
+for each stage of a pipeline, so the increment happened in a subshell copy
+and was lost the instant it exited; every call saw the same starting value.
+Fixed by using a marker FILE instead of a shell variable - filesystem state
+survives across subshells the same way the registry itself does. New tests
+in `test_provision.sh` (#12: a login that succeeds populates
+`NEWLY_LOGGED_IN`; #13: nothing to attempt leaves it empty).
+
+Full suite: 29 suites / 497 assertions, offline.

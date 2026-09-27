@@ -79,6 +79,12 @@ provision_keys() {
 
 guided_logins() {
   local agent still_out=()
+  # GLOBAL, not local: the whole point is for the caller (setup.sh) to read
+  # this after we return, to decide whether a registry refresh is worth
+  # doing right now instead of waiting for the daily cron or a manual
+  # `fa refresh`. Reset unconditionally so a caller never reads a stale
+  # array from an earlier call in the same process.
+  NEWLY_LOGGED_IN=()
   for agent in "${FA_TIERB_AGENTS[@]}"; do
     adapter_installed "$agent" || continue
     if adapter_logged_in "$agent"; then
@@ -95,6 +101,7 @@ guided_logins() {
       esac
       if adapter_logged_in "$agent"; then
         say "$agent: now logged in"
+        NEWLY_LOGGED_IN+=("$agent")
       else
         say "$agent: still not logged in"
       fi

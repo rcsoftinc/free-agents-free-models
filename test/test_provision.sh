@@ -198,5 +198,59 @@ assert_contains "setup.sh sources keys.sh" "$(cat "$REPO/setup.sh")" "bin/lib/ke
 assert_contains "setup.sh calls provision_keys" "$(cat "$REPO/setup.sh")" "provision_keys"
 assert_contains "setup.sh calls guided_logins" "$(cat "$REPO/setup.sh")" "guided_logins"
 
+# --- 12. NEWLY_LOGGED_IN: the signal setup.sh uses to refresh right away ------
+# instead of waiting for the daily cron or a manual `fa refresh` - see
+# setup.sh's own use of it right after the registry_status() case.
+out="$(timeout 15 env -i PATH="$PATH" HOME="$(_fixture_dir)" bash -c '
+  set -euo pipefail
+  say() { printf "[fa] %s\n" "$*"; }
+  prompt_yn() { return 0; }   # simulates the user agreeing to every attempt
+  . '"$COMMON"'
+  . '"$KEYS"'
+  # copilot/cursor/agy already logged in (real fingerprints, not anon) - the
+  # point of this test is hermes alone attempting and succeeding, so these
+  # three must never reach the prompt_yn/attempt branch at all.
+  copilot_identify() { printf "copilot\x1fcopilot\x1fcopilot\x1ffpA\x1fcopilot:github\x1f{}\n"; }
+  cursor_identify()  { printf "cursor\x1fcursor\x1fcursor\x1ffpB\x1fcursor:status\x1f{}\n"; }
+  agy_identify()     { printf "agy\x1fantigravity\x1fantigravity\x1ffpC\x1fagy:antigravity-cli\x1f{}\n"; }
+  # hermes: not logged in until a marker FILE appears - a shell variable will
+  # not do here, since adapter_logged_in() calls *_identify() through a pipe
+  # ("$fn" | awk ...), which forks a subshell per call; any counter it
+  # increments is lost the instant that subshell exits. Filesystem state
+  # survives across subshells, so the stub login command below "succeeds" by
+  # touching this file, simulating a real login attempt actually working.
+  HERMES_LOGIN_MARKER="$(mktemp -u)"
+  hermes_identify() {
+    if [[ -f "$HERMES_LOGIN_MARKER" ]]; then
+      printf "hermes\x1fnous\x1fnous\x1ffpNEWREAL\x1fhermes:auth.json\x1f{}\n"
+    else
+      printf "hermes\x1fnous\x1fnous\x1fanon\x1fhermes:auth.json\x1f{}\n"
+    fi
+  }
+  adapter_installed() { return 0; }
+  hermes() { touch "$HERMES_LOGIN_MARKER"; }   # stub login command - nothing external gets invoked
+  guided_logins
+  printf "NEWLY_LOGGED_IN=%s\n" "${NEWLY_LOGGED_IN[*]:-}"
+' 2>&1)"
+assert_contains "the successful login is reported" "$out" "hermes: now logged in"
+assert_contains "NEWLY_LOGGED_IN records exactly the agent that just succeeded" \
+  "$out" "NEWLY_LOGGED_IN=hermes"
+
+# --- 13. NEWLY_LOGGED_IN stays empty when nothing new happens ----------------
+out="$(timeout 15 env -i PATH="$PATH" HOME="$(_fixture_dir)" bash -c '
+  set -euo pipefail
+  say() { printf "[fa] %s\n" "$*"; }
+  . '"$COMMON"'
+  . '"$KEYS"'
+  copilot_identify() { printf "copilot\x1fcopilot\x1fcopilot\x1ffpA\x1fcopilot:github\x1f{}\n"; }
+  cursor_identify()  { printf "cursor\x1fcursor\x1fcursor\x1ffpB\x1fcursor:status\x1f{}\n"; }
+  agy_identify()     { printf "agy\x1fantigravity\x1fantigravity\x1ffpC\x1fagy:antigravity-cli\x1f{}\n"; }
+  hermes_identify()  { printf "hermes\x1fnous\x1fnous\x1ffpD\x1fhermes:auth.json\x1f{}\n"; }
+  adapter_installed() { return 0; }
+  guided_logins </dev/null
+  printf "NEWLY_LOGGED_IN=%s|len=%s\n" "${NEWLY_LOGGED_IN[*]:-}" "${#NEWLY_LOGGED_IN[@]}"
+' 2>&1)"
+assert_contains "nothing to attempt when everyone is already logged in" "$out" "NEWLY_LOGGED_IN=|len=0"
+
 end_suite
 final_report

@@ -491,3 +491,43 @@ concretely actionable: anyone with a `gh` login can now open an issue
 against it, from any machine running this tool, once they say yes.
 
 Full suite: 28 suites / 479 assertions, offline.
+
+## Fix: `hermes login` removed upstream (2026-09-27, same day)
+
+Real-usage report from the user: cloning onto a second, unrelated project
+(`Raimundo-Araujo-Avatar`) and running `setup.sh` there, `guided_logins()`'s
+hermes case failed outright -
+
+```
+[fa] hermes: not logged in - hermes login   (starts Nous OAuth...)
+  attempt that now? [y/N] y
+The 'hermes login' command has been removed.
+Use 'hermes auth' to manage credentials,
+'hermes model' to select a provider, or 'hermes setup' for full setup.
+[fa] hermes: still not logged in
+```
+
+Not a false alarm - `hermes login` really is gone upstream, sometime after
+the pinned `FA_hermes_VERIFIED_VERSION="0.20.5"` (this machine's own hermes is
+already on 0.21.3, so `fa doctor` had been showing `differs` on it for a
+while without anyone chasing why). Confirmed the replacement directly against
+a real v0.21.3 install rather than guessing: `hermes auth upgrade` ("Sign in
+with a Nous account, keeping your connectors") is the exact same scope as the
+old `login` - pure OAuth, no side effects. `hermes setup --portal` also signs
+in, but additionally sets Nous as the default inference provider and picks a
+model - out of scope for a login hint, so not used here.
+
+Fixed in `hermes_login_hint()` (adapters/hermes.sh) and the actual attempted
+command in `guided_logins()` (keys.sh); `docs/SETUP.md` and
+`test_provision.sh`'s pinned hint text updated to match. Deliberately did
+NOT bump `FA_hermes_VERIFIED_VERSION` - only the login subcommand was
+verified, not the full `hermes_invoke()` call shape real dispatch depends on,
+and CLAUDE.md's own caution applies here (a wrong shape reads as a dead
+model). `fa doctor` should keep flagging hermes `differs` until someone
+actually verifies invoke against 0.21.3, not just login.
+
+This is exactly the class of thing `docs/dev/SESSION.md`'s own "what real
+usage showed" sections exist to catch, and exactly what `fa findings --note`
++ `--issue --post` (built earlier today) is for on a report that isn't
+already fixed by the time it's read - this one was fixed same-session, so
+recorded here instead of filed as an issue against itself.

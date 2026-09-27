@@ -62,8 +62,12 @@ Produces `{"<provider>": {"type":"api","key":"..."}}`. Providers seen here:
 
 ### hermes → two separate places
 
-- **Nous (its own free tier)**: `hermes login` → OAuth, stored in
-  `~/.hermes/auth.json` under `credential_pool`. The access token **rotates
+- **Nous (its own free tier)**: `hermes auth upgrade` → OAuth, stored in
+  `~/.hermes/auth.json` under `credential_pool`. (Older hermes versions used
+  `hermes login` for this - removed upstream at some point after v0.20.5;
+  a v0.21.3 install refuses it outright and points at `auth`/`setup` instead.
+  `auth upgrade` is the direct replacement, confirmed against a real
+  v0.21.3 install's own `--help`, 2026-09-27.) The access token **rotates
   hourly**, which is why bucket identity uses the JWT `sub` claim rather than the
   token. Its free tier publishes real limits (50 rpm / 2100 rph).
 - **Gateway keys**: `~/.hermes/.env`, e.g. `KILOCODE_API_KEY=...`. The matching
@@ -116,7 +120,7 @@ a human:
 ```
 
 Two of those four commands are verified (`gh auth login` for copilot,
-`hermes login` for hermes — both documented above). The other two
+`hermes auth upgrade` for hermes — both documented above). The other two
 (`cursor-agent login`, `agy login`) are educated guesses at the CLI's own
 subcommand name, never confirmed against a real machine — the hint text says
 so, and if the guess is wrong, running the agent's own binary once and

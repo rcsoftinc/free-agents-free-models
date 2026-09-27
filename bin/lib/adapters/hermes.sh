@@ -101,7 +101,17 @@ hermes_caps() { printf 'web,browser,code,research,reasoning,shell,git,file'; }
 # can log into on its own. Its other gateways (kilocode, etc.) need a separate
 # key in ~/.hermes/.env against a credential_pool slot hermes itself creates -
 # not something this project provisions non-interactively (see docs/SETUP.md).
-hermes_login_hint() { printf 'hermes login   (starts Nous OAuth; hermes is the most interactive of the seven - see docs/SETUP.md for its other gateways)'; }
+#
+# `hermes login` was removed upstream at some point after v0.20.5 (the pinned
+# FA_hermes_VERIFIED_VERSION above) - a real v0.21.3 install now refuses it
+# outright: "The 'hermes login' command has been removed. Use 'hermes auth' to
+# manage credentials... or 'hermes setup' for full setup." `hermes auth
+# upgrade` ("Sign in with a Nous account, keeping your connectors") is the
+# direct replacement - confirmed against that same real install's own --help,
+# 2026-09-27. `hermes setup --portal` also signs in, but additionally sets
+# Nous as the default inference provider and picks a model - a bigger side
+# effect than a login hint should trigger.
+hermes_login_hint() { printf 'hermes auth upgrade   (Nous OAuth sign-in; hermes login was removed upstream - see docs/SETUP.md for its other gateways)'; }
 
 hermes_install() { # -> 0 if install was run (or already installed)
   command -v hermes >/dev/null 2>&1 && return 1  # already installed

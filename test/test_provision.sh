@@ -189,7 +189,7 @@ assert_eq "guided_logins() never hangs on a non-interactive terminal" "$rc" "0"
 assert_contains "already-logged-in cursor is reported as such" "$out" "cursor: already logged in"
 assert_contains "the outstanding summary names copilot" "$out" "copilot - gh auth login"
 assert_contains "the outstanding summary names agy" "$out" "agy - agy login"
-assert_contains "the outstanding summary names hermes" "$out" "hermes - hermes login"
+assert_contains "the outstanding summary names hermes" "$out" "hermes - hermes auth upgrade"
 assert_not_contains "cursor (already logged in) is NOT in the outstanding summary" \
   "$(printf '%s\n' "$out" | grep 'not yet logged in' -A5)" "cursor -"
 

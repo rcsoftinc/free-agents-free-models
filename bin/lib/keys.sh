@@ -91,7 +91,7 @@ guided_logins() {
         copilot) gh auth login || true ;;
         cursor)  cursor-agent login || true ;;
         agy)     agy login || true ;;
-        hermes)  hermes login || true ;;
+        hermes)  hermes auth upgrade || true ;;
       esac
       if adapter_logged_in "$agent"; then
         say "$agent: now logged in"

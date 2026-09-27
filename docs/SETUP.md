@@ -84,11 +84,20 @@ Produces `{"<provider>": {"type":"api","key":"..."}}`. Providers seen here:
     `auth_method` key reads as "not a guest" and short-circuits the whole
     login flow). `hermes auth status nous` is the trustworthy check - if it
     says `logged out` right after `auth upgrade` claimed success, believe
-    `status`, not `upgrade`. Try `hermes auth add nous --type oauth` instead,
-    which goes through hermes's generic pooled-credential OAuth path rather
-    than this one. (Not verified end-to-end by this project - no Nous
-    account to test the full browser flow with - but it avoids the exact
-    code path that misfires here.)
+    `status`, not `upgrade`.
+    - **First-party fix, confirmed by hermes's own runtime**: starting plain
+      `hermes` in this exact state prints its own diagnosis and remedy -
+      `No access token found for Nous Portal login. Run 'hermes model' to
+      re-authenticate.` `hermes model --help` confirms it carries its own
+      Nous OAuth login flags (`--portal-url`, `--client-id`, `--scope`,
+      `--no-browser`, ...), so it performs the login inline as part of
+      picking a provider/model, bypassing the buggy `auth upgrade`
+      precondition entirely. This is hermes telling you the fix itself, at
+      the point of failure - more trustworthy than the alternative below.
+    - Alternative if that doesn't work: `hermes auth add nous --type oauth`,
+      hermes's generic pooled-credential OAuth path (also bypasses the
+      buggy precondition). Neither has been verified end-to-end by this
+      project - no Nous account here to complete the actual browser flow.
 - **Gateway keys**: `~/.hermes/.env`, e.g. `KILOCODE_API_KEY=...`. The matching
   `credential_pool` entry holds only a `base_url` and a pointer
   (`source: env:KILOCODE_API_KEY`) — not the secret.

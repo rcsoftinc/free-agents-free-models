@@ -109,7 +109,7 @@ data/model-seed.json      OPTIONAL cold-start opinion per model/category - hand-
 data/provider-notes.json  OPTIONAL ToS/evidence note per provider - same rules as model-seed.json
 prompts/          coordinator.md - the single pasted prompt
 skills/           skill cards, linked into the project by bootstrap
-test/             28 suites, stub agents, fixture registry - fully offline
+test/             29 suites, stub agents, fixture registry - fully offline
 ```
 
 ## Lanes on this machine
@@ -531,3 +531,69 @@ usage showed" sections exist to catch, and exactly what `fa findings --note`
 + `--issue --post` (built earlier today) is for on a report that isn't
 already fixed by the time it's read - this one was fixed same-session, so
 recorded here instead of filed as an issue against itself.
+
+## Fix: `setup.sh`'s "Ready." banner silently missed agy and pi (2026-09-27, same day)
+
+Same real-usage report, second bug in it: the user noticed `agy: already
+logged in` printed one line above a final banner that only listed five of
+the seven agents. `setup.sh:140` was a hand-typed string, never updated when
+agy/pi were added to `FA_AGENTS` - the exact bug class `adapters.sh`'s own
+header already warns about ("A new harness is exactly two things... a copy
+of the agent list in any other file is a regression"), just in a spot
+(plain print text) that earlier cleanup didn't reach because nothing
+functional exercises it. Now built from `FA_AGENTS` at runtime. Checked
+`docs/dev/ALIGNMENT.md`'s similar-looking `opencode | kilo | hermes` -
+that one's an illustrative example inside a notation diagram, not a claim to
+be exhaustive, left alone. New assertion in `test_bootstrap.sh` pins all
+seven names in the real banner output.
+
+## Fix: hermes's real nous credential lives in `.providers.nous`, not `.credential_pool.nous` (2026-09-27, same day)
+
+Re-running `setup.sh` on the same second machine after the `hermes auth
+upgrade` fix above surfaced a THIRD, more interesting bug from the same
+report: hermes itself replied **"Already signed in"** to the auth-upgrade
+attempt, yet fa immediately reported `hermes: still not logged in`
+afterward - hermes and fa disagreeing about the exact same credential.
+
+Diagnosed without needing the second machine at all: hermes is a git
+install (`Install directory: /home/rcsoft/.hermes/hermes-agent`), so its own
+source was readable directly. `hermes_cli/auth_nous.py`'s
+`persist_nous_credentials()` docstring says it outright: *"Nous credentials
+are read from `providers.nous` (401 recovery, pool seeding) AND
+`credential_pool.nous` (runtime `pool.select()`); a pool-only write broke
+expiry recovery."* The singleton (`.providers.nous`, a flat object) is
+written first and is what hermes's own login check trusts;
+`credential_pool.nous` (an array - what `hermes_endpoints()` in
+`bin/lib/adapters/hermes.sh` exclusively read) is a secondary mirror that
+hermes's own maintainers have already found ways to leave stale. Confirmed
+the singleton's real shape directly against this machine's own
+`~/.hermes/auth.json` (`.providers.nous` keys: `client_id`,
+`inference_base_url`, `last_auth_error`, `portal_base_url`, `scope`, `tls`,
+`token_type` - `access_token`/`refresh_token` present only when actually
+logged in) - this machine's own nous is CURRENTLY logged out too
+(`credential_pool.nous` is `array(len=0)`, confirmed via `hermes auth status
+nous`), which is a separate, likely-harmless staleness note in itself: this
+machine's registry still shows a healthy `nous:9162a7f63a81` lane from a
+past `fa discover`, and `registry_status()`'s freshness check only detects
+a credential being ADDED, never one disappearing - deliberately not chased
+further this session, since health/cooldowns are documented as
+self-correcting at runtime (a real dispatch attempt would hit an auth error
+and cool the bucket down the normal way) and nobody asked for this axis to
+be hardened.
+
+`hermes_endpoints()` now reads `.providers.nous` too, preferring it over
+`credential_pool.nous` whenever it holds a real `access_token` - exactly
+matching which one hermes's own login check trusts - and falls back to the
+pool entry otherwise, so a pre-singleton hermes install (or any other
+provider, e.g. kilocode gateway keys) is completely unaffected. New
+`test/test_hermes_nous.sh` (13 assertions, fully offline, unsigned fake
+JWTs) pins: singleton-only, both-empty, both-populated-singleton-wins,
+pool-only-still-works, end-to-end `hermes_identify()`, and other-providers-
+unaffected.
+
+Three real bugs found from one user trying the tool on a second project, in
+one afternoon - the found-by-actually-using-it kind of feedback this whole
+findings system exists for, arriving faster than any of it could have been
+guessed at a desk.
+
+Full suite: 29 suites / 493 assertions, offline.

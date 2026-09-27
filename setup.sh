@@ -133,11 +133,21 @@ case "$(registry_status)" in
     say "          ${STATE}" ;;
 esac
 
+# Built from FA_AGENTS, not typed out - a hand-copied roster in a banner is
+# exactly the "second definition of the harness list" this project's own
+# adapters.sh already warns against (it drifted once before: this exact line
+# used to read "opencode | kilo | hermes | copilot | cursor", silently
+# missing agy and pi ever since they were added).
+agent_list=""
+for agent in "${FA_AGENTS[@]}"; do
+  agent_list="${agent_list:+${agent_list} | }${agent}"
+done
+
 cat <<EOF
 
 Ready.
 
-  1. Start any agent from here:  opencode | kilo | hermes | copilot | cursor
+  1. Start any agent from here:  ${agent_list}
   2. Paste this into it:         .free-agents/prompts/coordinator.md
   3. Then just talk normally - it picks the mode itself.
 

@@ -1,6 +1,6 @@
 # SESSION STATE — read this first on resume
 
-**Last updated:** 2026-09-21
+**Last updated:** 2026-09-27
 
 ---
 
@@ -99,16 +99,17 @@ constantly. Fingerprints do not move — the nous one is the token's `sub` claim
 ## Layout
 
 ```
-bin/fa            entry point: bootstrap doctor lanes run plan dispatch/go rank profile orch status resume findings
-bin/buckets.sh    credential registry      lanes | discover | probe | show | profile
-bin/run.sh        dispatch engine          fallback chain, bucket lease, breaker, agent/harness ranking
+bin/fa            entry point: bootstrap doctor lanes run plan dispatch/go rank profile quota orch status resume findings
+bin/buckets.sh    credential registry      lanes | discover | probe | show | profile | quota
+bin/run.sh        dispatch engine          fallback chain, bucket lease, breaker, agent/harness ranking, exclusion trace
 bin/plan.sh       goal -> task graph       planning itself has fallback, rejects malformed graphs locally
 bin/orch.sh       per-project task graph   run | status | resume (journal replay), "when" conditional edges
-bin/lib/          common.sh, deps.sh, adapters.sh, classify.sh + adapters/ (one file per harness)
-data/model-seed.json  OPTIONAL cold-start opinion per model/category - hand-edit or delete, nothing breaks
+bin/lib/          common.sh, deps.sh, adapters.sh, classify.sh, quota.sh + adapters/ (one file per harness)
+data/model-seed.json      OPTIONAL cold-start opinion per model/category - hand-edit or delete, nothing breaks
+data/provider-notes.json  OPTIONAL ToS/evidence note per provider - same rules as model-seed.json
 prompts/          coordinator.md - the single pasted prompt
 skills/           skill cards, linked into the project by bootstrap
-test/             24 suites, stub agents, fixture registry - fully offline
+test/             27 suites, stub agents, fixture registry - fully offline
 ```
 
 ## Lanes on this machine
@@ -376,7 +377,7 @@ into two tiers, and only one of them was actually automatable.
   silent — prints a final summary of every account still not logged in,
   with the exact command for each.
 
-**Real bug caught by the test suite before it shipped**: `kilo_provision_key`
+**Real bug caught by the test suite before it shipped (fresh-machine setup)**: `kilo_provision_key`
 was first written with signature `(key, baseURL)`, but the generic
 dispatcher in `keys.sh` calls every `*_provision_key` function uniformly as
 `(provider, key)` — silently swapping the two, so the real key landed in
@@ -396,3 +397,58 @@ to "run the agent once and follow its own prompt" if wrong. Worth
 confirming on a real machine and tightening if resuming this thread.
 
 Full suite: 24 suites / 426 assertions, offline.
+
+## This session: ToS/evidence notes, live quota check, exclusion trace (2026-09-27)
+
+Prompted by studying a third-party project (OmniRoute, an unrelated LLM-API
+gateway) for ideas worth borrowing. Three landed, each scoped down from the
+original idea to what this tool's actual architecture supports:
+
+- **`data/provider-notes.json`** - hand-maintained ToS/evidence notes per
+  provider, same spirit as `data/model-seed.json` (optional, never fetched
+  at runtime, deleting it breaks nothing). Matched case-insensitively against
+  a bucket's `provider`/`local_providers` at discover time; attaches
+  `tos`/`tos_evidence`/`tos_note` to the bucket. `fa show` prints a
+  `** TOS CAUTION/AVOID: ... **` line and `fa lanes -v` a terse `[TOS:...]`
+  tag - only for `caution`/`avoid`, never for `ok`/`unknown`, so the line
+  stays meaningful instead of becoming wallpaper. Seeded from a third party's
+  independent ToS catalog, cited as such, never asserted as this project's own
+  legal read - including a caution on fa's own `opencode`/`agy` lanes,
+  which the source catalog rates the same way it rates a third-party proxy
+  reaching through those CLIs' own free gateways.
+- **`fa quota` / `bin/buckets.sh quota`** (`bin/lib/quota.sh`) - the one place
+  this tool ever asks a provider directly, ahead of time, how much of its own
+  published budget is left, instead of inferring it from a failed attempt
+  after the fact. One provider only: OpenRouter's real `GET /api/v1/auth/key`
+  endpoint. Opt-in and separate from every hot path - `run.sh`'s `candidates()`
+  and `cmd_lanes` stay offline-only, exactly as before; only `fa show` displays
+  the last recorded check. Deliberately honest in its own label: OpenRouter's
+  `usage`/`limit` are its DOLLAR-CREDIT ledger, not a free-tier token count,
+  and the tool says so rather than implying more than the data supports. A
+  second provider with an equally real endpoint is what would turn this into a
+  per-adapter contract function; one case today is a flat, explicit function,
+  same reasoning `keys.sh` gives for `FA_TIERA_KEYS` staying three hardcoded
+  lines instead of a generic mechanism.
+- **`explain_exclusions()` in `run.sh`** - when a bucket/model/route does not
+  make the candidate chain, `--dry-run` now prints an `excluded:` section and
+  the empty-chain guard prints `why:`, both grouped and counted by reason
+  (`bucket cooling down`, `excluded via -x`, `model unsuitable: <reason>`,
+  `<agent> lacks capability for <category>`, etc.). Every field it reads
+  already existed (`unsuitable_reason`, `health.state`, `cooldown_until`) -
+  this adds visibility, not a new signal, and never fires on an ordinary
+  successful run.
+
+**Real bug caught while building this, not by inspection**: the first version
+of `explain_exclusions()`'s jq double-nested the per-model branch inside an
+extra `[...]`, so the bucket-level branch produced flat objects while the
+model-level branch produced an array of arrays. `group_by(.reason)` failed
+with `Cannot index array with string "reason"` - but only on the `--dry-run`
+call site, because that call site's `2>/dev/null` (correctly protecting
+ordinary runs from a jq regression) also hid the error from the very testing
+that was trying to find it. Diagnosed by temporarily removing the suppression
+in a live repro rather than reading the jq harder - the same lesson this
+project has hit before (the kilo `_provision_key` argument-order bug, the
+worktree merge-back bug): read the actual output back, don't trust that the
+code looks right.
+
+Full suite: 27 suites / 456 assertions, offline.

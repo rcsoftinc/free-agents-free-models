@@ -598,6 +598,9 @@ fa dispatch         # same check, against a task graph you already wrote
 | **Bucket circuit breaker** | Freezes a wallet after consecutive failures, skips all its models instantly |
 | **`fa dispatch`** | The orchestrate-vs-direct decision as real code, not a rule a coordinator has to compute correctly by hand — prints its evaluation, dispatches when it decides to |
 | **`fa rank`** | Read-only view of the ranked candidate chain for a category — see why a model/agent was picked, without spending a request |
+| **Exclusion trace** | `--dry-run` and the empty-chain guard explain WHY a bucket/model/route didn't make the candidate chain (cooling down, excluded, unsuitable, capability mismatch) — not just that none did |
+| **`fa quota`** | Opt-in live check against OpenRouter's own published ledger (usage/limit) — the one place this tool asks a provider directly instead of inferring quota from a failed attempt |
+| **Provider ToS notes** | Hand-maintained ToS/evidence per provider (`data/provider-notes.json`, optional, same rules as the model seed); `fa show`/`fa lanes -v` flag a caution- or avoid-rated wallet |
 | **Graph visualization** | Render the task graph as an ASCII diagram (`fa graph`, `fa plan --graph`) — verify the split before spending tokens |
 | **`when` conditional edges** | A task can run only if a completed dependency's reported result matches — a real branch in the task graph, not just a wait |
 | **Crash-safe resume** | Append-only journal; resume any run after interruption, without redispatching a task whose child from a killed process is still running |
@@ -672,11 +675,13 @@ Each adapter identifies credentials, lists models (agent-prefixed TSV), and invo
 │   ├── plan.sh               goal -> task graph
 │   ├── orch.sh               task graph + journal-based resume
 │   ├── analyze.sh            post-run journal analysis + learnings
-│   └── lib/                  common.sh, deps.sh, adapters.sh, classify.sh, keys.sh
+│   └── lib/                  common.sh, deps.sh, adapters.sh, classify.sh, keys.sh, quota.sh
 │       └── adapters/         one file per harness (opencode, kilo, hermes, copilot, cursor, agy, pi)
 ├── data/model-seed.json      OPTIONAL cold-start opinion - hand-edit or generate from
 │                             a leaderboard; delete it and nothing breaks (see its own
 │                             "_README" key for the format)
+├── data/provider-notes.json  OPTIONAL ToS/evidence note per provider - same rules as
+│                             model-seed.json above
 ├── skills/                   skill cards, linked by `fa bootstrap`
 ├── state/                    the credential registry (gitignored, regenerated)
 ├── docs/                     SETUP.md, design history in dev/

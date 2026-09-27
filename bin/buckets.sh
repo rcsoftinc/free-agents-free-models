@@ -35,6 +35,8 @@ LOG_TAG=buckets
 . "${HERE}/lib/common.sh"
 # shellcheck source=lib/classify.sh
 . "${HERE}/lib/classify.sh"
+# shellcheck source=lib/quota.sh
+. "${HERE}/lib/quota.sh"
 
 PROBE_TIMEOUT="${PROBE_TIMEOUT:-90}"
 PROBE_PROMPT='reply with exactly: OK'
@@ -59,6 +61,11 @@ NONTEXT_FAMILIES="${NONTEXT_FAMILIES:-lyria|whisper|dall-?e|imagen|stable-?diffu
 # fetched at runtime: it is a place to park human or leaderboard opinion where it
 # cannot break a run and is overridden the moment real results exist.
 MODEL_SEED="${MODEL_SEED:-${_FA_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}/data/model-seed.json}"
+
+# Hand-maintained ToS/evidence notes per provider (wallet), same spirit as
+# MODEL_SEED above: optional, never fetched at runtime, matched case-
+# insensitively against a bucket's provider/local_providers at discover time.
+PROVIDER_NOTES="${PROVIDER_NOTES:-${_FA_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}/data/provider-notes.json}"
 
 BLOCKLIST_DEFAULT="opencode/big-pickle opencode/mimo-v2.5-free opencode/hy3-free opencode/muse-spark-1.2-contributor-free"
 BLOCKLIST="${BUCKETS_BLOCKLIST:-$BLOCKLIST_DEFAULT}"
@@ -250,12 +257,22 @@ cmd_discover() {
                       | (($canon[.ident] // .wallet) + ":" + .ident))
       | map(
           ($byap[.[0].agent+"|"+.[0].provider]) as $id
-        | (($canon[$id.ident] // $id.wallet) + ":" + $id.ident) as $bid
+        | ($canon[$id.ident] // $id.wallet) as $provider_name
+        | ($provider_name + ":" + $id.ident) as $bid
+        | ([.[].provider] | unique) as $local_provs
+        # Hand-maintained ToS/evidence note (data/provider-notes.json), matched
+        # case-insensitively: canonical provider name first, then any local
+        # alias - first hit wins. Null when nothing matches, which costs
+        # nothing, same as a model with no seed opinion.
+        | ( $notes[$provider_name | ascii_downcase]
+            // ( [ $local_provs[] | $notes[. | ascii_downcase] ]
+                 | map(select(. != null)) | first )
+            // null ) as $note
         | { key: $bid,
             value: {
               id: $bid,
-              provider: ($canon[$id.ident] // $id.wallet),
-              local_providers: ([.[].provider] | unique),
+              provider: $provider_name,
+              local_providers: $local_provs,
               credential_fp: $id.ident,
               credential_sources: ([.[] | $byap[.agent+"|"+.provider].source] | unique),
               reachable_via: ([.[].agent] | unique),
@@ -263,6 +280,9 @@ cmd_discover() {
               limits: ($id.extra.limits // {}),
               metered: ($id.extra.metered // false),
               meter: ($id.extra | del(.limits, .metered) | if length > 0 then . else null end),
+              tos: ($note.tos // null),
+              tos_evidence: ($note.evidence // null),
+              tos_note: ($note.note // null),
               health: ($old[$bid].health //
                        {state:"unknown", consecutive_failures:0, cooldown_until:null}),
               models: ([ .[] | . as $m
@@ -347,6 +367,10 @@ cmd_discover() {
         adapters_installed; } | sort -u | jq -R . | jq -sc . )" \
     --argjson seed "$( [[ -f "$MODEL_SEED" ]] \
         && jq -c 'with_entries(select(.key | startswith("_") | not))' "$MODEL_SEED" 2>/dev/null \
+        || echo '{}' )" \
+    --argjson notes "$( [[ -f "$PROVIDER_NOTES" ]] \
+        && jq -c 'with_entries(select(.key | startswith("_") | not))
+                  | with_entries(.key |= ascii_downcase)' "$PROVIDER_NOTES" 2>/dev/null \
         || echo '{}' )" \
     > "${REGISTRY}.tmp" || die "failed to build registry"
 
@@ -478,7 +502,7 @@ cmd_lanes() {
       | ([$b.models[] | select(.free and .suitable == false)] | group_by(.unsuitable_reason)
          | map("\(length) \(.[0].unsuitable_reason)") | join(" · ")) as $cut
       | ([$b.models[] | select(.free and .suitable != false)] | length) as $ok
-      | "  \(if $live then "LANE    " elif ($b.metered // false) then "metered " else "unusable" end) \($b.id)  \($b.preferred_agent)  \($ok) usable\(if $cut != "" then " (\($cut) filtered)" else "" end)  health=\($b.health.state)"' \
+      | "  \(if $live then "LANE    " elif ($b.metered // false) then "metered " else "unusable" end) \($b.id)  \($b.preferred_agent)  \($ok) usable\(if $cut != "" then " (\($cut) filtered)" else "" end)  health=\($b.health.state)\(if ($b.tos == "caution" or $b.tos == "avoid") then "  [TOS:\($b.tos)]" else "" end)"' \
       --arg now "$now"
   else
     printf '%s\n' "$n"
@@ -503,6 +527,13 @@ cmd_show() {
        else empty end),
       (if ($b.reachable_via | length) > 1 then
         "   ** SHARED WALLET: \($b.reachable_via | join(" + ")) hit the same credential - ONE lane, never run them in parallel **"
+       else empty end),
+      (if ($b.tos == "caution" or $b.tos == "avoid") then
+        "   ** TOS \($b.tos | ascii_upcase)\(if $b.tos_evidence then " (\($b.tos_evidence))" else "" end): \($b.tos_note // "check this providers terms before proxy-style use") **"
+       else empty end),
+      (if $b.health.quota then
+        "   quota (\($b.health.quota.source), checked \($b.health.quota.checked_at)): usage=\($b.health.quota.usage) limit=\($b.health.quota.limit // "none") remaining=\($b.health.quota.limit_remaining // "n/a")"
+        + " -- this is the dollar-credit ledger, NOT a free-tier token count; a free-tier call may never touch it"
        else empty end),
       ""),
     (if (.phantom_routes | length) > 0 then
@@ -540,6 +571,46 @@ cmd_profile() {
   ' "$REGISTRY"
 }
 
+# Live quota check against OpenRouter's own published ledger - see lib/quota.sh
+# for what this does and does NOT tell you. Opt-in only: never called by
+# discover/probe/lanes/show's normal path, all of which stay offline or
+# bounded to a liveness probe. Writes .health.quota, which `show` then
+# displays on every later (offline) run until this is called again.
+cmd_quota() {
+  [[ -f "$REGISTRY" ]] || die "no registry; run: $0 discover"
+  local key; key="$(openrouter_key_from_kilo)" || {
+    log "no OpenRouter key found in kilo's config - nothing to check"
+    return 0
+  }
+  local fp_val bid
+  fp_val="$(fp "$key")"
+  bid="$(jq -r --arg fp "$fp_val" '[.buckets[] | select(.credential_fp == $fp) | .id][0] // empty' "$REGISTRY")"
+  if [[ -z "$bid" ]]; then
+    log "this OpenRouter key is not yet in the registry - run: $0 discover"
+    return 2
+  fi
+  local usage limit remaining free_tier rpm interval
+  IFS=$'\t' read -r usage limit remaining free_tier rpm interval \
+    < <(openrouter_quota_check "$key") || {
+    log "$bid: quota check failed (network, or OpenRouter's endpoint changed shape)"
+    return 1
+  }
+  log "$(printf '%-26s usage=%s limit=%s remaining=%s free_tier=%s rate=%s/%s' \
+    "$bid" "$usage" "$limit" "$remaining" "$free_tier" "$rpm" "$interval")"
+  jq --arg b "$bid" --arg at "$(iso_now)" \
+     --arg usage "$usage" --arg limit "$limit" --arg remaining "$remaining" \
+     --arg free "$free_tier" --arg rpm "$rpm" --arg interval "$interval" '
+    .buckets[$b].health.quota = {
+      checked_at: $at, source: "openrouter:auth/key",
+      usage: ($usage | tonumber? // $usage),
+      limit: (if $limit == "null" then null else ($limit | tonumber? // $limit) end),
+      limit_remaining: (if $remaining == "null" then null else ($remaining | tonumber? // $remaining) end),
+      is_free_tier: ($free == "true"),
+      rate_limit: { requests: (if $rpm == "null" then null else ($rpm | tonumber? // $rpm) end),
+                    interval: (if $interval == "null" then null else $interval end) }
+    }' "$REGISTRY" > "${REGISTRY}.tmp" && mv "${REGISTRY}.tmp" "$REGISTRY"
+}
+
 usage() {
   cat >&2 <<EOF
 usage: $(basename "$0") <command>
@@ -549,6 +620,8 @@ usage: $(basename "$0") <command>
   probe [--all]       prove reachability (default: one free model per bucket)
   show                human-readable summary
   profile             per-agent/harness learned reliability (fa profile)
+  quota                live check against OpenRouter's own published ledger
+                       (opt-in, one network call; see bin/lib/quota.sh)
 
 state: ${REGISTRY}
 EOF
@@ -562,5 +635,6 @@ case "${1:-}" in
   probe)    shift; cmd_probe "$@" ;;
   show)     shift; cmd_show "$@" ;;
   profile)  shift; cmd_profile "$@" ;;
+  quota)    shift; cmd_quota "$@" ;;
   *) usage ;;
 esac

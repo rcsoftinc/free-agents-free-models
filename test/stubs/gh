@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Stub gh (GitHub CLI) for offline testing of `fa findings --issue --post`.
+#   GH_STUB_MODE   success (default) | fail
+#   STUB_LOG       if set, appends "issue create: <title>" per call - never
+#                  the body, which can be large/multiline and isn't needed to
+#                  assert on.
+for a in "$@"; do
+  if [[ "$a" == "issue" ]]; then
+    title=""
+    prev=""
+    for x in "$@"; do
+      [[ "$prev" == "--title" ]] && title="$x"
+      prev="$x"
+    done
+    [[ -n "${STUB_LOG:-}" ]] && printf 'issue create: %s\n' "$title" >> "$STUB_LOG"
+    case "${GH_STUB_MODE:-success}" in
+      fail) echo "stub gh: simulated failure creating issue" >&2; exit 1 ;;
+      *) echo "https://github.com/stub-owner/stub-repo/issues/$(( (RANDOM % 900) + 100 ))" ;;
+    esac
+    exit 0
+  fi
+  if [[ "$a" == "repo" ]]; then
+    echo "stub-owner/stub-repo"
+    exit 0
+  fi
+done
+exit 0

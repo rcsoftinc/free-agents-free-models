@@ -109,7 +109,7 @@ data/model-seed.json      OPTIONAL cold-start opinion per model/category - hand-
 data/provider-notes.json  OPTIONAL ToS/evidence note per provider - same rules as model-seed.json
 prompts/          coordinator.md - the single pasted prompt
 skills/           skill cards, linked into the project by bootstrap
-test/             27 suites, stub agents, fixture registry - fully offline
+test/             28 suites, stub agents, fixture registry - fully offline
 ```
 
 ## Lanes on this machine
@@ -452,3 +452,42 @@ worktree merge-back bug): read the actual output back, don't trust that the
 code looks right.
 
 Full suite: 27 suites / 456 assertions, offline.
+
+## This session: `fa findings --issue --post` (2026-09-27, later same day)
+
+Prompted by the user asking whether the tool had anything like a bug/issue
+catcher that could feed back into maintaining it. It did, mostly: the
+findings system already detected, redacted and deduplicated, and `--issue`
+already formatted a ready-to-paste GitHub issue - it just stopped at the
+clipboard. This closes that last step, without touching the "human decides"
+invariant that already existed.
+
+- `_finding_rows()` in `bin/lib/findings.sh` - the ONE place a grouped
+  finding becomes a `{title, body}` pair, so the text a human reviews before
+  saying yes can never drift from the text that actually gets filed.
+  `findings_issue()` (the existing `--issue` display path) is now a thin
+  formatter over it - refactor only, same output, all 22 pre-existing
+  `test_findings.sh` assertions passed unchanged before a single new test
+  was written.
+- `findings_post()` - resolves this clone's own `origin` remote (never the
+  project `fa` happens to be run from; `FINDINGS_REPO_SLUG` overrides it,
+  which is also how a fork ends up filing against itself for free), lists
+  every NEW finding's title, asks once (`read -rp`, so a non-interactive
+  caller with closed stdin gets EOF -> declines by default, never files
+  blind), then calls `gh issue create` per finding on an explicit yes.
+- `_mark_filed()` - every entry sharing a fingerprint is marked once filed
+  (same locked read-modify-write shape as the existing `findings_ack`), so a
+  repeat occurrence of the same failure never opens a second issue. A `gh`
+  failure is reported per-finding and does NOT mark it filed, so a retry
+  picks it back up.
+- `test/stubs/gh` (new) - offline stub, `GH_STUB_MODE=success|fail`, logs the
+  title of every `issue create` call so a test can assert exactly what would
+  have been filed without ever reaching the network.
+
+Real fact surfaced while building this, not before: the repo is now
+**public** (`gh repo view` confirms `PUBLIC`) - the "Published privately"
+note earlier in this file is stale. Worth knowing since `--post` makes that
+concretely actionable: anyone with a `gh` login can now open an issue
+against it, from any machine running this tool, once they say yes.
+
+Full suite: 28 suites / 479 assertions, offline.

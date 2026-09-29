@@ -592,7 +592,7 @@ fa dispatch         # same check, against a task graph you already wrote
 |---------|--------------|
 | **Lane detection** | Discovers every credential your agents hold, attributes each model to its wallet |
 | **Parallel dispatch** | Runs independent tasks on separate lanes simultaneously |
-| **Isolated execution** | Runs tasks in git worktrees to prevent collisions (`--isolate`) |
+| **Isolated execution** | Runs tasks in git worktrees to prevent collisions (`--isolate`) — a small pool of worktrees is reused across tasks and runs instead of a fresh checkout/teardown per task |
 | **Fallback chain** | Tries the next healthy lane when one fails — no manual intervention |
 | **Agent/harness ranking** | Learns which CLI actually gets results per category, and falls back to the next-best harness on the same wallet and model before trying anything else (`fa profile`) |
 | **Bucket circuit breaker** | Freezes a wallet after consecutive failures, skips all its models instantly |

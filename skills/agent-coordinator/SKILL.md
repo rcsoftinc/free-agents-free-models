@@ -1,3 +1,8 @@
+---
+name: agent-coordinator
+description: The free-agents-free-models coordinator playbook, loaded ONLY after AGENTS.md's own gate (>=2 disjoint tasks AND `bin/buckets.sh lanes` >=2) has already passed - never load this speculatively or to decide whether to orchestrate; that decision is AGENTS.md's, made before this file is ever opened.
+---
+
 # Agent Coordination Workflow
 
 The coordinator playbook. `AGENTS.md` points here once its gate has been passed.

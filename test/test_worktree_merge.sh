@@ -61,10 +61,20 @@ assert_contains "task a's commit is in the log" \
 assert_contains "task b's commit is in the log" \
   "$(git -C "$PROJECT_DIR" log --format=%s)" "fa: b"
 
+# The worktree POOL persists by design (see wt_pool_get in orch.sh) - a
+# sequentially-run dependency pair (b waits on a) only ever needs ONE lane,
+# so exactly one pool slot should exist: main + pool-1, task b reusing what
+# task a returned rather than a second slot being created for it.
 wt_count="$(git -C "$PROJECT_DIR" worktree list | wc -l)"
-assert_eq "no worktrees were left behind" "$wt_count" "1"
-assert_not_contains "throwaway task branches were cleaned up" \
+assert_eq "exactly one pool slot was created (main + pool-1), reused not duplicated" "$wt_count" "2"
+assert_not_contains "throwaway per-task branches are gone (there never was one)" \
   "$(git -C "$PROJECT_DIR" branch)" "fa-task-"
+assert_contains "the persistent pool branch exists" \
+  "$(git -C "$PROJECT_DIR" branch)" "fa-pool-1"
+assert_eq "only one pool slot was ever created across both tasks" \
+  "$(grep -c 'created fresh' "${PROJECT_DIR}/out.log" 2>/dev/null || echo 0)" "1"
+assert_contains "task b's log shows it reusing the pool slot, not creating one" \
+  "$(cat "${PROJECT_DIR}/out.log")" "reused (reset to current HEAD)"
 
 # --- 2. two INDEPENDENT isolated tasks (no deps, disjoint files) running
 # concurrently must not lose either commit under the merge lock ------------
@@ -86,16 +96,32 @@ cat > "${PROJECT2}/.orch/tasks.json" <<EOF
 ]}
 EOF
 
+# STUB_CONC_DIR makes the stub agents genuinely hold their lane for
+# STUB_HOLD seconds (see test_concurrency.sh) - without it these stubs
+# return instantly, and x can finish and release its pool slot before y
+# even starts trying to acquire one, making "two distinct slots" a race
+# this test would only pass by luck rather than proving anything.
+STUB_CONC="$(mktemp -d)"; export STUB_CONC_DIR="$STUB_CONC"
 ORCH_PROJECT="$PROJECT2" timeout 120 "$REPO/bin/orch.sh" \
   run "${PROJECT2}/.orch/tasks.json" --isolate --max-parallel 2 \
   >"${PROJECT2}/out.log" 2>&1
 rc2=$?
+unset STUB_CONC_DIR; rm -rf "$STUB_CONC"
 assert_eq "two independent isolated tasks both complete" "$rc2" "0"
 assert_eq "x.txt has its own content" "$(cat "${PROJECT2}/x.txt" 2>/dev/null)" "X-CONTENT"
 assert_eq "y.txt has its own content" "$(cat "${PROJECT2}/y.txt" 2>/dev/null)" "Y-CONTENT"
 commit_count2="$(git -C "$PROJECT2" log --oneline | wc -l)"
 assert_true "neither commit was lost under the merge lock (got ${commit_count2}, want >=3: init+x+y)" \
   '[[ $commit_count2 -ge 3 ]]'
+
+# Two independent tasks dispatched concurrently must land on two DISTINCT
+# pool slots (flock prevents both from acquiring the same one) - proving
+# the reuse mechanism does not accidentally serialize genuine parallelism.
+wt_count2="$(git -C "$PROJECT2" worktree list | wc -l)"
+assert_eq "two concurrent tasks claimed two distinct pool slots (main + pool-1 + pool-2)" \
+  "$wt_count2" "3"
+assert_eq "both slots were created fresh, never colliding on one" \
+  "$(grep -c 'created fresh' "${PROJECT2}/out.log" 2>/dev/null || echo 0)" "2"
 
 rm -rf "$PROJECT2"
 rm -rf "$PROJECT_DIR"

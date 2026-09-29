@@ -1,6 +1,6 @@
 # SESSION STATE — read this first on resume
 
-**Last updated:** 2026-09-27
+**Last updated:** 2026-09-28
 
 ---
 
@@ -109,7 +109,7 @@ data/model-seed.json      OPTIONAL cold-start opinion per model/category - hand-
 data/provider-notes.json  OPTIONAL ToS/evidence note per provider - same rules as model-seed.json
 prompts/          coordinator.md - the single pasted prompt
 skills/           skill cards, linked into the project by bootstrap
-test/             29 suites, stub agents, fixture registry - fully offline
+test/             31 suites, stub agents, fixture registry - fully offline
 ```
 
 ## Lanes on this machine
@@ -721,3 +721,95 @@ guaranteed to never print: the file's own `_README` key, already filtered
 out (`startswith("_")`) before anything loads into the registry. This
 session's own build-history mention above (search "OmniRoute") is left
 alone on purpose - this is a dev log, never something `fa` runs or prints.
+
+## `agent-coordinator/SKILL.md` gets frontmatter (2026-09-28)
+
+The user asked about surveying the wider "Claude Skills" ecosystem
+(anthropics/skills, and vercel-labs/skills - which turned out to actually
+BE the `npx skills` install CLI itself, not a skills collection; the real
+content repo is vercel-labs/agent-skills). That CLI's own source
+(`src/skills.ts:100`) confirmed a real, latent gap: `free-agents-free-
+models/SKILL.md` has always had proper `name`/`description` frontmatter,
+but `agent-coordinator/SKILL.md` never did - a plain markdown file with no
+`---` block at all. The CLI gates on both fields and silently skips (with
+a warning) any SKILL.md missing them, so installing fa's skills through it
+would install one and silently drop the other.
+
+Fixed with frontmatter that states plainly what this skill already says in
+its own first paragraph - load manually, after AGENTS.md's gate, never by
+auto-triggering on the description:
+```yaml
+---
+name: agent-coordinator
+description: The free-agents-free-models coordinator playbook, loaded ONLY after AGENTS.md's own gate (>=2 disjoint tasks AND `bin/buckets.sh lanes` >=2) has already passed - never load this speculatively or to decide whether to orchestrate; that decision is AGENTS.md's, made before this file is ever opened.
+---
+```
+Checked both other references to this file (`docs/dev/ALIGNMENT.md`'s
+historical mention, `test_bootstrap.sh`'s directory-existence check) -
+neither depends on the file's content, so nothing else needed to change.
+
+## `--isolate` worktrees are now a persistent POOL, not create-then-destroy (2026-09-28)
+
+Same survey turned up a second, unrelated repo doing something genuinely
+relevant: a git worktree pool manager that reuses a clean, already-warmed
+worktree instead of paying full checkout/teardown cost per task. `run_task()`
+was doing exactly that per-task cost every time under `--isolate` - create
+a worktree from `$PROJECT`'s HEAD, use it once, destroy it and its
+throwaway branch. Adapted the IDEA (never the code, never named in
+anything fa prints - see the no-runtime-attribution policy above): a
+git worktree pool.
+
+- **`wt_pool_claim`/`wt_pool_prepare`** (orch.sh) replace the old per-task
+  `wt_dir="${ORCH_DIR}/worktrees/${id}"`. One slot per possible lane
+  (`pool-1..pool-$width`), flock-guarded (mirroring `run.sh`'s own bucket
+  `lease_acquire`/`lease_release` idiom, not shared code - different
+  resources in different files). A returned slot is `reset --hard` +
+  `clean -fdx` to the CURRENT project HEAD before reuse, never destroyed;
+  branches are `fa-pool-N` (persistent, per-slot) instead of `fa-task-<id>`
+  (throwaway, per-task) - nothing to delete after a task anymore, just a
+  lease to release. Slots persist across SEPARATE `orch.sh run`
+  invocations too, not just within one, since nothing ever tears them down;
+  a manual `rm -rf .orch/worktrees/` is the escape hatch if anyone wants
+  the disk space back.
+
+**Two real bugs caught while building this, neither by inspection:**
+
+1. `wt_slot="$(wt_pool_get ...)"` - the first version acquired the flock
+   lease and returned the slot number from the SAME function, called via
+   command substitution. Command substitution forks a subshell to run the
+   command and collect its output; the instant that subshell exits (as
+   soon as the command finishes), every FD it opened - including the
+   flock'd lease FD - closes, releasing the lock. Two concurrent tasks
+   both "successfully" claimed slot 1, because the first task's lock was
+   already gone by the time the second even asked. Fixed by splitting
+   `wt_pool_claim` (acquires the lease - MUST be called directly, never via
+   `$(...)`) from `wt_pool_prepare` (reuses or creates the actual worktree
+   content - safe to substitute, holds no state that needs to outlive its
+   own return). Caught by making a test suite assertion ("two independent
+   concurrent tasks land on two distinct slots") actually force real
+   overlap via `STUB_CONC_DIR`/`STUB_HOLD` (see test_concurrency.sh's own
+   established pattern) instead of hoping instant stub commands happened
+   to race - the bug was invisible without forcing genuine concurrency.
+2. `git worktree add`'s own stdout ("Preparing worktree...", "HEAD is now
+   at ...") was leaking into the captured return value (only stderr was
+   redirected), corrupting `$wt_slot` with multi-line git status noise on
+   every fresh slot creation.
+
+**A third thing, not a bug, discovered while writing the corruption-
+recovery test**: `git worktree remove --force` refuses outright
+("validation failed... is not a .git file") when a worktree's own `.git`
+pointer file is corrupted - `--force` overrides a dirty or locked
+worktree, not a broken one. Confirmed directly before trusting it. The
+actual recovery is `rm -rf` the directory first, then `git worktree
+prune`, which clears git's now-dangling admin record for a path that no
+longer exists - only then does a fresh `add` succeed.
+
+New `test/test_worktree_pool.sh` (14 assertions): cross-invocation reuse,
+a stray file from a prior task actually gets cleaned before the next task
+sees it, corrupted-slot recovery, and slot count staying flat across four
+separate runs. Existing `test_worktree_merge.sh` updated in place for the
+new persistent-pool reality (a sequential dependency pair reuses one slot;
+two genuinely concurrent tasks claim two distinct ones, forced via the
+same `STUB_CONC_DIR` mechanism).
+
+Full suite: 31 suites / 516 assertions, offline.

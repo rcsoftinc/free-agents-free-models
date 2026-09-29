@@ -600,7 +600,7 @@ fa dispatch         # el mismo chequeo, contra un grafo de tareas que ya escribi
 |---------|--------------|
 | **Detección de carriles** | Descubre cada credencial que tus agentes poseen, atribuye cada modelo a su billetera |
 | **Envío paralelo** | Ejecuta tareas independientes en carriles separados simultáneamente |
-| **Ejecución aislada** | Ejecuta tareas en worktrees de git para prevenir colisiones (`--isolate`) |
+| **Ejecución aislada** | Ejecuta tareas en worktrees de git para prevenir colisiones (`--isolate`) — un pequeño pool de worktrees se reutiliza entre tareas y ejecuciones en vez de crear/destruir uno por tarea |
 | **Cadena de alternativas** | Intenta el siguiente carril sano cuando uno falla — sin intervención manual |
 | **Clasificación de agente/contenedor** | Aprende qué CLI realmente obtiene resultados por categoría, y cae al siguiente mejor contenedor sobre la misma billetera y modelo antes de intentar cualquier otra cosa (`fa profile`) |
 | **Disyuntor de bucket** | Congela una billetera después de fallos consecutivos, omite todos sus modelos instantáneamente |

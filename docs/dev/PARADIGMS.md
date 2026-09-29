@@ -85,8 +85,10 @@ just a journal that stopped; replaying yields the same completed set.
 
 ### 6. Worktree isolation
 
-Parallel coding tasks get clean git worktrees branched from HEAD. Changes
-merge back on success, preventing collisions.
+Parallel coding tasks get clean git worktrees reset to current HEAD. Changes
+merge back on success, preventing collisions. Worktrees are pooled (one
+slot per lane, flock-guarded) and reused across tasks and runs rather than
+created and torn down per task.
 
 ### 7. Self-reporting (findings)
 

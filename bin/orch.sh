@@ -368,6 +368,102 @@ files_conflict() { # $1=task, rest: currently-running task ids
   return 1
 }
 
+# ------------------------------------------------------------ worktree pool --
+# One slot per possible lane (1..width), each an flock-guarded git worktree
+# reused across tasks - and across separate orch.sh invocations, since
+# nothing here ever destroys the directory - instead of created and torn
+# down per task. `git worktree add` is a full checkout of every tracked
+# file; resetting an EXISTING one only touches what actually changed since
+# its last use. Concurrency safety mirrors bin/run.sh's own bucket
+# lease_acquire/lease_release (flock on a per-resource file, held via a
+# caller-scoped FD) - the same idiom, not shared code, since these guard
+# different resources (a bucket vs. a pool slot) in different files.
+WT_POOL_DIR="${ORCH_DIR}/worktrees"
+WT_LEASE_FD=""
+
+wt_pool_acquire() { # $1=slot -> 0 if we hold it
+  local slot="$1" f
+  mkdir -p "$WT_POOL_DIR"
+  f="${WT_POOL_DIR}/.pool-${slot}.lock"
+  exec {WT_LEASE_FD}>"$f" || return 1
+  flock -n "$WT_LEASE_FD" || { exec {WT_LEASE_FD}>&-; WT_LEASE_FD=""; return 1; }
+  return 0
+}
+wt_pool_release() {
+  [[ -n "$WT_LEASE_FD" ]] || return 0
+  flock -u "$WT_LEASE_FD" 2>/dev/null || true
+  exec {WT_LEASE_FD}>&-
+  WT_LEASE_FD=""
+}
+
+# Claim the first free slot (1..$1), setting $WT_ACQUIRED_SLOT on success.
+#
+# MUST be called DIRECTLY - never as `x="$(wt_pool_claim ...)"`. Command
+# substitution forks a subshell to run its command and collect its output;
+# the instant that subshell exits (which happens as soon as the command
+# finishes), every FD it opened is closed - including the flock'd
+# WT_LEASE_FD wt_pool_acquire just opened, releasing the lock it was
+# supposed to hand back to the caller. A real run hit exactly this: two
+# concurrent tasks both "succeeded" in acquiring slot 1, because the first
+# task's lock was already gone by the time the second even asked - the
+# subshell that briefly held it had already exited. Calling this directly
+# (no `$(...)`) keeps WT_LEASE_FD open in the CALLER's own shell, for as
+# long as the caller holds it.
+wt_pool_claim() { # $1=pool_size -> 0 if a slot was claimed
+  local pool_size="${1:-1}" slot
+  WT_ACQUIRED_SLOT=""
+  for ((slot = 1; slot <= pool_size; slot++)); do
+    wt_pool_acquire "$slot" && { WT_ACQUIRED_SLOT="$slot"; return 0; }
+  done
+  return 1
+}
+
+# Reuse or create the worktree at an ALREADY-CLAIMED slot, at the current
+# $PROJECT HEAD. Safe to call via `$(...)` (unlike wt_pool_claim above) -
+# this holds no lock state that needs to outlive its own return. Echoes the
+# worktree's directory on stdout, or nothing if neither reuse nor a fresh
+# create worked.
+wt_pool_prepare() { # $1=project $2=slot -> worktree dir, or empty
+  local project="$1" slot="$2" dir head
+  dir="${WT_POOL_DIR}/pool-${slot}"
+  if [[ -e "${dir}/.git" ]]; then
+    # A returned slot from an earlier task (this run or a previous one) -
+    # bring it to the CURRENT project HEAD before handing it to a new task.
+    # Both steps matter: reset alone leaves an untracked scratch file a
+    # prior task's agent wrote; clean alone leaves it on a stale commit if
+    # $project has since advanced (every successful task commits its merge
+    # - see the commit block in run_task()).
+    head="$(git -C "$project" rev-parse HEAD 2>/dev/null)"
+    if [[ -n "$head" ]] \
+       && git -C "$dir" reset --hard "$head" >/dev/null 2>&1 \
+       && git -C "$dir" clean -fdx >/dev/null 2>&1; then
+      log "pool slot ${slot}: reused (reset to current HEAD)"
+      printf '%s' "$dir"; return 0
+    fi
+    # Would not reset cleanly (corrupted, or moved out from under git) -
+    # deregister and recreate from scratch rather than hand over a slot
+    # nothing can vouch for. `worktree remove --force` is NOT enough here -
+    # confirmed directly: git refuses it outright ("validation failed...
+    # is not a .git file") whenever the worktree's own .git pointer is
+    # itself broken, `--force` notwithstanding (force overrides a dirty or
+    # locked worktree, not a corrupted one). rm -rf the directory FIRST,
+    # then `worktree prune` clears git's now-dangling admin record for a
+    # path that no longer exists - only then does a fresh `add` succeed.
+    log "pool slot ${slot}: could not be reset cleanly - recreating it"
+    rm -rf "$dir"
+    git -C "$project" worktree prune >/dev/null 2>&1 || true
+  fi
+  # `git worktree add` prints status lines ("Preparing worktree...", "HEAD
+  # is now at ...") to STDOUT, not just stderr - this function's own stdout
+  # IS its return value (the worktree path), so BOTH streams must be
+  # silenced here or that git noise corrupts the caller's $workdir.
+  if git -C "$project" worktree add -B "fa-pool-${slot}" "$dir" HEAD >/dev/null 2>&1; then
+    log "pool slot ${slot}: created fresh"
+    printf '%s' "$dir"; return 0
+  fi
+  return 1
+}
+
 deps_met() { # $1=task
   # A skipped dependency (its own "when" clause decided not to run) is
   # RESOLVED for this purpose, same as done - a dependent must not wait
@@ -402,26 +498,35 @@ snapshot_files() { # $1=task id
 }
 
 run_task() { # $1=task id ; runs in a subshell as a background job
-  local id="$1" prompt category out rc=0 meta before wt_dir
+  local id="$1" prompt category out rc=0 meta before wt_slot=""
   prompt="$(build_prompt "$id")"
   category="$(task_field "$id" category)"; category="${category:-coding}"
   out="${RESULTS}/${id}.out"; mkdir -p "$RESULTS"
-  
-  # Worktree isolation: create a clean worktree for coding tasks
+
+  # Worktree isolation: claim a slot from the pool (see wt_pool_claim /
+  # wt_pool_prepare above) instead of creating and tearing one down per
+  # task. $width is cmd_run's own local - visible here because run_task is
+  # only ever invoked from inside cmd_run's active call frame, the same way
+  # this file already relies on $ISOLATE/$VALIDATE/$DRY_RUN as top-level
+  # globals instead.
   local workdir="$PROJECT"
   if [[ $ISOLATE -eq 1 && "$category" == "coding" ]]; then
-    wt_dir="${ORCH_DIR}/worktrees/${id}"
-    mkdir -p "$(dirname "$wt_dir")"
-    # Create worktree from current HEAD
-    if git -C "$PROJECT" worktree add -b "fa-task-${id}" "$wt_dir" HEAD 2>/dev/null ||
-       git -C "$PROJECT" worktree add "$wt_dir" HEAD 2>/dev/null; then
-      workdir="$wt_dir"
-      log "isolated $id in $wt_dir"
+    if wt_pool_claim "${width:-1}"; then
+      wt_slot="$WT_ACQUIRED_SLOT"
+      local prepared; prepared="$(wt_pool_prepare "$PROJECT" "$wt_slot")" || true
+      if [[ -n "$prepared" ]]; then
+        workdir="$prepared"
+        log "isolated $id in pool slot ${wt_slot} ($workdir)"
+      else
+        log "WARNING: pool slot ${wt_slot} could not be prepared for $id, using main worktree"
+        wt_pool_release
+        wt_slot=""
+      fi
     else
-      log "WARNING: worktree isolation failed for $id, using main worktree"
+      log "WARNING: no free worktree pool slot for $id, using main worktree"
     fi
   fi
-  
+
   before="$(snapshot_files "$id")"
 
   # $BASHPID, not $$: run_task is invoked as `run_task "$id" &`, and $$ is
@@ -443,19 +548,20 @@ run_task() { # $1=task id ; runs in a subshell as a background job
   # happened: models have claimed to create a file and written it elsewhere, or
   # not at all. If the task declared files, they must exist.
   if [[ $rc -eq 0 ]]; then
-    local missing=() f was now check_dir
-    check_dir="$workdir"
-    # For isolated tasks, check in the worktree; for non-isolated, check in PROJECT
-    [[ $ISOLATE -eq 1 && "$category" == "coding" ]] && check_dir="$wt_dir" || check_dir="$PROJECT"
-    
+    local missing=() f was now
+    # $workdir already reflects reality (falls back to $PROJECT whenever
+    # isolation was skipped or the pool had no free slot) - a separate
+    # variable here used to re-derive the same answer from $ISOLATE/
+    # $category instead of asking what actually happened, and could disagree
+    # with $workdir on exactly the "pool exhausted" edge case.
     while IFS= read -r f; do
       [[ -z "$f" ]] && continue
-      if [[ ! -e "${check_dir}/${f}" ]]; then
+      if [[ ! -e "${workdir}/${f}" ]]; then
         missing+=("${f} (absent)")
         continue
       fi
       was="$(printf '%s' "$before" | awk -F'\t' -v k="$f" '$1==k{print $2}')"
-      now="$(md5sum "${check_dir}/${f}" 2>/dev/null | cut -d' ' -f1)"
+      now="$(md5sum "${workdir}/${f}" 2>/dev/null | cut -d' ' -f1)"
       # It existed before and is byte-identical now: the task declared it would
       # touch this file and did not. Unchanged is as unverified as absent.
       [[ "$was" != "-" && "$was" == "$now" ]] && missing+=("${f} (unchanged)")
@@ -484,8 +590,8 @@ run_task() { # $1=task id ; runs in a subshell as a background job
           "task claimed success without producing its files, more than once" \
           "task=${id} declared=${missing[*]}" "task=${id}"
       fi
-      # Cleanup worktree on failure
-      [[ -n "$wt_dir" && -d "$wt_dir" ]] && git -C "$PROJECT" worktree remove --force "$wt_dir" 2>/dev/null
+      # Return the pool slot (never destroy it - see wt_pool_claim above).
+      wt_pool_release
       return 1
     fi
     
@@ -508,13 +614,13 @@ run_task() { # $1=task id ; runs in a subshell as a background job
     # background jobs can finish and reach this block at the same moment,
     # and `git add`/`git commit` against one shared working tree is not safe
     # to run concurrently from two processes.
-    if [[ $ISOLATE -eq 1 && "$category" == "coding" && -n "$wt_dir" && -d "$wt_dir" ]]; then
+    if [[ -n "$wt_slot" ]]; then
       local merged=()
       while IFS= read -r f; do
         [[ -z "$f" ]] && continue
-        if [[ -f "${wt_dir}/${f}" ]]; then
+        if [[ -f "${workdir}/${f}" ]]; then
           mkdir -p "$(dirname "${PROJECT}/${f}")"
-          cp "${wt_dir}/${f}" "${PROJECT}/${f}" 2>/dev/null && merged+=("$f")
+          cp "${workdir}/${f}" "${PROJECT}/${f}" 2>/dev/null && merged+=("$f")
         fi
       done < <(task_files "$id")
 
@@ -530,9 +636,11 @@ run_task() { # $1=task id ; runs in a subshell as a background job
           || log "WARNING: $id changes were copied but the commit failed - a later dependent task may not see them; check ${ORCH_DIR}/.merge.lock contention or run 'git -C $PROJECT status'"
       fi
 
-      # Cleanup the worktree and its throwaway branch
-      git -C "$PROJECT" worktree remove --force "$wt_dir" 2>/dev/null || true
-      git -C "$PROJECT" branch -D "fa-task-${id}" >/dev/null 2>&1 || true
+      # Return the pool slot for the next task to reuse (see wt_pool_claim
+      # above) - never destroy it. Its branch (fa-pool-N) is reset in place
+      # next time, not deleted; there is no per-task branch to clean up
+      # anymore.
+      wt_pool_release
     fi
   fi
 
@@ -556,8 +664,8 @@ run_task() { # $1=task id ; runs in a subshell as a background job
       else
         journal attempt_failed "$id" "rc=$rc"
       fi
-      # Cleanup worktree on failure
-      [[ -n "$wt_dir" && -d "$wt_dir" ]] && git -C "$PROJECT" worktree remove --force "$wt_dir" 2>/dev/null
+      # Return the pool slot (never destroy it - see wt_pool_claim above).
+      wt_pool_release
       ;;
   esac
   return $rc

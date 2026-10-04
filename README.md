@@ -46,7 +46,7 @@ Talk to the agent. Ask it to build something, research something, fix something.
 
 ### Step 4: Monitor (optional)
 
-Open another terminal and run `fa status` to see what's running. In tmux/herdr you'll see worker windows appear and disappear as lanes are used.
+Open another terminal and run `fa status` to see what's running - task progress, plus any background jobs. Workers run headless: `fa jobs <id>` shows one job's log. (A pane per worker in herdr is planned, not built.)
 
 When it finishes, the orchestrator prints an exit report: files changed, verification status, remaining work.
 
@@ -483,11 +483,33 @@ Its job is to:
 - **Keep the small things** — one-line fixes, renames, config tweaks, glue files cost a lane more than they cost you. If writing the spec takes about as long as doing the work, do the work.
 - **Record judgment** — the tool sees outputs, not intent. When a spec was ambiguous, a split caused a collision, or a worker missed the point, write it with `fa findings`. Those observations are lost when the session closes.
 
+### Background work: the coordinator stays free
+
+`fa run` and `fa dispatch` normally hold the coordinator until the work is done, and while they do, you can't ask it anything. Add `--detach` and the same work starts in the background; the command returns at once with a job id, and the conversation is yours again.
+
+```sh
+fa run --detach "fix the parser bug described in ISSUE.md"   # one task, one worker
+fa dispatch --detach                                          # the plan in .orch/tasks.json
+fa dispatch --detach "add OAuth login"                        # plan it too, in the background
+fa jobs                 # this project's background jobs: running / done / FAILED / DIED
+fa jobs j3              # one job: state, exit code, the last lines of its log
+fa status               # task progress, with background jobs at the end
+fa jobs --clean         # drop the finished ones
+```
+
+- **Splitting is still the gate's call.** A detached dispatch runs the plan whatever its shape - a chain simply runs one task at a time - because the point is not speed but keeping the coordinator available. Whether it *parallelises* is still decided by the gate: genuinely independent tasks on 2+ lanes.
+- **Hands off its files.** A detached dispatch prints the files its plan declares. Neither you nor the coordinator should edit them until the job ends.
+- **One run per project.** While a plan is running, a second `fa dispatch` or `fa resume` in that project is refused - two runs replaying one journal would each dispatch the same tasks. Detached `fa run` jobs are separate and can run side by side, one lane each.
+- **It outlives its caller.** A job runs in its own session with its own log, so an agent CLI that ends a shell call (or kills it) does not take the job down. A job that dies anyway - the machine went to sleep - shows as `DIED`, never as running.
+
+Small work is still faster done directly: a worker starts cold, on a free model, without this conversation. Detach what would otherwise keep you waiting.
+
 ### Workers (dispatched agents)
 
 Cold-start agents that receive a self-contained prompt, run it, and report back. They don't talk to you, don't see other tasks, and can't ask questions.
 
 Their constraints:
+- **Workers never dispatch.** Every agent fa launches is marked as a worker (`FA_DEPTH`), and `fa run`, `fa dispatch`, `fa plan`, `fa resume` and the rest of what launches agents refuse inside one (exit 6). AGENTS.md is read by workers too; without this, a worker that decided to hand its task on would start another layer of workers. Two levels, always: coordinator and workers.
 - **No shared state** — each worker gets its own worktree (when `--isolate` is on) and sees nothing of the others.
 - **No conversation** — the prompt must be complete. The worker never sees this conversation.
 - **Declared files are enforced** — overlapping tasks never run together. Files are checked after execution; byte-identical files count as unverified.
@@ -678,8 +700,8 @@ Each adapter identifies credentials, lists models (agent-prefixed TSV), and invo
 │   ├── run.sh                dispatch engine: fallback, lease, breaker
 │   ├── plan.sh               goal -> task graph
 │   ├── orch.sh               task graph + journal-based resume
-│   ├── analyze.sh            post-run journal analysis + learnings
-│   └── lib/                  common.sh, deps.sh, adapters.sh, classify.sh, keys.sh, quota.sh
+│   └── lib/                  common.sh, deps.sh, adapters.sh, classify.sh, keys.sh, quota.sh,
+│                             schedule.sh, jobs.sh, findings.sh, graph.sh, analyze.sh
 │       └── adapters/         one file per harness (opencode, kilo, hermes, copilot, cursor, agy, pi)
 ├── data/model-seed.json      OPTIONAL cold-start opinion - hand-edit or generate from
 │                             a leaderboard; delete it and nothing breaks (see its own
@@ -702,6 +724,7 @@ Each adapter identifies credentials, lists models (agent-prefixed TSV), and invo
 <project>/.orch/results/                  agent transcripts PER PROJECT
 <project>/.orch/handoffs/                 task handoffs     PER PROJECT
 <project>/.orch/worktrees/                isolated worktrees PER PROJECT (temp)
+<project>/.orch/jobs/                     background jobs   PER PROJECT (gitignored)
 <project>/.orch/learnings.md              patterns from runs PER PROJECT (gitignored)
 ```
 

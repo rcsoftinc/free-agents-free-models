@@ -29,9 +29,17 @@ set -euo pipefail
 #                          (Level 1 validation: node --check, python3 -m py_compile,
 #                          shellcheck, etc. Fails fast on syntax errors.)
 #       --validate-all    after build, run full validation (syntax + tests + lint)
-#       --validate-rounds N  max fix rounds for validation failures (default 3)
+#       --verify CMD      the task's own definition of done: a shell command run
+#                         in the workdir once the agent reports success - a
+#                         scoped test run, a build, a type check. Only exit 0
+#                         counts. On failure the SAME agent, on the SAME lane,
+#                         gets the task again with the command's output.
+#                         (FA_VERIFY_TIMEOUT: seconds per run, default 600)
+#       --validate-rounds N  checks before giving up, with a fix round between
+#                            each - shared by --validate and --verify (default 3)
 #
-# Exit: 0 ok | 2 all candidates exhausted | 3 setup error | 4 network down
+# Exit: 0 ok | 1 the work did not pass --validate/--verify after its fix rounds
+#       2 all candidates exhausted | 3 setup error | 4 network down
 #       5 no lane available right now (every candidate wallet is in use) - the
 #         caller should REQUEUE, not fail: nothing was tried and nothing is broken
 #       6 refused: called from inside a worker (FA_DEPTH, see common.sh)
@@ -58,6 +66,8 @@ DRY_RUN=0
 VALIDATE=0
 VALIDATE_ALL=0
 VALIDATE_ROUNDS="${FA_VALIDATE_ROUNDS:-3}"
+VERIFY_CMD=""
+VERIFY_TIMEOUT="${FA_VERIFY_TIMEOUT:-600}"
 PROMPT=""
 
 while [[ $# -gt 0 ]]; do
@@ -72,6 +82,7 @@ while [[ $# -gt 0 ]]; do
     --validate)    VALIDATE=1; shift ;;
     --validate-all) VALIDATE=1; VALIDATE_ALL=1; shift ;;
     --validate-rounds) VALIDATE_ROUNDS="$2"; shift 2 ;;
+    --verify)      VERIFY_CMD="$2"; shift 2 ;;
     --allow-metered) export FA_ALLOW_METERED=1; shift ;;
     --no-metered)    export FA_METERED=0; shift ;;
     # The whole header comment, not a fixed line range - a range here had
@@ -432,7 +443,9 @@ record() { # $1=bucket $2=model $3=agent $4=state $5=ms $6=output(optional)
         # A bucket-level fault (rate limit/billing/auth) is a fact about the
         # WALLET, not this model - it must not clobber this models last probe
         # result any more than it may touch .stats/.cat_stats below.
-        .probe = (if $fault then .probe else {state:$s, at:$at, ms:($ms|tonumber)} end)
+        # Nor does "unverified": the model answered, and its work then failed
+        # the check the task set - a ranking fact, not a liveness one.
+        .probe = (if $fault or $s == "unverified" then .probe else {state:$s, at:$at, ms:($ms|tonumber)} end)
       | .stats = (if $fault then (.stats // {ok:0, fail:0})
                   else (.stats // {ok:0, fail:0})
                   | if $s == "ok" then .ok += 1 else .fail += 1 end end)
@@ -536,29 +549,70 @@ validate_build() {
   return 0
 }
 
-# Validation gate: after a successful build, verify the output before
-# reporting done. Phase 1 = syntax check above. Phase 2 = auto-fix loop, same
-# lane, no extra credential cost. Wrapped in its own function because `local`
-# is only legal inside one - this used to be inlined in the dispatch loop and
-# crashed under `set -euo pipefail` on every successful --validate run.
-# Reads/updates the caller's $out (not local here), so the final, possibly
-# fixed output is what the main loop prints.
-run_validate_gate() { # $1=agent $2=model $3=provider -> 0 ok, 1 exhausted
-  local agent="$1" model="$2" provider="$3"
-  local round=0 errors_file
-  while [[ $round -lt $VALIDATE_ROUNDS ]]; do
-    errors_file="$(validate_build "$out")" && return 0
-    round=$((round + 1))
-    if [[ $round -ge $VALIDATE_ROUNDS ]]; then
-      log "validation FAILED after ${VALIDATE_ROUNDS} round(s) — exhausted"
+# ------------------------------------------------------------------- verify --
+# The task's own definition of done (--verify; a task's "verify" in tasks.json):
+# a shell command run in the task's workdir once the agent reports success.
+# Exit 0 is the only thing that counts - an agent saying "done" is not evidence,
+# and with free models it is often not true.
+run_verify() { # -> 0 passed; otherwise prints how it failed: exit code + tail
+  local o rc=0
+  o="$( cd "$WORKDIR" && timeout "$VERIFY_TIMEOUT" bash -c "$VERIFY_CMD" </dev/null 2>&1 )" || rc=$?
+  [[ $rc -eq 0 ]] && return 0
+  [[ $rc -eq 124 ]] && o+=$'\n'"(timed out after ${VERIFY_TIMEOUT}s)"
+  printf 'exit %s\n%s\n' "$rc" "$(printf '%s\n' "$o" | tail -n "${FA_VERIFY_TAIL:-60}")"
+  return 1
+}
+
+# A fix round is a brand-new, cold agent session: it remembers nothing of the
+# attempt it is fixing. So it gets everything again - the preambles, the whole
+# original task - plus what failed and why. (It used to get only "VALIDATION
+# FAILED. Fix these errors", with no task to fix, and a literal "\n".)
+fix_prompt() { # $1=what failed $2=its output
+  local p
+  p="$(worker_preamble)"$'\n\n'"$(workdir_preamble "$WORKDIR")"$'\n\n'
+  [[ "${FA_ISOLATE:-0}" == "1" ]] && p="$(isolation_preamble)"$'\n\n'"$p"
+  p+="An earlier attempt at the task below did not pass ${1}:"$'\n\n'"${2}"$'\n\n'
+  p+="Fix the work so that it passes. Do not weaken, skip or delete the checks or"
+  p+=" tests to get there, unless the task itself says to change them."$'\n\n'
+  p+="The task:"$'\n'"${PROMPT}$(exit_report_preamble)"
+  printf '%s' "$p"
+}
+
+# The gates a successful run must pass before it counts: --validate (syntax)
+# and --verify (the task's own command), sharing one budget of checks with a
+# fix round between each. Run while the caller still holds the lane's lease: a
+# fix round is the same task on the same wallet, and releasing first - as this
+# once did - let another task onto that wallet in the middle of a fix.
+# Reads and updates the caller's $out, so the final output is what gets printed.
+GATE_FAILED=""      # what failed last, when the gates gave up
+GATE_ROUNDS=0       # fix rounds spent
+run_gates() { # $1=agent $2=model $3=provider -> 0 passed, 1 gave up
+  local agent="$1" model="$2" provider="$3" check=0 what fail ef
+  GATE_ROUNDS=0
+  while :; do
+    check=$((check + 1)); what=""; fail=""
+    if [[ $VALIDATE -eq 1 ]] && ! ef="$(validate_build "$out")"; then
+      what="syntax validation"; fail="$(cat "$ef" 2>/dev/null)"; rm -f "$ef"
+    elif [[ -n "$VERIFY_CMD" ]]; then
+      if fail="$(run_verify)"; then log "verified: ${VERIFY_CMD}"
+      else what="its verify command, \`${VERIFY_CMD}\`"; fi
+    fi
+    [[ -z "$what" ]] && return 0
+    if [[ $check -ge $VALIDATE_ROUNDS ]]; then
+      GATE_FAILED="$what"
+      if [[ "$what" == "syntax validation" ]]; then
+        log "validation FAILED after ${VALIDATE_ROUNDS} round(s) - exhausted"
+      else
+        log "verify FAILED after ${VALIDATE_ROUNDS} round(s): ${VERIFY_CMD}"
+        printf '%s %s\n' '---VERIFY-FAILED---' \
+          "$(jq -cn --arg cmd "$VERIFY_CMD" --arg out "$fail" --argjson rounds "$GATE_ROUNDS" \
+               '{cmd:$cmd, rounds:$rounds, tail:($out | split("\n") | .[-15:] | join("\n"))}')" >&2
+      fi
       return 1
     fi
-    # Auto-fix loop: send the errors back to the same agent to fix.
-    # Same lane, no extra credential cost.
-    local fix_prompt="VALIDATION FAILED. Fix these errors:\n$(cat "$errors_file")\n\nRe-output the corrected file(s)."
-    log "validation failed, fix round ${round}/${VALIDATE_ROUNDS}"
-    out="$(invoke "$agent" "$model" "$provider" "$fix_prompt")" || true
-    rm -f "$errors_file"
+    GATE_ROUNDS=$((GATE_ROUNDS + 1))
+    log "${what} failed - fix round ${GATE_ROUNDS}/$((VALIDATE_ROUNDS - 1)), same agent, same lane"
+    out="$(invoke "$agent" "$model" "$provider" "$(fix_prompt "$what" "$fail")")" || true
   done
 }
 
@@ -652,24 +706,32 @@ for row in "${CHAIN[@]}"; do
     continue
   fi
 
-  record "$bucket" "$model" "$agent" "$state" "$ms" "$out"
-  lease_release
-
   if [[ "$state" == "ok" ]]; then
-    # Validation gate: after a successful build, verify the output before
-    # reporting done. Phase 1 = syntax check only. Phase 2 = auto-fix loop.
-    if [[ $VALIDATE -eq 1 ]]; then
-      run_validate_gate "$agent" "$model" "$provider" || exit 1
+    # The gates (run_gates) run on the lease this attempt still holds, and what
+    # gets recorded is the GATED outcome: a model whose work fails its task's
+    # own check did not succeed at that task, whatever its agent reported - and
+    # that is exactly the signal the per-category ranking exists for.
+    final=ok
+    if [[ $VALIDATE -eq 1 || -n "$VERIFY_CMD" ]]; then
+      run_gates "$agent" "$model" "$provider" || final=unverified
     fi
+    record "$bucket" "$model" "$agent" "$final" "$ms" "$out"
+    lease_release
     printf '%s\n' "$out"
     printf '%s %s\n' '---RUN-META---' \
       "$(jq -cn --arg b "$bucket" --arg m "$model" --arg a "$agent" \
               --arg p "$provider" --argjson n "$attempt" --argjson ms "$ms" \
-              --argjson est "${est:-0}" \
+              --argjson est "${est:-0}" --arg st "$final" --arg vc "$VERIFY_CMD" \
+              --argjson fr "${GATE_ROUNDS:-0}" \
               '{bucket:$b, model:$m, agent:$a, provider:$p, attempts:$n, ms:$ms,
-                est_prompt_tokens:$est, state:"ok"}')" >&2
-    exit 0
+                est_prompt_tokens:$est, state:$st, fix_rounds:$fr,
+                verify:(if $vc == "" then null elif $st == "ok" then "passed" else "failed" end)}')" >&2
+    [[ "$final" == ok ]] && exit 0
+    exit 1
   fi
+
+  record "$bucket" "$model" "$agent" "$state" "$ms" "$out"
+  lease_release
 
   log "$(printf 'attempt %d: %-26s %-8s %-40s -> %s' "$attempt" "$bucket" "$agent" "$model" "$state")"
   if is_bucket_fault "$state"; then

@@ -33,6 +33,10 @@ set -euo pipefail
 #                       --validate  run syntax check on result (fail fast)
 #                       --detach    run it in the background; prints a job id
 #                                   and returns at once (see fa jobs)
+#                       --verify CMD  done = CMD exits 0 in the workdir (a scoped
+#                                   test run, a build, a type check); a failure
+#                                   goes back to the same agent with its output.
+#                                   In tasks.json: a task's "verify" field
 #   fa plan "goal"     goal -> .orch/tasks.json
 #                       --graph     print the task graph as an ASCII diagram
 #   fa dispatch "goal" plan, then decide DIRECT vs ORCHESTRATE for real -

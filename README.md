@@ -30,6 +30,8 @@ You can trigger runs from Windows PowerShell or VS Code Remote — but the agent
 
 You work inside an agent's TUI the way you always have. The difference is that the agent has access to parallel lanes and decides when to use them.
 
+> **New to this?** [`docs/WALKTHROUGH.md`](docs/WALKTHROUGH.md) tells the whole flow as a short story: one small project, from `mkdir` to production, from the director's chair - every prompt, decision and check along the way.
+
 ### Step 1: Open your TUI
 
 Open any supported agent (opencode, kilo, hermes, pi, agy, copilot, cursor). Use tmux or herdr to see multiple windows at once — this is the recommended setup because you'll see workers being launched in their own windows.
@@ -758,14 +760,15 @@ DRY_RUN_LIMIT=0 bin/run.sh --dry-run   # the full candidate chain, spends nothin
 
 ## Docs
 
+- **`docs/WALKTHROUGH.md`** — a week with fa as a story: one small project from `mkdir` to production, from the director's chair (start here)
 - **`docs/SETUP.md`** — install, where each agent hides its credentials, full file layout
 - **`docs/dev/PARADIGMS.md`** — multi-agent workflow paradigms: Graph/Loop/Harness framework, fa's coverage, gaps, and prioritized roadmap
 - **`docs/dev/ALIGNMENT.md`** — the design and every finding
 - **`docs/dev/SESSION.md`** — current state, invariants, bugs
-- **`docs/dev/RUN-*.md`** — real project run records
 
 ## Pitfalls
 
+- **A worker can pass its own `verify` by editing the tests.** fa does not yet stop a task from changing files outside its declared ones, tests included, nor report that it did. In an isolated worktree only the declared files merge back - the edited test stays behind, but the code it was hiding still lands, marked `(verified)`; run in place (a single `fa run`), the edit lands in your project. Review each finished task's diff for files it should not have touched, and let the full suite and CI have the last word. Protected files are planned, not built.
 - These CLIs **exit 0 on hard failures** (hermes returns 0 on HTTP 404 and on a billing refusal). Classify on output, never on exit code.
 - **Containment differs per agent**: `opencode --dir`, `kilo --dir`, and hermes via `HOME`.
 - A route is `(agent, model, **provider**)`. `hermes -m X` resolves against its *active* provider only.

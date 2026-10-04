@@ -37,6 +37,18 @@ unset _LIB_DIR
 now_epoch() { date +%s; }
 iso_now()   { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
+# Wall clock in milliseconds, for timing an attempt. Not `date +%s%3N`: that is
+# GNU-only. uutils coreutils (date on Ubuntu 26.04) ignores the 3 and prints all
+# nine nanosecond digits, and BSD date has no %N at all - so every recorded
+# duration came out a million times too large, or as noise. bash 5's
+# EPOCHREALTIME is the same clock without a fork; its decimal mark follows the
+# locale, hence the digit strip.
+now_ms() {
+  local us="${EPOCHREALTIME//[!0-9]/}"
+  if [[ -n "$us" ]]; then printf '%s' "$(( us / 1000 ))"
+  else printf '%s' "$(( $(date +%s) * 1000 ))"; fi
+}
+
 # Read-modify-write the registry atomically. Concurrent tasks share this file,
 # so every mutation goes through here - a lost update would silently resurrect a
 # bucket that another worker just put into cooldown.

@@ -10,8 +10,11 @@ set -euo pipefail
 #
 #   fa bootstrap       FIRST RUN: build the registry, probe wallets, install skills
 #   fa refresh         same thing, run later (credentials or agents changed)
+#                       --scheduled  what the daily cron runs: restores the PATH
+#                                    fa schedule saved, stamps the log
 #   fa install-skills  put the skill cards where the agent runtimes look
-#   fa schedule        install a daily `fa refresh` cron (auto after bootstrap)
+#   fa schedule        install a daily `fa refresh` cron (auto after bootstrap);
+#                      saves this shell's PATH, since cron's own finds no agent
 #   fa unschedule      remove it
 #   fa init            set up the current directory (same as .free-agents/setup.sh)
 #   fa lanes [-v]      how many independent credential lanes are healthy
@@ -21,7 +24,8 @@ set -euo pipefail
 #   fa probe [--all]   prove each wallet answers
 #   fa quota           live check against OpenRouter's own published ledger
 #                       (opt-in, one network call - see bin/lib/quota.sh)
-#   fa doctor          verify this machine is set up correctly
+#   fa doctor          verify this machine is set up correctly, the daily
+#                      refresh included
 #   fa run "task"      one task, with fallback across every lane
 #                       --validate  run syntax check on result (fail fast)
 #   fa plan "goal"     goal -> .orch/tasks.json
@@ -170,6 +174,21 @@ case "$cmd" in
   refresh)
     # Same path as bootstrap. Named separately because "refresh" is the word
     # people look for once the thing is already set up.
+    #
+    # --scheduled is the daily cron's entry point (bin/lib/schedule.sh). Cron's
+    # own PATH finds no agent CLI, so the one saved by `fa schedule` comes back
+    # first; and this output only ever lands in a log nobody watches, so every
+    # run is stamped with when it started and how it ended.
+    if [[ "${1:-}" == "--scheduled" ]]; then
+      shift
+      . "${HERE}/lib/schedule.sh"
+      echo "[fa] $(iso_now) scheduled refresh: start"
+      schedule_restore_path \
+        || echo "[fa] no saved PATH at $(schedule_path_file) - agent CLIs may be invisible; run: fa schedule"
+      rc=0; "${ROOT}/bin/fa" bootstrap --scheduled "$@" || rc=$?
+      echo "[fa] $(iso_now) scheduled refresh: finished rc=${rc}"
+      exit "$rc"
+    fi
     exec "${ROOT}/bin/fa" bootstrap "$@"
     ;;
 
@@ -206,10 +225,15 @@ case "$cmd" in
     n="$("${HERE}/buckets.sh" lanes 2>/dev/null || echo 0)"
     echo "[fa] $n healthy lane(s)."
     [[ "$n" -lt 2 ]] && echo "[fa] With fewer than 2 lanes, work directly - splitting cannot help."
-    echo
-    echo "[fa] keeping credentials current day-to-day..."
-    . "${HERE}/lib/schedule.sh"
-    schedule_install || true
+    # The cron's own run (`fa refresh --scheduled`) leaves the crontab alone:
+    # its line is already in place, and a scheduled job rewriting the user's
+    # crontab from cron's own environment would only ever be a surprise.
+    if [[ "${1:-}" != "--scheduled" ]]; then
+      echo
+      echo "[fa] keeping credentials current day-to-day..."
+      . "${HERE}/lib/schedule.sh"
+      schedule_install || true
+    fi
     exit 0
     ;;
 
@@ -398,6 +422,11 @@ case "$cmd" in
         [[ "$n" -lt 1 ]] && { echo "  ERROR: no usable lane - check keys, then: fa refresh"; rc=1; }
         [[ "$n" -eq 1 ]] && echo "  note    only ONE lane: parallel work will not help; direct mode is correct" ;;
     esac
+    echo
+    # Advisory, like registry age: a broken daily refresh stops nothing today,
+    # it just lets the registry rot - silently, which is exactly what happened.
+    echo "daily refresh"
+    ( . "${HERE}/lib/schedule.sh"; schedule_status ) || true
     echo
     echo "findings"
     ( . "${HERE}/lib/common.sh"; . "${HERE}/lib/findings.sh"

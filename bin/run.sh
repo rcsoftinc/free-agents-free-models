@@ -595,9 +595,9 @@ for row in "${CHAIN[@]}"; do
     log "  a spec this size usually means a file listing leaked into it; workers"
     log "  are meant to receive a self-contained instruction, not context."
   fi
-  t0=$(date +%s%3N); rc=0
+  t0=$(now_ms); rc=0
   out="$(invoke "$agent" "$model" "$provider" "$full_prompt")" || rc=$?
-  t1=$(date +%s%3N); ms=$((t1-t0))
+  t1=$(now_ms); ms=$((t1-t0))
   IFS=$'\t' read -r state matched <<<"$(classify_ex "$rc" "$out")"
   # Nothing in the taxonomy recognised this. It is still handled as dead - the
   # safe default - but the text is kept, because a silent default is how every

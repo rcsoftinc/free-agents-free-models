@@ -9,7 +9,7 @@
 
 FA_agy_BINARY="agy"
 FA_agy_METERED=0
-FA_agy_VERIFIED_VERSION="1.2.0"
+FA_agy_VERIFIED_VERSION="1.2.16"
 FA_agy_VERSION_BIN="agy"
 
 AGY_TOKEN_FILE="${AGY_TOKEN_FILE:-$HOME/.gemini/antigravity-cli/antigravity-oauth-token}"

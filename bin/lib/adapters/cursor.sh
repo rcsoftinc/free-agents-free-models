@@ -8,7 +8,7 @@
 
 FA_cursor_BINARY="cursor-agent,cursor"
 FA_cursor_METERED=1
-FA_cursor_VERIFIED_VERSION="2026.09.02"
+FA_cursor_VERIFIED_VERSION="2026.09.18"
 FA_cursor_VERSION_BIN="cursor-agent"
 
 cursor_identify() {

@@ -12,7 +12,7 @@ KILO_CONFIG="${KILO_CONFIG:-$HOME/.config/kilo/kilo.jsonc}"
 
 FA_kilo_BINARY="kilo"
 FA_kilo_METERED=0
-FA_kilo_VERIFIED_VERSION="7.5.5"
+FA_kilo_VERIFIED_VERSION="7.6.2"
 FA_kilo_VERSION_BIN="kilo"
 
 kilo_identify() {

@@ -13,7 +13,7 @@ OPENCODE_AUTH="${OPENCODE_AUTH:-$HOME/.local/share/opencode/auth.json}"
 
 FA_opencode_BINARY="opencode"
 FA_opencode_METERED=0
-FA_opencode_VERIFIED_VERSION="1.17.20"
+FA_opencode_VERIFIED_VERSION="1.18.33"
 FA_opencode_VERSION_BIN="opencode"
 
 opencode_identify() { # -> identity rows (see buckets.sh for the schema)

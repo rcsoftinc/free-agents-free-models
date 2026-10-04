@@ -239,5 +239,10 @@ adapter_invoke() { # $1=agent; then (model provider prompt)
     printf 'adapter_invoke: no such adapter: %s\n' "$agent" >&2
     return 3
   }
+  # Whatever runs below is a worker, and so is everything its shell starts:
+  # refuse_if_worker (common.sh) reads this. local + export: the agent and its
+  # children see it, the caller's own value is back the moment this returns.
+  local _d="${FA_DEPTH:-0}"; [[ "$_d" =~ ^[0-9]+$ ]] || _d=0
+  local FA_DEPTH=$(( _d + 1 )); export FA_DEPTH
   "$fn" "$@"
 }

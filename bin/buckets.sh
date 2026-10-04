@@ -652,8 +652,10 @@ EOF
 case "${1:-}" in
   identify) shift; cmd_identify "$@" ;;
   lanes)    shift; cmd_lanes "$@" ;;
-  discover) shift; cmd_discover "$@" ;;
-  probe)    shift; cmd_probe "$@" ;;
+  # Both launch agent CLIs and rewrite the machine-wide registry - neither is a
+  # worker's business (common.sh). identify/lanes/show only read.
+  discover) shift; refuse_if_worker "fa discover"; cmd_discover "$@" ;;
+  probe)    shift; refuse_if_worker "fa probe"; cmd_probe "$@" ;;
   show)     shift; cmd_show "$@" ;;
   profile)  shift; cmd_profile "$@" ;;
   quota)    shift; cmd_quota "$@" ;;

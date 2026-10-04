@@ -44,6 +44,9 @@ while [[ $# -gt 0 ]]; do
 done
 [[ -n "$GOAL" ]] || die "no goal given"
 [[ -d "$WORKDIR" ]] || die "workdir does not exist: $WORKDIR"
+# Here, not just in run.sh: planning retries a failed call on another
+# candidate, so a refusal reaching it from run.sh would read as a bad model.
+refuse_if_worker "fa plan"
 OUT="${OUT:-${WORKDIR}/.orch/tasks.json}"
 
 # A short, factual survey. Deliberately small: the planner needs the shape of the

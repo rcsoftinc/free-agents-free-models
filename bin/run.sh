@@ -34,6 +34,7 @@ set -euo pipefail
 # Exit: 0 ok | 2 all candidates exhausted | 3 setup error | 4 network down
 #       5 no lane available right now (every candidate wallet is in use) - the
 #         caller should REQUEUE, not fail: nothing was tried and nothing is broken
+#       6 refused: called from inside a worker (FA_DEPTH, see common.sh)
 #
 # stdout is the agent's output. A machine-readable footer goes to stderr:
 #   ---RUN-META--- {"bucket":...,"model":...,"agent":...,"attempts":N,"state":"ok"}
@@ -73,12 +74,18 @@ while [[ $# -gt 0 ]]; do
     --validate-rounds) VALIDATE_ROUNDS="$2"; shift 2 ;;
     --allow-metered) export FA_ALLOW_METERED=1; shift ;;
     --no-metered)    export FA_METERED=0; shift ;;
-    -h|--help)     sed -n '6,30p' "$0"; exit 0 ;;
+    # The whole header comment, not a fixed line range - a range here had
+    # already stopped short of the exit codes.
+    -h|--help)     awk 'NR>=4 && /^#/{sub(/^# ?/,""); print; next} NR>=4{exit}' "$0"; exit 0 ;;
     -)             PROMPT="$(cat)"; shift ;;
     -*)            die "unknown option: $1" ;;
     *)             PROMPT="$1"; shift ;;
   esac
 done
+
+# A worker never dispatches (common.sh). --dry-run only reads the chain, which
+# `fa rank` relies on, so it stays allowed.
+[[ $DRY_RUN -eq 1 ]] || refuse_if_worker "fa run"
 
 # Flags contain WHERE the agent starts, but nothing stops a model from writing
 # to an absolute path of its own choosing - observed: kilo, given --dir, wrote to
@@ -93,6 +100,16 @@ isolation_preamble() {
   printf 'You are working in an ISOLATED GIT WORKTREE.\nThis is a separate copy of the repository for your task ONLY.\nYour changes will be merged back when you complete successfully.\n'
   printf 'Do NOT attempt to push, pull, or interact with remote repositories.\n'
   printf 'Focus ONLY on the task you were given.\n\n'
+}
+
+# Every agent launched from here is a worker, and AGENTS.md - which it reads too -
+# is written for the coordinator. Say so first; refuse_if_worker enforces it
+# whether or not the model listens. Worded so a planning task (plan.sh comes
+# through here too) is not told to stop planning - only to stop handing work on.
+# It names no tools on purpose: a real worker that was given their names spent
+# its first turns listing .orch/ and running ps before it answered.
+worker_preamble() {
+  printf 'You were launched by the coordinator to do this one task yourself, here, directly. Do not hand it to other agents.\n'
 }
 
 # Exit report: remind the agent what to report before ending
@@ -584,10 +601,12 @@ for row in "${CHAIN[@]}"; do
   lease_acquire "$bucket" || { log "lane busy: $bucket"; SKIP[$bucket]=busy; continue; }
 
   attempt=$((attempt+1))
-  full_prompt="$(workdir_preamble "$WORKDIR")${PROMPT}$(exit_report_preamble)"
+  # Joined with explicit blank lines: $(...) strips each section's trailing
+  # newlines, which ran them together ("...absolute paths.Reply with...").
+  full_prompt="$(worker_preamble)"$'\n\n'"$(workdir_preamble "$WORKDIR")"$'\n\n'"${PROMPT}$(exit_report_preamble)"
   # If invoked with FA_ISOLATE=1, prepend isolation context
   if [[ "${FA_ISOLATE:-0}" == "1" ]]; then
-    full_prompt="$(isolation_preamble)$full_prompt"
+    full_prompt="$(isolation_preamble)"$'\n\n'"$full_prompt"
   fi
   est="$(est_tokens "$full_prompt")"
   if [[ $attempt -eq 1 && "$est" -gt "$BLOAT_WARN_TOKENS" ]]; then

@@ -28,6 +28,8 @@ set -euo pipefail
 #                      refresh included
 #   fa run "task"      one task, with fallback across every lane
 #                       --validate  run syntax check on result (fail fast)
+#                       --detach    run it in the background; prints a job id
+#                                   and returns at once (see fa jobs)
 #   fa plan "goal"     goal -> .orch/tasks.json
 #                       --graph     print the task graph as an ASCII diagram
 #   fa dispatch "goal" plan, then decide DIRECT vs ORCHESTRATE for real -
@@ -37,9 +39,14 @@ set -euo pipefail
 #                       --graph     print the task graph after planning
 #                       --validate  validate each task after build
 #                       --isolate   use git worktrees for parallel tasks (no collisions)
+#                       --detach    plan (if given a goal) and run in the
+#                                   background, whatever the split - returns at
+#                                   once, so the coordinator stays free
 #   fa go "goal"       same as `fa dispatch` - the name people type instead
 #   fa graph           render the current .orch/tasks.json as a diagram
-#   fa status          progress of the current project
+#   fa status          progress of the current project, background jobs included
+#   fa jobs [id]       this project's background jobs, or one in detail
+#                       --clean     drop the finished ones
 #   fa resume          continue after any interruption
 #   fa update          git pull the tool
 #   fa analyze         read the journal, detect cross-task patterns
@@ -99,18 +106,51 @@ prompt_yn() { # $1=prompt -> 0 if yes
 # trivial, this only surfaces a note; it still decides DIRECT/ORCHESTRATE
 # the same as before, honestly, rather than pretending a third option
 # exists.
-cmd_dispatch() { # $@ = [--graph] [--validate] [--isolate] ["goal"]
-  local graph_flag=() extra_args=() goal=""
+cmd_dispatch() { # $@ = [--graph] [--validate] [--isolate] [--detach] ["goal"]
+  refuse_if_worker "fa dispatch"
+  local graph_flag=() extra_args=() goal="" detach=0
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --graph)    graph_flag=("--graph"); shift ;;
       --validate) extra_args+=("--validate"); shift ;;
       --isolate)  extra_args+=("--isolate"); shift ;;
+      --detach)   detach=1; shift ;;
       *) goal="$1"; shift ;;
     esac
   done
 
   local tasks_file="${PWD}/.orch/tasks.json"
+
+  # --detach: the whole dispatch - planning included, since that is an LLM call
+  # too - goes to a background job (bin/lib/jobs.sh). What can be checked
+  # cheaply is checked HERE, so a mistake reaches the coordinator now rather
+  # than a log after it has moved on.
+  if [[ $detach -eq 1 ]]; then
+    . "${HERE}/lib/jobs.sh"
+    if [[ -z "$goal" ]]; then
+      [[ -f "$tasks_file" ]] || { echo "fa dispatch: no goal given and no plan at ${tasks_file} - either pass a goal, or write tasks.json yourself first" >&2; exit 3; }
+      jq -e '.tasks | type == "array" and length > 0' "$tasks_file" >/dev/null 2>&1 \
+        || { echo "fa dispatch: ${tasks_file} has no tasks" >&2; exit 3; }
+    fi
+    if orch_run_active; then
+      echo "fa dispatch: a run is already in progress in this project - see: fa jobs, fa status" >&2
+      exit 3
+    fi
+    jobs_ensure_orch
+    local id jargs=("${graph_flag[@]}" "${extra_args[@]}")
+    [[ -n "$goal" ]] && jargs+=("$goal")
+    id="$(job_start "$ROOT" dispatch "${jargs[@]}")"
+    job_started_msg "$id"
+    echo "[fa]   tasks:      fa status"
+    if [[ -z "$goal" ]]; then
+      # Two hands on one file is a conflict nobody sees until the merge.
+      local owned; owned="$(jq -r '[.tasks[].files[]?] | unique | join(" ")' "$tasks_file")"
+      [[ -n "$owned" ]] && echo "[fa]   hands off these files until it ends: ${owned}"
+    else
+      echo "[fa]   it plans first; the files it will own are in ${tasks_file} once written"
+    fi
+    exit 0
+  fi
   if [[ -n "$goal" ]]; then
     "${HERE}/plan.sh" -w "$(pwd)" "${graph_flag[@]}" "$goal" || exit $?
   else
@@ -141,6 +181,14 @@ cmd_dispatch() { # $@ = [--graph] [--validate] [--isolate] ["goal"]
   echo "[fa] SPLIT EVALUATION: tasks=${n}  disjoint_pair=${has_pair}  lanes=${lanes}  trivial=${trivial_n}  -> ${decision}" >&2
   if [[ "$trivial_n" -eq "$n" && "$n" -gt 1 ]]; then
     echo "[fa]   note: every task is trivial - batch dispatch (not yet implemented) would suit this better than ${decision}" >&2
+  fi
+
+  # A background job (FA_JOB, set by its runner) has nobody to "work directly":
+  # the coordinator already chose to stay free, so the split only decides how
+  # wide this runs, never whether. A chain simply runs one task at a time.
+  if [[ -n "${FA_JOB:-}" ]]; then
+    echo "[fa] background job ${FA_JOB}: running the plan through orch (in the foreground this would be ${decision})" >&2
+    exec "${HERE}/orch.sh" run "${extra_args[@]}"
   fi
 
   case "$decision" in
@@ -274,14 +322,46 @@ case "$cmd" in
     export DRY_RUN_LIMIT="${DRY_RUN_LIMIT:-0}"
     exec "${HERE}/run.sh" -w "$(pwd)" --dry-run -c "${1:-general}"
     ;;
-  run)      exec "${HERE}/run.sh" -w "$(pwd)" "$@" ;;
+  run)
+    # --detach: the same run as a background job (bin/lib/jobs.sh). Matched as a
+    # whole argument - a prompt that merely mentions --detach stays a prompt.
+    detach=0; args=()
+    for a in "$@"; do
+      if [[ "$a" == "--detach" ]]; then detach=1; else args+=("$a"); fi
+    done
+    if [[ $detach -eq 1 ]]; then
+      refuse_if_worker "fa run --detach"
+      for a in "${args[@]}"; do
+        [[ "$a" == "-" ]] && { echo "fa run --detach: pass the prompt as an argument - a background job has no stdin to read it from" >&2; exit 3; }
+      done
+      . "${HERE}/lib/jobs.sh"
+      jobs_ensure_orch
+      id="$(job_start "$ROOT" run "${args[@]}")"
+      job_started_msg "$id"
+      exit 0
+    fi
+    exec "${HERE}/run.sh" -w "$(pwd)" "$@" ;;
   plan)     exec "${HERE}/plan.sh" -w "$(pwd)" "$@" ;;
 
   graph)
     # Render the current task graph as an ASCII diagram
     exec "${HERE}/lib/graph.sh" -w "$(pwd)" "$@"
     ;;
-  status)   exec "${HERE}/orch.sh" status "$@" ;;
+  status)   "${HERE}/orch.sh" status "$@"
+            . "${HERE}/lib/jobs.sh"; jobs_summary
+            exit 0 ;;
+  jobs)
+    . "${HERE}/lib/jobs.sh"
+    case "${1:-}" in
+      "")      jobs_list ;;
+      --clean) jobs_clean ;;
+      *)       job_show "$1" || exit $? ;;
+    esac
+    exit 0 ;;
+  __job)
+    # Internal: the background half of a detached run/dispatch (job_start).
+    . "${HERE}/lib/jobs.sh"
+    job_run "$@"; exit $? ;;
   resume)   exec "${HERE}/orch.sh" resume "$@" ;;
   orch)     exec "${HERE}/orch.sh" "$@" ;;
 

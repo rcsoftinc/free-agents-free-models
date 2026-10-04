@@ -41,7 +41,9 @@ buckets, nothing else.
 - **Cooldowns escalate.** A first failure is short (15m). A single transient 401
   once benched a healthy 21-model wallet for 24 hours.
 - **Verify, do not trust.** A declared file must exist afterwards *and*, on an
-  existing codebase, must have changed. An agent reporting success is not evidence.
+  existing codebase, must have changed - and a task's own `verify` command must
+  exit 0. An agent reporting success is not evidence; the outcome recorded for
+  ranking is the verified one.
 - **These CLIs exit 0 on hard failures.** Classify on output, never on `rc`.
 - **They ignore `cd`.** Containment is per-agent: `opencode --dir`, `kilo --dir`,
   hermes via `HOME` + `HERMES_HOME`. There is no uniform flag.

@@ -39,7 +39,7 @@ straight back to me - I can keep asking you things while it runs.
 1. **Detach anything slower than a reply.** Once I have picked an option that
    means real implementation, write it as a self-contained spec and start it in
    the background:
-   - one piece: `.free-agents/bin/fa run --detach "<self-contained task>"`
+   - one piece: `.free-agents/bin/fa run --detach --verify "<check>" "<self-contained task>"`
    - several pieces, or files that must be verified: write `.orch/tasks.json`
      (see "Writing the task graph" below), then `.free-agents/bin/fa dispatch --detach`
 
@@ -137,7 +137,7 @@ it cheaper and better than `fa plan`'s cold re-read of the project:
 
 ```json
 {"tasks":[{"id":"slug","prompt":"self-contained instruction","deps":[],
-           "files":["path"],"category":"coding"}]}
+           "files":["path"],"category":"coding","verify":"<check>"}]}
 ```
 
 - `prompt` must be self-contained — the worker sees **nothing else**: not this
@@ -147,6 +147,8 @@ it cheaper and better than `fa plan`'s cold re-read of the project:
   have one task, not several.
 - `category` is one of `coding | reasoning | research | general | fast`. It is
   real: the engine tracks which models succeed per category and ranks accordingly.
+- `verify` is the task's own definition of done: give every coding task one whenever the project can check it - a test run, a build or a type check, **scoped to that task** (`./gradlew test --tests '*Parser*'`, `dotnet test --filter Parser`, `npm test -- parser`). It runs in the task's own workdir once the worker reports success, and only exit 0 counts as done; a failure goes back to the same worker, with the command's output, for a fix round. Scope matters: in a parallel run a task's worktree holds only its own changes plus what has already merged, so a whole-suite run can fail on a sibling's unfinished work. A worker
+  saying "done" is not evidence; this is.
 
 Then `.free-agents/bin/fa dispatch --detach`. How wide it runs is
 `fa dispatch`'s call, not yours - do not compute it in your head. It prints a

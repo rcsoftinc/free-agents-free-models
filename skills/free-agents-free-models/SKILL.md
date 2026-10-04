@@ -73,11 +73,14 @@ one task, not several.
 ```json
 { "tasks": [
     { "id": "api", "deps": [], "files": ["src/api.js"], "category": "coding",
+      "verify": "npm test -- api",
       "prompt": "self-contained spec - the worker sees NOTHING else" } ] }
 ```
 
 `files` is enforced, not documentation: overlapping tasks never run concurrently,
-and the files are checked afterwards.
+and the files are checked afterwards. `verify` is the task's own definition of
+done - run in its workdir after the worker finishes; only exit 0 counts, and a
+failure goes back to the same worker with the output (`run.sh --verify CMD`).
 
 ## State
 

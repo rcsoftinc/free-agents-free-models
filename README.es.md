@@ -42,7 +42,10 @@ Pega `.free-agents/prompts/coordinator.md` en el TUI al inicio de una sesión. E
 
 Háblale al agente. Pídele que construya algo, investigue algo, arregle algo. El agente elige el modo:
 - **Tarea pequeña** → la hace directamente en tu TUI
-- **Construcción de múltiples partes** → planifica, envía trabajadores a través de tus carriles, los monitorea
+- **Cualquier cosa más lenta que una respuesta** → escribe una especificación auto-contenida y la corre en segundo plano (`--detach`), y vuelve contigo de inmediato - puedes seguir preguntándole cosas mientras el trabajo corre
+- **Construcción de múltiples partes** → escribe el grafo de tareas y lo envía en segundo plano, en paralelo entre tus carriles donde las piezas son independientes
+
+Al inicio de cada respuesta revisa `fa jobs --news`, y cuando un trabajo terminó revisa el diff y las pruebas y te dice qué quedó hecho. Ese es el **modo director** del prompt del coordinador: tú decides, él sigue disponible. Pídele que trabaje en primer plano cuando prefieras esperar.
 
 ### Paso 4: Monitorea (opcional)
 

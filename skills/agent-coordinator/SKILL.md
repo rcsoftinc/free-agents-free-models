@@ -73,6 +73,10 @@ bin/orch.sh status              # progress, derived from the journal
 bin/orch.sh resume              # after ANY interruption - safe, replays the journal
 ```
 
+To stay available to the user while it runs, start it with `bin/fa dispatch
+--detach` instead: it returns at once with a job id, and `bin/fa jobs --news`
+(run it at the start of every reply) reports each job once it has ended.
+
 What the runner guarantees, so you do not re-implement it:
 
 - **One lane per credential.** Two tasks never share a wallet concurrently.

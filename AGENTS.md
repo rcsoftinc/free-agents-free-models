@@ -117,7 +117,10 @@ To stay available to the user while work runs, add `--detach`: `fa dispatch
 job id and runs it in the background - the whole plan, whatever the split; a
 chain simply runs one task at a time. Check on it with `fa jobs` / `fa status`,
 and do not edit the files it lists until it ends. Keep quick work for yourself:
-a worker starts cold, on a free model, without your conversation.
+a worker starts cold, on a free model, without your conversation. The pasted
+coordinator prompt (`prompts/coordinator.md`, "I direct, you stay available")
+makes this the default for anything slower than a reply, and has you run
+`fa jobs --news` at the start of every reply to catch what has finished.
 
 ### Phase 3 — Review and integrate
 Run the declared verification (tests, lint, build). Review by **diff and test

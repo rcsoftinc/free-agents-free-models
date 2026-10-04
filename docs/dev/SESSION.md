@@ -8,7 +8,7 @@
 
 **Complete, working, and proven on a real project.** Published (public) at
 `github.com/rcsoftinc/free-agents-free-models`. Full suite green:
-**695 assertions, 36 suites, offline.**
+**706 assertions, 36 suites, offline.**
 
 **It has built real software unattended.** All independently verified against what
 the code does rather than what the agents reported:
@@ -340,11 +340,12 @@ value:
    (only `run.sh`'s `registry_txn` takes it), so a refresh racing a build can
    lose a cooldown it just recorded. Build it together with that lock, or
    skip a run while any lease is held.
-7. **The rest of the "director" plan (2026-10-04 entries below)** - steps
-   1-4 are built (workers never dispatch, --detach, the coordinator keeps its
-   own wallet, herdr panes); what is left:
-   - **Director mode in prompts/coordinator.md**: answer, spec, detach, report
-     back when the job ends - with AGENTS.md's "keep the small work" intact.
+7. **Use director mode on a real project** (2026-10-04 entries below - all
+   five steps are built). What the suite cannot tell: whether a coordinator
+   on a free model judges "slower than a reply" sensibly, writes specs good
+   enough for a cold worker, keeps its hands off a running job's files, and
+   actually runs `fa jobs --news` every turn. Record what it gets wrong with
+   `fa findings --note` - that is the evidence the next change needs.
 
 **Do not** add: token budgets on unmetered lanes, live leaderboard fetching (see
 ALIGNMENT for why gateway metadata beats it), or a summariser-based handoff — each
@@ -1138,3 +1139,44 @@ runner never reporting its end, herdr calls without a time box (a hung herdr
 then held the detach for 121s), and `--clean` closing a running job's pane.
 
 Full suite: 36 suites / 695 assertions, offline, zero real pi sessions.
+
+## Feature: director mode - the coordinator stays available (2026-10-04)
+
+Commits `04746e0` (fa jobs --news) and the prompt commit after it.
+
+Step 5, which completes the plan. The coordinator prompt (`prompts/
+coordinator.md`) gains "How we work: I direct, you stay available", placed
+right after `fa doctor` since it governs how every request is handled:
+implementation slower than a reply goes to the background (`fa run --detach`
+for one piece, a task graph plus `fa dispatch --detach` for several), the
+coordinator says in one line what it started and what it owns, and comes
+straight back; quick work it still does itself (AGENTS.md's "keep the small
+work"); it keeps off a running job's files; and "work in the foreground"
+from the director turns it off.
+
+**One mechanism, so the habit does not depend on memory:** `fa jobs --news`,
+run at the start of every reply, prints each job that ended since the last
+call - exactly once, with what to review (its log, `fa status` for a
+dispatch, the diff and tests) - then what is still running, and nothing at
+all when nothing happened. A turn-by-turn check is only kept if it costs no
+attention when there is no news.
+
+**The prompt had drifted, and now cannot quietly drift again:** it still had
+the coordinator count `fa lanes` by hand and run `fa plan` + `fa orch run`
+long after `fa dispatch` took that decision over (and now counts only lanes a
+worker may take). Its gate section became "Writing the task graph" - write
+`.orch/tasks.json` in your own loaded context, then `fa dispatch --detach`,
+which decides the width. test_bootstrap.sh now fails if the prompt names an
+fa command fa does not have, if `--detach`/`--news` disappear from fa, or if
+the per-reply `--news` check is dropped from the prompt. AGENTS.md and the
+coordinator skill card point at the same flow; the READMEs (EN + ES) describe
+director mode under "Work normally".
+
+Not verifiable here, and the reason item 7 under "Next" exists: whether a
+real coordinator - especially one on a free model - follows it well.
+
+Mutation-tested: `--news` that never marks an ending reported repeats it
+forever and is never silent (2 failures); a prompt naming a command fa lacks
+fails the guard (2 failures).
+
+Full suite: 36 suites / 706 assertions, offline, zero real pi sessions.

@@ -87,6 +87,12 @@ done
 # `fa rank` relies on, so it stays allowed.
 [[ $DRY_RUN -eq 1 ]] || refuse_if_worker "fa run"
 
+# The coordinator's own wallet is not a worker's (common.sh) - unless pinned
+# with -b, which is an explicit choice. Kept apart from EXCLUDES so the reason
+# reported for it is its own.
+RESERVED=()
+[[ -n "$PIN_BUCKET" ]] || mapfile -t RESERVED < <(coordinator_buckets)
+
 # Flags contain WHERE the agent starts, but nothing stops a model from writing
 # to an absolute path of its own choosing - observed: kilo, given --dir, wrote to
 # "/gamma.txt". Stating the contract in the prompt is the cheap half of the fix;
@@ -156,7 +162,7 @@ mkdir -p "$LEASE_DIR"
 # is skipped, which is how a hang demotes one endpoint without touching its wallet.
 candidates() {
   local now; now="$(now_epoch)"
-  local ex_json; ex_json="$(printf '%s\n' "${EXCLUDES[@]:-}" | jq -R . | jq -sc 'map(select(length>0))')"
+  local ex_json; ex_json="$(printf '%s\n' "${EXCLUDES[@]:-}" "${RESERVED[@]:-}" | jq -R . | jq -sc 'map(select(length>0))')"
   local metered_include; metered_include="$(metered_include_pred)"
 
   # Build agent capabilities JSON for dispatch filtering
@@ -303,6 +309,7 @@ candidates() {
 explain_exclusions() {
   local now; now="$(now_epoch)"
   local ex_json; ex_json="$(printf '%s\n' "${EXCLUDES[@]:-}" | jq -R . | jq -sc 'map(select(length>0))')"
+  local res_json; res_json="$(printf '%s\n' "${RESERVED[@]:-}" | jq -R . | jq -sc 'map(select(length>0))')"
   local metered_include; metered_include="$(metered_include_pred)"
 
   local acaps="{" first=1
@@ -317,6 +324,7 @@ explain_exclusions() {
   registry_read '
     [ .buckets[] as $b
       | ( if ($pin != "" and $b.id != $pin) then "pinned out by -b"
+          elif ($b.id | IN($res[])) then "held back for the coordinator (\($coord)) - its own wallet"
           elif ($b.id | IN($ex[])) then "excluded via -x"
           elif ($b.health.state == "no_credits") then "bucket out of credits"
           elif ($b.health.state == "auth_error") then "bucket auth failing"
@@ -350,6 +358,7 @@ explain_exclusions() {
     | group_by(.reason) | map({reason: .[0].reason, n: length})
     | sort_by(-.n) | .[] | "\(.n)\t\(.reason)"
   ' --arg pin "$PIN_BUCKET" --arg now "$now" --argjson ex "$ex_json" \
+    --argjson res "$res_json" --arg coord "$(coordinator_agent)" \
     --arg cat "$CATEGORY" --argjson acaps "$acaps" --arg req_cap "$req_cap"
 }
 
@@ -555,6 +564,13 @@ run_validate_gate() { # $1=agent $2=model $3=provider -> 0 ok, 1 exhausted
 
 # ---------------------------------------------------------------------- main --
 mapfile -t CHAIN < <(candidates)
+# Everything else is cooling down, excluded or unsuitable right now: sharing the
+# coordinator's lane beats failing a task its own wallet could have carried.
+if [[ ${#RESERVED[@]} -gt 0 ]] && ! [[ ${#CHAIN[@]} -gt 0 && -n "${CHAIN[0]}" ]]; then
+  log "only the coordinator's own lane ($(coordinator_agent)) can take this right now - sharing it"
+  RESERVED=()
+  mapfile -t CHAIN < <(candidates)
+fi
 [[ ${#CHAIN[@]} -gt 0 ]] && [[ -n "${CHAIN[0]}" ]] || {
   log "no candidates: every bucket is in cooldown, excluded, or has no free models"
   log "why:"

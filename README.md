@@ -46,7 +46,7 @@ Talk to the agent. Ask it to build something, research something, fix something.
 
 ### Step 4: Monitor (optional)
 
-Open another terminal and run `fa status` to see what's running - task progress, plus any background jobs. Workers run headless: `fa jobs <id>` shows one job's log. (A pane per worker in herdr is planned, not built.)
+Open another terminal and run `fa status` to see what's running - task progress, plus any background jobs; `fa jobs --follow <id>` streams one job's log until it ends. Inside [herdr](https://herdr.dev), every background job opens a pane of its own beside the coordinator's, so you don't need the other terminal at all (see Background work below).
 
 When it finishes, the orchestrator prints an exit report: files changed, verification status, remaining work.
 
@@ -493,6 +493,7 @@ fa dispatch --detach                                          # the plan in .orc
 fa dispatch --detach "add OAuth login"                        # plan it too, in the background
 fa jobs                 # this project's background jobs: running / done / FAILED / DIED
 fa jobs j3              # one job: state, exit code, the last lines of its log
+fa jobs --follow j3     # stream its log until it ends
 fa status               # task progress, with background jobs at the end
 fa jobs --clean         # drop the finished ones
 ```
@@ -501,6 +502,7 @@ fa jobs --clean         # drop the finished ones
 - **Hands off its files.** A detached dispatch prints the files its plan declares. Neither you nor the coordinator should edit them until the job ends.
 - **One run per project.** While a plan is running, a second `fa dispatch` or `fa resume` in that project is refused - two runs replaying one journal would each dispatch the same tasks. Detached `fa run` jobs are separate and can run side by side, one lane each.
 - **The coordinator keeps its own wallet.** fa finds which agent CLI it is running under (by walking up its own process tree) and keeps workers off every wallet that agent reaches - otherwise a worker and your conversation race one rate limit, and the coordinator starts failing mid-build. `fa lanes -v` and `fa doctor` show what is held back; the dispatch gate counts only the lanes left. If the coordinator's wallet is the only lane, it is shared rather than leaving work stuck. `FA_COORDINATOR=none` turns it off.
+- **Inside herdr, every job gets a pane.** When fa runs inside a herdr pane (`HERDR_ENV=1`), a detached job opens a pane beside the coordinator's - split to the right or down by herdr's own rule, your focus left where it was - that follows the job's log. The sidebar shows it `working`, then `done`, and a notification says how it ended (with herdr's attention sound on a failure). The pane is only a window: closing it stops nothing, and herdr being down or slow never fails or stalls a job (every call is time-boxed). `fa jobs --clean` closes the panes of finished jobs - only ones fa opened. `FA_HERDR=0` turns it off.
 - **It outlives its caller.** A job runs in its own session with its own log, so an agent CLI that ends a shell call (or kills it) does not take the job down. A job that dies anyway - the machine went to sleep - shows as `DIED`, never as running.
 
 Small work is still faster done directly: a worker starts cold, on a free model, without this conversation. Detach what would otherwise keep you waiting.

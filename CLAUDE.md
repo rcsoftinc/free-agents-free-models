@@ -70,7 +70,7 @@ bin/orch.sh       per-project task graph   init | run | status | resume
 bin/lib/adapters.sh   the agent roster (FA_AGENTS); one file per agent in adapters/
 bin/lib/classify.sh   the error taxonomy - has its own self-test
 bin/lib/schedule.sh   the daily refresh cron, and doctor's report on it
-bin/lib/jobs.sh       background jobs: fa run/dispatch --detach, fa jobs
+bin/lib/jobs.sh       background jobs: fa run/dispatch --detach, fa jobs, herdr panes
 ```
 
 ## Before you commit
@@ -86,8 +86,8 @@ test may contact a provider or touch the real registry at
 a temp dir at source time and asserts it is disposable; do not defeat that. A
 test must also never write into the checkout it is testing.
 
-The harness does the same for every adapter's credential file and for the
-crontab, and **a new adapter needs a stub in `test/stubs/` in the same commit.**
+The harness does the same for every adapter's credential file, the crontab
+and herdr (no suite may open panes in a live session), and **a new adapter needs a stub in `test/stubs/` in the same commit.**
 `pi` shipped without one: `sandbox_on` keeps the real `PATH` behind the stubs,
 so every bootstrap in the suite drove the real `pi` with the real key for two
 weeks, and nothing failed. `test/test_adapters.sh` now fails on exactly that.

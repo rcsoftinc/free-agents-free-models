@@ -1,14 +1,14 @@
 # SESSION STATE — read this first on resume
 
-**Last updated:** 2026-09-28
+**Last updated:** 2026-10-03
 
 ---
 
 ## Where we are
 
-**Complete, working, and proven on a real project.** Published privately at
+**Complete, working, and proven on a real project.** Published (public) at
 `github.com/rcsoftinc/free-agents-free-models`. Full suite green:
-**426 assertions, 24 suites, offline.**
+**564 assertions, 32 suites, offline.**
 
 **It has built real software unattended.** All independently verified against what
 the code does rather than what the agents reported:
@@ -27,9 +27,9 @@ the code does rather than what the agents reported:
 |---|---|
 | **[Route map](https://claude.ai/code/artifact/68bc7de1-6a06-4242-86f0-957904c09e1f)** | Visual: every route the tool can take — discovery, the gate, the dispatch loop, the taxonomy, and what is deliberately absent |
 | **[One run, end to end](https://claude.ai/code/artifact/727f0341-8a96-4e91-99fd-47ec5cdb7076)** | Visual: a real recorded build, with the wide and starved runs compared |
-|| `docs/dev/ALIGNMENT.md` | The design and every finding — **the source of truth** |
-|| `docs/SETUP.md` | Where each agent keeps its credentials (the non-reproducible part) |
-|| `README.md` | User-facing: install, use, invariants |
+| `docs/dev/ALIGNMENT.md` | The design and every finding — **the source of truth** |
+| `docs/SETUP.md` | Where each agent keeps its credentials (the non-reproducible part) |
+| `README.md` | User-facing: install, use, invariants |
 
 ## The core idea
 
@@ -62,7 +62,10 @@ both report `current` / `STALE` / `aged:<days>` / `MISSING`, and `fa refresh`
 (alias for `bootstrap`) is the fix. `bootstrap` also installs a **daily cron**
 (`fa schedule` / `fa unschedule`, idempotent, `FA_NO_SCHEDULE=1` opts out) so a
 fresh clone + `setup.sh` needs no manual refresh step and a spent copilot budget
-drops off on its own. Staleness is measured by **credential fingerprint**,
+drops off on its own. The cron line carries the `PATH` it was scheduled from -
+cron's own finds no agent CLI, which kept it from ever working until 2026-10-03
+(see that entry below) - and `fa doctor`'s **daily refresh** section says
+whether it can actually work. Staleness is measured by **credential fingerprint**,
 because that is what actually invalidates a registry:
 
 | Cause | Detected |
@@ -104,25 +107,26 @@ bin/buckets.sh    credential registry      lanes | discover | probe | show | pro
 bin/run.sh        dispatch engine          fallback chain, bucket lease, breaker, agent/harness ranking, exclusion trace
 bin/plan.sh       goal -> task graph       planning itself has fallback, rejects malformed graphs locally
 bin/orch.sh       per-project task graph   run | status | resume (journal replay), "when" conditional edges
-bin/lib/          common.sh, deps.sh, adapters.sh, classify.sh, quota.sh + adapters/ (one file per harness)
+bin/lib/          common.sh, deps.sh, adapters.sh, classify.sh, quota.sh, schedule.sh + adapters/ (one file per harness)
 data/model-seed.json      OPTIONAL cold-start opinion per model/category - hand-edit or delete, nothing breaks
 data/provider-notes.json  OPTIONAL ToS/evidence note per provider - same rules as model-seed.json
 prompts/          coordinator.md - the single pasted prompt
 skills/           skill cards, linked into the project by bootstrap
-test/             31 suites, stub agents, fixture registry - fully offline
+test/             32 suites, a stub for every agent, fixture registry - fully offline
 ```
 
 ## Lanes on this machine
 
-| Lane | Agent | Free models |
+As of the 2026-10-04 refresh (the first scheduled one that ever worked):
+
+| Lane | Agent | Usable free models |
 |---|---|---:|
-| `kilo:anon` | kilo | 24 |
-| `openrouter.ai:845a3f96` | kilo | 21 |
-| `kilocode:fac9bae9` | hermes | 20 |
-| `nous:6b7db10d` | hermes | 6 |
-| `opencode:14a1a2f8` | opencode | 3 |
-| `copilot:*` / `cursor:*` | copilot / cursor | METERED — opt-in, tried last |
-| `freemodel:40d72418` | opencode | 0 — advertises PAID models, excluded |
+| `kilo:anon` | kilo | 23 |
+| `antigravity:e08c2f2bdf11` | agy | 14 |
+| `nous:9162a7f63a81` | hermes | 9 |
+| `opencode:zen` | opencode | 9 - `[TOS:avoid]`, see `data/provider-notes.json` |
+| `openrouter:016cd6da3edd` | pi | 90 listed, health `unknown` - the three it probed were `:batch` models, all `dead` (see the 2026-10-03 entry) |
+| `copilot:*` / `cursor:*` | copilot / cursor | METERED - opt-in, tried last |
 
 Metered wallets are auto-included once detected with a token and credits remain;
 `FA_METERED=0/1` forces them off/on (`--no-metered` / `--allow-metered`). They
@@ -327,6 +331,15 @@ value:
 5. Smaller should-do items raised but not built this session: a known-bad
    demotion band (distinct from cold-start), and deciding whether to trust
    cached wallet health vs. re-probing before a large dispatch.
+6. **Catch up missed scheduled refreshes.** Cron skips a 03:00 run while the
+   machine is off or asleep and never makes it up - 2 runs in 13 days on the
+   dev machine. `fa doctor` now says so and how to move the hour. The real fix
+   is an hourly cron that refreshes only once the registry is ~20h old, but
+   that moves refreshes into working hours, while builds run - and
+   `discover` and `record_probe` write the registry WITHOUT `REGISTRY_LOCK`
+   (only `run.sh`'s `registry_txn` takes it), so a refresh racing a build can
+   lose a cooldown it just recorded. Build it together with that lock, or
+   skip a run while any lease is held.
 
 **Do not** add: token budgets on unmetered lanes, live leaderboard fetching (see
 ALIGNMENT for why gateway metadata beats it), or a summariser-based handoff — each
@@ -813,3 +826,113 @@ two genuinely concurrent tasks claim two distinct ones, forced via the
 same `STUB_CONC_DIR` mechanism).
 
 Full suite: 31 suites / 516 assertions, offline.
+
+## Fix: the daily refresh never ran, and the suite spent real requests (2026-10-03)
+
+Commits `9f3856f` (tests), `fc96516` (schedule + timing), `32574b0` (pins).
+
+Found while re-reading this machine's state at the start of a session, not from
+a report: `fa doctor` called the registry 6 days old although a daily refresh
+was installed. `refresh.log` held two runs in 13 days, each a lone `[fa]
+discovering credentials...` line, and `buckets.json` had not changed since
+2026-09-27. The daily refresh (`ab78b31`, 2026-09-05) had never once succeeded.
+
+**Two stacked causes, reproduced exactly before anything changed** (`env -i`,
+cron's PATH, a scratch `FREE_AGENTS_STATE`):
+
+1. **Cron's PATH finds no agent.** A cron job gets system directories only (here
+   `/etc/environment` via `pam_env`; Debian's cron runs `-P`), while all seven
+   agent CLIs live in per-user ones (`~/.local/bin`, `~/.opencode/bin`,
+   `~/.kilo/bin`). Every `<agent>_identify` stops at `command -v`.
+   `schedule.sh`'s own header said the absolute path "survives PATH changes" -
+   true of `fa`, not of anything `fa` runs.
+2. **The failure was silent.** `cmd_discover` opened with
+   `_ident="$(cmd_identify 2>/dev/null || true)"`. `cmd_identify` dies - `exit`,
+   not `return` - which ends the substitution's subshell before the inner
+   `|| true` runs; the failed assignment then killed discover under `set -e`,
+   its only error message already in `/dev/null`. Swept every
+   `$(... || true)` in `bin/`: no other instance.
+
+Nothing would ever have said so: `schedule_status()` existed and was never
+called. It also quietly undercut `ae1bae4`'s reasoning (no unconditional
+refresh in setup.sh *because* the cron self-heals within 24h).
+
+**Fixed:**
+- `fa schedule` saves the PATH it runs with (`<state>/schedule.path`), and the
+  line is now `FREE_AGENTS_STATE='<state>' '<root>/bin/fa' refresh --scheduled
+  >> '<state>/refresh.log' 2>&1` - the state dir pinned too, so an overridden
+  location is the one refreshed and its saved PATH is the one found. `fa refresh
+  --scheduled` restores the PATH, stamps `start` and `finished rc=N` in UTC, and
+  never re-installs its own line (a re-install from there would write identical
+  bytes, so the test checks the install message never appears).
+- `|| true` moved outside the substitution, and `no_identities_reason()` says
+  "no agent CLI found on PATH (looked for: ...; PATH=...)" or "found X but no
+  credential any of them can use" - the line that would have named this bug on
+  its first night.
+- `fa doctor` gained a **daily refresh** section - advisory, never fails doctor,
+  same rule as age: what the scheduled run will find on its saved PATH, the last
+  run's outcome, a line installed the old way, a scheduled copy of the tool
+  that is gone, stacked lines, and a registry 2+ days old despite the schedule.
+- An old-shape line is replaced, not stacked beside (one `SCHEDULE_LINE_RE` for
+  install/uninstall/status); a time set via `FA_SCHEDULE_HH/MIN` now survives
+  re-installs (every `fa refresh` used to reset it to 03:00 - harmless only while
+  the cron could not run); a failed crontab write no longer prints "scheduled".
+
+**Second bug, found running the suite to verify the first: the tests spent real
+requests.** `pi` was the only adapter without a stub, `sandbox_on` keeps the
+real PATH behind `test/stubs/`, and `PI_AUTH` defaults to the real
+`~/.pi/agent/auth.json` - so every `fa bootstrap` in `test_bootstrap.sh` probed
+real models through the real `pi` with the real OpenRouter key. pi's own
+session files (cwd = this checkout) show 9 per full run and ~600 since
+2026-09-20. Nothing failed; the requests just went out. Fixed in layers: a `pi`
+stub; `harness.sh` points every adapter credential override (read from the
+adapters themselves) and `FA_CRONTAB_CMD` at nothing by default;
+`test_adapters.sh` asserts every adapter's binary resolves to a stub and that
+no adapter path - discovered by loading the adapters under a fake HOME, not by
+the harness's own pattern - resolves under the real HOME. A full run now
+creates zero pi sessions, and dropped from 4m19s to 2m42s.
+
+**Third, found in the real run's own output: every recorded duration was
+nonsense.** `date +%s%3N` is GNU-only; this machine's `date` is uutils coreutils
+0.8.0 (Ubuntu 26.04), which ignores the `3` and prints nine nanosecond digits,
+so a probe "took" `1611968496035662536ms`. Display-only (`.probe.ms`, logs - no
+ranking reads it), but it is exactly what a person checking `refresh.log` sees.
+`now_ms()` in `common.sh` uses bash 5's `EPOCHREALTIME` (digits only - its
+decimal mark follows the locale); a source guard keeps `%N` out of `bin/`.
+
+**Smaller, same session:** `test_adapters.sh` ran `setup.sh` with jq hidden and
+setup asked "install them now? [y/N]" on stdin - from a terminal the suite sat
+on a prompt it had captured into a file. `</dev/null` there and on every suite
+in `run_all.sh`.
+
+**Verified for real on this machine, not just in the suite:** `fa schedule`
+replaced the old line (which pointed at the `~/Raimundo-Araujo-Avatar` clone -
+whichever clone last ran setup owns the machine-wide cron), then the installed
+line was run verbatim the way cron runs it (`env -i`, the PATH from
+`/etc/environment`, `/bin/sh -c`): 7 identities, 739 model rows, registry
+rewritten, `finished rc=0` in 3m37s. Its probes went through every adapter's
+real invoke on the installed versions, which is what the version pins were
+waiting for: opencode 1.18.33, kilo 7.6.2, hermes 0.21.3 (the invoke check
+`hermes auth upgrade`'s fix deliberately left open), copilot 1.0.86, cursor
+2026.09.18 and agy 1.2.16 all answered `ok`, and their pins moved (agy updates
+itself - 1.2.12 to 1.2.16 within this session - so it was re-probed on 1.2.16
+alone). `fa doctor` is clean: every harness `ok`, the daily refresh section
+`ok` with the last run's `rc=0`.
+
+**Seen, deliberately not acted on:**
+- `pi_models` counts any `:batch` model as free. All three models the pi lane
+  probed were `anthropic/claude-sonnet-*:batch`, all `dead` - here and on
+  2026-09-27 - so that lane sits at health `unknown` with batch models first in
+  its chain. Whether `:batch` ever means free is unverified; check pi's own
+  model list before changing the rule.
+- Catching up missed runs: see item 6 under "Next, if resuming".
+- Other clones on the same machine still carry the old `schedule.sh` until
+  updated, and their setup would install the old line again; `fa doctor` now
+  flags an old-shape or stacked line, and `fa update` in that clone fixes it.
+- `test_concurrency.sh`'s "width above lane count does not cause churn" sits ON
+  its threshold: 12 standalone runs gave exactly 2 `no_lane` events every time
+  (limit <= 2), with the old timing and the new alike, and one full-suite run
+  got 3 and failed. A pre-existing flake, not this session's change; worth
+  understanding why it is always exactly 2 before touching the limit.
+
+Full suite: 32 suites / 564 assertions, offline.

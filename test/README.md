@@ -22,12 +22,12 @@ bash bin/lib/classify.sh --self-test   # the error taxonomy, ~1s
 | `test_discover.sh` | Models are attributed to the credential that pays for them; the SAME key in two agents collapses to one lane; no secret is ever stored |
 | `test_handoff.sh` | A task with dependents is asked for a handoff and a task without one is not; the dependency's note reaches its dependents and leaks into nothing else; a missing handoff degrades to the old behaviour; every run reports an estimated prompt size and oversized prompts are called out |
 | `test_concurrency.sh` | Under a 12-task fan-out over 3 lanes: every task finishes, no two tasks ever share a credential, lanes genuinely overlap, and no churn appears even when width is forced above the lane count |
-
 | `test_bootstrap.sh` | `fa bootstrap` builds a registry from real credentials, installs skills into the project, stores no secret, and is idempotent; `fa doctor` refuses before bootstrap, passes after, and warns when only one lane exists |
 | `test_deps.sh` | Cycles and unknown dependency ids terminate rather than hang; a task behind a failed dependency never starts while unrelated work still completes; diamonds run in order; the stall is recorded and surfaced |
 | `test_breaker.sh` | A wallet fault cools the whole wallet; a model hang does not; a first cooldown is short; a cooled wallet is skipped; success resets the count |
-| `test_adapters.sh` | The harness roster is single-sourced in `bin/lib/adapters.sh` (appears exactly once under `bin/`); each adapter's invoke contract loads; the dispatcher refuses an unknown harness; `fa doctor` version-checks the metered harnesses (copilot 1.0.83, cursor 2026.09.02) and the presence broom surfaces installed-but-unadapted CLIs (claude); `missing_deps()` and setup's `exit 3` guard work |
-| `test_schedule.sh` | `fa schedule` installs a daily `fa refresh` cron idempotently with the tool's absolute path and state-dir log, `unschedule` removes only its own line, foreign crons survive both, `FA_NO_SCHEDULE=1` opts out safely, a missing crontab is a graceful note — and `fa bootstrap` wires it in automatically so a fresh clone needs no manual refresh step |
+| `test_adapters.sh` | The harness roster is single-sourced in `bin/lib/adapters.sh` (appears exactly once under `bin/`); each adapter's invoke contract loads; the dispatcher refuses an unknown harness; `fa doctor` version-checks the metered harnesses against their pins (read from the adapters) and the presence broom surfaces installed-but-unadapted CLIs (claude); `missing_deps()` and setup's `exit 3` guard work; every adapter's binary resolves to an offline stub, and no adapter reads a real credential file during a test |
+| `test_schedule.sh` | `fa schedule` installs a daily `fa refresh` cron idempotently with the tool's absolute path, state-dir log and pinned state dir, saves the scheduling shell's `PATH`, replaces (never stacks beside) a line from an older copy, keeps a hand-picked time across re-installs, `unschedule` removes only its own line and the saved `PATH`, foreign crons survive both, `FA_NO_SCHEDULE=1` opts out safely, a missing crontab is a graceful note — and `fa bootstrap` wires it in automatically so a fresh clone needs no manual refresh step |
+| `test_schedule_cron.sh` | The installed line actually WORKS when run the way cron runs it (`env -i`, bare system `PATH`, `/bin/sh -c`): the refresh restores the saved `PATH`, finds the agents, writes the registry, stamps start and finish in the log and leaves the crontab alone; without its saved `PATH`, and on the pre-fix line, it fails loudly with the cause and the `PATH` it searched; `fa doctor`'s daily refresh section reports each of these |
 
 **Every suite has been mutation-tested** — the corresponding behaviour was
 deliberately broken in `bin/` and each suite caught it. A passing test that does
@@ -56,6 +56,29 @@ It also asserts the run was genuinely *concurrent* — a serial run would satisf
 the no-overlap invariant trivially — by checking that invocations on different
 lanes overlapped in time.
 
+## Safety by default
+
+Sourcing `harness.sh` points everything a suite could damage or spend at
+something disposable, before any suite body runs - a suite that forgets a
+setting gets the safe one, not the developer's:
+
+- **State** - `FREE_AGENTS_STATE` is a temp dir, and `begin_suite` refuses to
+  run if the engine would resolve anything else.
+- **Credentials** - every adapter's credential-file override (`OPENCODE_AUTH`,
+  `PI_AUTH`, ... - read from the adapters themselves) points at nothing. A suite
+  that needs one fabricates it, as `test_bootstrap.sh` does.
+- **Agent CLIs** - every adapter's binary has a stub in `stubs/`, which
+  `sandbox_on` puts first on `PATH`. `pi` once had none: every bootstrap in the
+  suite drove the real `pi` with the real key, and nothing failed - the
+  requests just quietly went out. `test_adapters.sh` now asserts both of these.
+- **Crontab** - `FA_CRONTAB_CMD` is the stub, which keeps its "crontab" in
+  `$FAKE_CRONTAB`.
+- **Prompts** - `run_all.sh` gives every suite `</dev/null`, so a y/N prompt
+  reads EOF instead of waiting on a terminal.
+
+A new adapter needs a stub in `stubs/` named after its binary, in the same
+commit.
+
 ## Writing a new suite
 
 ```bash
@@ -73,4 +96,5 @@ final_report
 ```
 
 Stub modes: `success ratelimit error hang slow plan`, set with
-`mode_for opencode hang` (agent name lowercase — the stub reads `${basename}_STUB_MODE`).
+`mode_for opencode hang` (agent name lowercase — the stub reads `${basename}_STUB_MODE`;
+the `pi` stub implements `success ratelimit error hang slow`).

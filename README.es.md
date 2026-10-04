@@ -659,6 +659,10 @@ fa lanes -v     # con lo que terminaste
 
 `bootstrap` instala una **actualización diaria** en crontab, así que un clon fresco no necesita paso manual. `fa schedule` / `fa unschedule` lo manejan.
 
+- **Recuerda tu `PATH`.** Cron ejecuta las tareas con un `PATH` mínimo del sistema que no encuentra ninguna de las CLIs de agente, así que `fa schedule` guarda el `PATH` de la shell desde la que lo ejecutas, y la ejecución programada (`fa refresh --scheduled`) lo restaura. ¿Instalaste un agente en otra ubicación? Ejecuta `fa schedule` de nuevo.
+- **Informa sobre sí misma.** Cada ejecución queda registrada con fecha y hora en `~/.local/state/free-agents/refresh.log`, y `fa doctor` tiene una sección **daily refresh**: si la ejecución programada encuentra todos los agentes instalados, cómo terminó la última ejecución y si el registro quedó desactualizado de todos modos.
+- **Corre a las 03:00, si la máquina está encendida.** Cron no recupera una ejecución perdida. Si la tuya suele estar apagada o suspendida a esa hora, elige una hora en que esté encendida: `FA_SCHEDULE_HH=13 FA_SCHEDULE_MIN=0 fa schedule` — las actualizaciones posteriores conservan esa hora.
+
 ## Añadir un nuevo agente
 
 1. Crea `bin/lib/adapters/<agente>.sh` — implementa `agent_identify`, `agent_models`, `agent_invoke`
@@ -724,7 +728,7 @@ Un **proyecto** es reproducible: confirma `.orch/tasks.json`, y cualquiera con s
 ## Pruebas
 
 ```sh
-bash test/run_all.sh               # 24 suites offline: CLIs de agente stub, registro fixture
+bash test/run_all.sh               # todas las suites, offline: CLIs de agente stub, registro fixture
 bin/lib/classify.sh --self-test    # taxonomía de errores, 43 casos, offline, ~1s
 bin/fa doctor                      # deps, CLIs de agente+versiones, presencia, self-test, lanes
 bin/fa lanes                       # verificación de humo: >0 significa que las credenciales funcionan

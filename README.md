@@ -651,6 +651,10 @@ fa lanes -v     # what you ended up with
 
 `bootstrap` installs a **daily refresh** crontab, so a fresh clone needs no manual step. `fa schedule` / `fa unschedule` manage it.
 
+- **It remembers your `PATH`.** Cron runs jobs with a bare system `PATH` that finds none of the agent CLIs, so `fa schedule` saves the `PATH` of the shell it runs in, and the scheduled run (`fa refresh --scheduled`) restores it. Installed an agent somewhere new? Run `fa schedule` again.
+- **It reports on itself.** Each run is stamped in `~/.local/state/free-agents/refresh.log`, and `fa doctor` has a **daily refresh** section: whether the scheduled run can find every installed agent, how the last run ended, and whether the registry has gone stale anyway.
+- **It runs at 03:00, if the machine is on.** Cron does not catch up a missed run. If yours is usually off or asleep then, pick an hour it is on: `FA_SCHEDULE_HH=13 FA_SCHEDULE_MIN=0 fa schedule` — later refreshes keep that time.
+
 ## Adding a new agent
 
 1. Create `bin/lib/adapters/<agent>.sh` — implement `agent_identify`, `agent_models`, `agent_invoke`
@@ -715,7 +719,7 @@ A **project** is reproducible: commit `.orch/tasks.json`, and anyone with their 
 ## Tests
 
 ```sh
-bash test/run_all.sh               # 24 offline suites: stub agent CLIs, fixture registry
+bash test/run_all.sh               # every suite, offline: stub agent CLIs, fixture registry
 bin/lib/classify.sh --self-test    # error taxonomy, 43 cases, offline, ~1s
 bin/fa doctor                      # deps, harness CLIs+versions, presence, self-test, lanes
 bin/fa lanes                       # smoke check: >0 means credentials work

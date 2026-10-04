@@ -50,6 +50,9 @@ set -euo pipefail
 #   fa status          progress of the current project, background jobs included
 #   fa jobs [id]       this project's background jobs, or one in detail
 #                       --follow ID stream one job's log until it ends
+#                       --news      what ended since the last --news (each job
+#                                   once), then what still runs; silent when
+#                                   nothing did - the coordinator's per-turn check
 #                       --clean     drop the finished ones (and their herdr panes)
 #                      Inside herdr, each job also opens a pane of its own that
 #                      follows it, with its state in the sidebar and a
@@ -366,6 +369,7 @@ case "$cmd" in
       "")       jobs_list ;;
       --clean)  jobs_clean ;;
       --follow) job_follow "${2:-}" || exit $? ;;
+      --news)   jobs_news ;;
       *)       job_show "$1" || exit $? ;;
     esac
     exit 0 ;;

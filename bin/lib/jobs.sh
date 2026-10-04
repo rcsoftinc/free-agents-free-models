@@ -15,6 +15,7 @@
 #   finished_at  epoch seconds
 #   coordinator  the agent that started it ("none" outside one) - see below
 #   herdr_pane   the pane it is watched from, when started inside herdr
+#   seen         set once `fa jobs --news` has reported its end
 #
 # Detaching has to survive the CALLER, which is usually an agent CLI's shell
 # tool, and every one of these was a way for it not to:
@@ -175,6 +176,31 @@ jobs_clean() { # drop finished and dead jobs; a running one is never touched
     esac
   done <<<"$(jobs_all)"
   echo "[fa] removed ${n} finished job(s)"
+}
+
+# What the coordinator runs at the start of every reply in director mode
+# (prompts/coordinator.md): each job that ended since the last --news, exactly
+# once, then what is still running - and NOTHING when there is nothing to say,
+# so checking every turn costs no attention. A turn-by-turn habit only works if
+# it is quiet when nothing happened.
+jobs_news() {
+  local d running="" n=0
+  while IFS= read -r d; do
+    [[ -z "$d" ]] && continue
+    case "$(job_state "$d")" in
+      done|failed|died)
+        [[ -f "$d/seen" ]] && continue
+        : > "$d/seen"; n=$((n+1))
+        printf 'ended: %s %s after %s - %s\n' "$(basename "$d")" "$(job_label "$d")" \
+          "$(job_elapsed "$d")" "$(cat "$d/cmd" 2>/dev/null)"
+        printf '       review it: fa jobs %s (its log), %sthe diff and the tests\n' "$(basename "$d")" \
+          "$(grep -q '^fa dispatch' "$d/cmd" 2>/dev/null && echo 'fa status (its tasks), ')" ;;
+      running|starting)
+        running+="${running:+, }$(basename "$d") ($(job_elapsed "$d"))" ;;
+    esac
+  done <<<"$(jobs_all)"
+  [[ -n "$running" ]] && printf 'running: %s\n' "$running"
+  return 0
 }
 
 jobs_summary() { # for fa status: running jobs, then the last few that ended

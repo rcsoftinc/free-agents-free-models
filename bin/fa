@@ -18,6 +18,9 @@ set -euo pipefail
 #   fa unschedule      remove it
 #   fa init            set up the current directory (same as .free-agents/setup.sh)
 #   fa lanes [-v]      how many independent credential lanes are healthy
+#                       --workers   only those a worker may take: the wallet of
+#                                   the agent you are talking to is held back
+#                                   (FA_COORDINATOR=none turns that off)
 #   fa profile         per-agent/harness learned reliability (read-only)
 #   fa rank [category] the ranked candidate chain for a category (read-only)
 #   fa discover        rebuild the credential registry (after adding/removing keys)
@@ -162,7 +165,8 @@ cmd_dispatch() { # $@ = [--graph] [--validate] [--isolate] [--detach] ["goal"]
 
   local n lanes has_pair trivial_n decision
   n="$(jq '.tasks | length' "$tasks_file")"
-  lanes="$("${HERE}/buckets.sh" lanes 2>/dev/null || echo 0)"
+  # Lanes a WORKER may take: the coordinator's own wallet is held back (common.sh).
+  lanes="$("${HERE}/buckets.sh" lanes --workers 2>/dev/null || echo 0)"
   has_pair="$(jq -r '
     [.tasks[] | {id, deps: (.deps // [])}] as $t
     | [ $t[] as $a | $t[] as $b
@@ -179,6 +183,8 @@ cmd_dispatch() { # $@ = [--graph] [--validate] [--isolate] [--detach] ["goal"]
   fi
 
   echo "[fa] SPLIT EVALUATION: tasks=${n}  disjoint_pair=${has_pair}  lanes=${lanes}  trivial=${trivial_n}  -> ${decision}" >&2
+  local held; held="$(coordinator_buckets | tr '\n' ' ')"
+  [[ -n "$held" ]] && echo "[fa]   lanes counts what workers may use: ${held}is held back for the coordinator ($(coordinator_agent))" >&2
   if [[ "$trivial_n" -eq "$n" && "$n" -gt 1 ]]; then
     echo "[fa]   note: every task is trivial - batch dispatch (not yet implemented) would suit this better than ${decision}" >&2
   fi
@@ -502,6 +508,9 @@ case "$cmd" in
         [[ "$n" -lt 1 ]] && { echo "  ERROR: no usable lane - check keys, then: fa refresh"; rc=1; }
         [[ "$n" -eq 1 ]] && echo "  note    only ONE lane: parallel work will not help; direct mode is correct" ;;
     esac
+    held="$(coordinator_buckets | tr '\n' ' ')"
+    [[ -n "$held" ]] && printf '  note    you are talking to %s: workers leave its wallet alone (%s)\n' \
+      "$(coordinator_agent)" "${held% }"
     echo
     # Advisory, like registry age: a broken daily refresh stops nothing today,
     # it just lets the registry rot - silently, which is exactly what happened.

@@ -492,9 +492,17 @@ cmd_probe() {
 # touch the network - it reads recorded health only.
 cmd_lanes() {
   [[ -f "$REGISTRY" ]] || { echo 0; return 0; }
-  local now metered_include live
+  # --workers: only the lanes a worker may take - the coordinator's own wallet
+  # held back (common.sh). Without it, the machine's inventory: doctor and setup
+  # must never call a working machine laneless because a coordinator is talking.
+  local verbose=0 workers=0 a
+  for a in "$@"; do
+    case "$a" in -v) verbose=1 ;; --workers) workers=1 ;; esac
+  done
+  local now metered_include live res
   now="$(now_epoch)"
   metered_include="$(metered_include_pred)"
+  res="$(coordinator_buckets_json)"
   # Single-quoted jq with the metered predicate injected as text and the
   # timestamp passed properly via --arg + ($now|tonumber), the same pattern
   # run.sh and orch.sh already use. A prior version JSON-encoded $now with
@@ -508,10 +516,12 @@ cmd_lanes() {
         and $b.health.state != "no_credits" and $b.health.state != "auth_error"
         and ([$b.models[] | select(.free)
                  | select((.cooldown_until // 0) <= ($now|tonumber))] | length > 0) )'
-  local n
-  n="$(registry_read "[ .buckets[] | select(${live}) ] | length" --arg now "$now")"
-  if [[ "${1:-}" == "-v" ]]; then
+  local n held=""
+  [[ $workers -eq 1 ]] && held='select(.id | IN($res[]) | not) |'
+  n="$(registry_read "[ .buckets[] | ${held} select(${live}) ] | length" --arg now "$now" --argjson res "$res")"
+  if [[ $verbose -eq 1 ]]; then
     printf 'healthy lanes: %s\n' "$n"
+    [[ "$res" != "[]" ]] && printf '  workers leave the coordinator alone: it runs on %s, so its wallet is held back\n' "$(coordinator_agent)"
     registry_read '.buckets[]
       | . as $b
       | ([$b.models[] | select(.free)
@@ -523,8 +533,8 @@ cmd_lanes() {
       | ([$b.models[] | select(.free and .suitable == false)] | group_by(.unsuitable_reason)
          | map("\(length) \(.[0].unsuitable_reason)") | join(" · ")) as $cut
       | ([$b.models[] | select(.free and .suitable != false)] | length) as $ok
-      | "  \(if $live then "LANE    " elif ($b.metered // false) then "metered " else "unusable" end) \($b.id)  \($b.preferred_agent)  \($ok) usable\(if $cut != "" then " (\($cut) filtered)" else "" end)  health=\($b.health.state)\(if ($b.tos == "caution" or $b.tos == "avoid") then "  [TOS:\($b.tos)]" else "" end)"' \
-      --arg now "$now"
+      | "  \(if $live then "LANE    " elif ($b.metered // false) then "metered " else "unusable" end) \($b.id)  \($b.preferred_agent)  \($ok) usable\(if $cut != "" then " (\($cut) filtered)" else "" end)  health=\($b.health.state)\(if ($b.tos == "caution" or $b.tos == "avoid") then "  [TOS:\($b.tos)]" else "" end)\(if ($b.id | IN($res[])) then "  [held for the coordinator]" else "" end)"' \
+      --arg now "$now" --argjson res "$res"
   else
     printf '%s\n' "$n"
   fi

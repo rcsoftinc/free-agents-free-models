@@ -49,6 +49,73 @@ _LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "${_LIB_DIR}/adapters.sh"
 unset _LIB_DIR
 
+# ---------------------------------------------------- the coordinator's lane --
+# The coordinator is the agent the director talks to, and while it talks it
+# spends requests on its own wallet. A worker on that same wallet races it into
+# one rate limit: the director's conversation starts failing exactly while a
+# build runs - the normal case since --detach, when the coordinator keeps
+# talking instead of waiting.
+#
+# coordinator_agent -> the adapter this fa process runs under (opencode, kilo,
+# ...), or nothing: a plain terminal, cron, or an agent fa has no adapter for
+# (claude, ...), which is on none of fa's lanes. Found by walking up the process
+# tree to the first agent CLI: by process name, by the script an interpreter
+# runs (copilot and pi are node scripts), or - for a name of 4+ characters - by
+# a directory in its path (cursor-agent's real process is node .../cursor-agent/
+# .../index.js). FA_COORDINATOR overrides it: a background job gets it at detach
+# time, since once reparented its ancestry is gone, and "none" switches the
+# reservation off. Linux /proc only; elsewhere nothing is detected or reserved.
+coordinator_agent() {
+  if [[ -n "${FA_COORDINATOR:-}" ]]; then
+    [[ "$FA_COORDINATOR" == none ]] || printf '%s' "$FA_COORDINATOR"
+    return 0
+  fi
+  local names=() owners=() ag b v i p="$PPID" comm a0 a1 stat
+  for ag in "${FA_AGENTS[@]}"; do
+    v="FA_${ag}_BINARY"; IFS=',' read -ra v <<<"${!v:-}"
+    for b in "${v[@]}"; do names+=("$b"); owners+=("$ag"); done
+  done
+  for ((i = 0; i < 40 && p > 1; i++)); do
+    [[ -r "/proc/$p/comm" ]] || return 0
+    comm="$(< "/proc/$p/comm")"; a0=""; a1=""
+    { IFS= read -r -d '' a0; IFS= read -r -d '' a1; } < "/proc/$p/cmdline" 2>/dev/null || true
+    for ((b = 0; b < ${#names[@]}; b++)); do
+      _proc_is "${names[$b]}" "$comm" "$a0" "$a1" && { printf '%s' "${owners[$b]}"; return 0; }
+    done
+    for b in "${FA_KNOWN_UNSUPPORTED[@]}"; do
+      _proc_is "$b" "$comm" "$a0" "$a1" && return 0
+    done
+    stat="$(< "/proc/$p/stat")" || return 0
+    stat="${stat##*) }"           # past "pid (comm) " - comm may contain spaces
+    read -r _ p _ <<<"$stat"       # what is left starts: state ppid ...
+  done
+}
+
+_proc_is() { # $1=binary $2=comm $3=argv0 $4=argv1 -> 0 if that process is it
+  local b="$1"
+  [[ "$2" == "$b" || "${3##*/}" == "$b" || "${4##*/}" == "$b" ]] && return 0
+  [[ ${#b} -ge 4 && ( "$3" == */"$b"/* || "$4" == */"$b"/* ) ]]
+}
+
+# -> bucket ids held back from workers: every bucket the coordinator's agent can
+# reach. Which one its TUI uses right now is that TUI's own setting, out of reach
+# from here, so all of them - costing a lane when one agent reaches two wallets.
+# Never every lane, though: when no other bucket has a free model, nothing is
+# held back and the work shares the coordinator's - waiting for a lane that can
+# never free up would help nobody.
+coordinator_buckets() {
+  local ag; ag="$(coordinator_agent)"
+  [[ -n "$ag" && -f "$REGISTRY" ]] || return 0
+  jq -r --arg a "$ag" '
+    [ .buckets[] | select([.models[] | select(.free)] | length > 0) ] as $b
+    | [ $b[] | select((.reachable_via // []) | index($a)) | .id ] as $mine
+    | if ([ $b[] | select(.id | IN($mine[]) | not) ] | length) > 0
+      then $mine[] else empty end' "$REGISTRY" 2>/dev/null || true
+}
+
+# The same, as a JSON array for jq programs (--argjson).
+coordinator_buckets_json() { coordinator_buckets | jq -R . | jq -sc 'map(select(length > 0))'; }
+
 now_epoch() { date +%s; }
 iso_now()   { date -u +%Y-%m-%dT%H:%M:%SZ; }
 

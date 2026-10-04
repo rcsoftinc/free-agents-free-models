@@ -39,6 +39,11 @@ done < <(grep -ohE '^[A-Z][A-Z0-9_]*="\$\{[A-Z][A-Z0-9_]*:-\$HOME/' \
            "${REPO_DIR}"/bin/lib/adapters/*.sh | cut -d= -f1)
 unset _v
 
+# And the COORDINATOR: fa holds back the wallet of whichever agent CLI it runs
+# under (common.sh), so a suite run from inside an opencode session would quietly
+# lose a lane. Off unless a suite asks (test_coordinator_lane.sh does).
+export FA_COORDINATOR="${FA_COORDINATOR:-none}"
+
 # And the CRONTAB: bootstrap installs a daily refresh and doctor reads it back,
 # so a suite that forgot the stub would rewrite (or list) the developer's real
 # one. The stub keeps its whole "crontab" in $FAKE_CRONTAB.

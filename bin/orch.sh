@@ -144,6 +144,10 @@ orphan_alive_pid() { # $1=id -> pid, or empty
 # another task. Dispatching more tasks than this is what produced the churn: a
 # task would launch, find every wallet busy, exit 5, sleep, and repeat (observed:
 # 9 requeues for one task). Checking first means we simply do not launch it.
+# Both of these leave the coordinator's own wallet out (RESERVED_JSON, set once
+# per run in cmd_run from common.sh's coordinator_buckets): run.sh will not put
+# a worker there, so counting it as a free lane would launch a task straight
+# into an exit 5 and back into the queue - churn, not progress.
 free_lanes() {
   local dir="${FREE_AGENTS_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/free-agents}/leases"
   local n=0 b f
@@ -154,15 +158,18 @@ free_lanes() {
     if [[ ! -e "$f" ]]; then n=$((n+1)); continue; fi
     # flock -n succeeds only if the lane is unheld; the subshell drops it at once.
     if ( exec 9<>"$f"; flock -n 9 ) 2>/dev/null; then n=$((n+1)); fi
-  done < <(registry_read '.buckets | keys[]' 2>/dev/null)
+  done < <(registry_read '.buckets | keys[] | select(IN($res[]) | not)' \
+             --argjson res "${RESERVED_JSON:-[]}" 2>/dev/null)
   printf '%s' "$n"
 }
 
 healthy_buckets() {
   local now; now="$(now_epoch)"
   registry_read '[ .buckets[]
+    | select(.id | IN($res[]) | not)
     | select((.health.cooldown_until // 0) <= ($now|tonumber))
-    | select([.models[] | select(.free)] | length > 0) ] | length' --arg now "$now" 2>/dev/null || echo 1
+    | select([.models[] | select(.free)] | length > 0) ] | length' --arg now "$now" \
+    --argjson res "${RESERVED_JSON:-[]}" 2>/dev/null || echo 1
 }
 
 task_field() { jq -r --arg id "$1" --arg k "$2" '.tasks[] | select(.id==$id) | .[$k] // empty' "$TASKS_FILE"; }
@@ -687,6 +694,8 @@ cmd_run() {
   # that is meant to recover from exactly that.
   exec {RUN_LOCK_FD}>"${ORCH_DIR}/.run.lock"
   flock -n "$RUN_LOCK_FD" || die "a run is already in progress in this project - see: fa jobs, fa status"
+  RESERVED_JSON="$(coordinator_buckets_json)"
+  [[ "$RESERVED_JSON" != "[]" ]] && log "held back for the coordinator ($(coordinator_agent)), its own wallet: $(jq -r 'join(" ")' <<<"$RESERVED_JSON")"
   local width="${MAX_PARALLEL:-$(healthy_buckets)}"
   [[ "$width" -ge 1 ]] || width=1
   

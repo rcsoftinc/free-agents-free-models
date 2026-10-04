@@ -13,6 +13,7 @@
 #   log          everything the command printed
 #   rc           written when it ends - its presence is what "finished" means
 #   finished_at  epoch seconds
+#   coordinator  the agent that started it ("none" outside one) - see below
 #
 # Detaching has to survive the CALLER, which is usually an agent CLI's shell
 # tool, and every one of these was a way for it not to:
@@ -22,6 +23,11 @@
 #     the tool's stdout makes the tool wait for it anyway - `&` alone gives the
 #     caller nothing back
 #   - a double fork, so the job is nobody's child and nothing waits on it
+#
+# That double fork also cuts the job off from its ancestry, which is how
+# common.sh finds the coordinator whose wallet workers must leave alone - so the
+# coordinator is read HERE, while it is still an ancestor, and handed to the job
+# as FA_COORDINATOR.
 
 # Physical path: job_state finds a runner by the job dir in its command line,
 # and a symlinked cwd would otherwise spell the same dir two ways.
@@ -60,8 +66,11 @@ job_start() { # $1=tool root; rest = fa arguments to run detached -> prints the 
   done
   printf '%s\n' "$disp" > "$dir/cmd"
   now_epoch > "$dir/started_at"
+  local coord; coord="$(coordinator_agent)"; coord="${coord:-none}"
+  printf '%s\n' "$coord" > "$dir/coordinator"
   local launch=(nohup); have setsid && launch=(setsid nohup)
-  ( "${launch[@]}" "${root}/bin/fa" __job "$dir" "$@" </dev/null >"$dir/log" 2>&1 & )
+  ( FA_COORDINATOR="$coord" "${launch[@]}" "${root}/bin/fa" __job "$dir" "$@" \
+      </dev/null >"$dir/log" 2>&1 & )
   printf '%s' "$id"
 }
 
@@ -137,6 +146,8 @@ job_show() { # $1=job id
   printf '  state:  %s (%s)\n' "$(job_state "$dir")" "$(job_elapsed "$dir")"
   [[ -f "$dir/rc" ]] && printf '  exit:   %s\n' "$(cat "$dir/rc")"
   printf '  log:    %s\n' "$dir/log"
+  local c; c="$(cat "$dir/coordinator" 2>/dev/null || echo none)"
+  [[ "$c" != none ]] && printf '  lanes:  started from %s, so its wallet is held back from this job\n' "$c"
   grep -q '^fa dispatch' "$dir/cmd" 2>/dev/null && echo "  tasks:  fa status"
   echo "--- last 20 lines of the log ---"
   tail -n 20 "$dir/log" 2>/dev/null || true

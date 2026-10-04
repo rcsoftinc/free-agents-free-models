@@ -8,7 +8,7 @@
 
 **Complete, working, and proven on a real project.** Published (public) at
 `github.com/rcsoftinc/free-agents-free-models`. Full suite green:
-**706 assertions, 36 suites, offline.**
+**742 assertions, 37 suites, offline.**
 
 **It has built real software unattended.** All independently verified against what
 the code does rather than what the agents reported:
@@ -112,7 +112,7 @@ data/model-seed.json      OPTIONAL cold-start opinion per model/category - hand-
 data/provider-notes.json  OPTIONAL ToS/evidence note per provider - same rules as model-seed.json
 prompts/          coordinator.md - the single pasted prompt
 skills/           skill cards, linked into the project by bootstrap
-test/             36 suites, a stub for every agent (and herdr), fixture registry - fully offline
+test/             37 suites, a stub for every agent (and herdr), fixture registry - fully offline
 ```
 
 ## Lanes on this machine
@@ -1180,3 +1180,66 @@ forever and is never silent (2 failures); a prompt naming a command fa lacks
 fails the guard (2 failures).
 
 Full suite: 36 suites / 706 assertions, offline, zero real pi sessions.
+
+## Feature: a task's verify command decides "done" (2026-10-04)
+
+Commit `777a584` (code + tests).
+
+Asked how they would use fa as a director across very different kinds of
+software (this machine has the Android SDK, Gradle, JDK 21, .NET and SQL
+Server tools on PATH), the honest answer was: fa fits work a machine can
+check - and its own idea of "done" was thin. A task counted as done when its
+declared files existed and had changed, plus an optional syntax check for JS,
+Python and shell only. No project's own tests ever ran, and nothing at all
+was checked for Kotlin, Java, C# or SQL.
+
+**`run.sh --verify CMD`, or a task's `"verify"` in tasks.json** (orch passes it
+through): a shell command run in the task's workdir - its worktree under
+`--isolate`, so before anything merges - once the agent reports success. Only
+exit 0 counts. Time-boxed (`FA_VERIFY_TIMEOUT`, 600s). On failure the SAME
+agent, on the SAME lease, gets the whole task again with the command and the
+tail of its output, for up to `--validate-rounds` checks (shared with
+`--validate`); then it gives up with exit 1 and a `---VERIFY-FAILED---`
+marker that orch journals as `verify_failed` (command, rounds, tail). `fa
+status` marks finished tasks `(verified)` and shows a failed one's command so
+it can be run by hand; RUN-META gains `verify` and `fix_rounds`.
+
+**The ranking learns the verified outcome.** `record()` now runs AFTER the
+gates, with a new state, `unverified`: a failure in stats, cat_stats and
+agent_stats - so per-category ranking learns which models produce work that
+passes its checks - but it never touches the model's probe (liveness: it
+answered), never parks it (`cooldown_for` gives an unknown state 0) and never
+touches the wallet's health.
+
+**Three bugs in the existing `--validate` gate, fixed because verify shares it:**
+1. The lane's lease was released BEFORE the fix rounds, so a fix round ran on
+   a wallet another task was free to take - breaking one-task-per-credential.
+   The gates now run under the attempt's own lease; the suite's fake agent
+   checks the lease is held during its fix round.
+2. The model was credited `ok` before the gates ran, so one whose work then
+   failed validation still looked good to the ranking.
+3. A fix round is a new, cold agent session, yet its prompt was only
+   "VALIDATION FAILED. Fix these errors: ... Re-output the corrected file(s)."
+   - no task, no workdir, no worker preamble, and a literal "\n" (bash does
+   not expand it inside double quotes). `fix_prompt` now re-sends the
+   preambles and the whole task, plus "do not weaken, skip or delete the
+   checks or tests to get there".
+
+Docs: the coordinator prompt (director mode's one-piece form is now `fa run
+--detach --verify`; the task graph section explains scoping, with Gradle,
+.NET and npm examples - a whole-suite run in one parallel task's worktree can
+fail on a sibling's unfinished work), AGENTS.md, both READMEs, the skill card,
+and CLAUDE.md's "Verify, do not trust" invariant.
+
+Left as it was: `--validate-all` is still a flag nothing reads (the
+"tests + lint" phase it reserved is largely what a task's verify now does -
+wire it to that or remove it), and plan.sh's planner does not write verify
+commands: the coordinator, who can see the project's real test setup, does.
+
+`test_verify_command.sh` (36), mutation-tested seven ways: verify ignored,
+the lease released before the fix rounds, a fix round without the task, an
+unverified attempt credited ok, unverified marking the model dead, orch
+dropping the task's verify, and no time limit - each caught by its own
+assertion.
+
+Full suite: 37 suites / 742 assertions, offline, zero real pi sessions.

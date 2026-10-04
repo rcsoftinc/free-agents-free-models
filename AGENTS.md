@@ -74,11 +74,16 @@ never assumes the worker has seen the repo, the conversation, or another task.
       "prompt": "<self-contained spec: what to build, the interface contract, what NOT to touch>",
       "deps": [],
       "files": ["src/api.js"],
-      "category": "coding" } ] }
+      "category": "coding",
+      "verify": "npm test -- api" } ] }
 ```
 
 `files` is not documentation — the runner refuses to run overlapping tasks
 concurrently, and it verifies afterwards that the declared files exist.
+`verify` (optional, but use it whenever the project can check the work) is a
+shell command run in the task's workdir after the worker finishes: only exit
+0 counts as done, and a failure goes back to the same worker with its output.
+Scope it to the task - a parallel task's worktree has only its own changes.
 
 A task can also declare `"when": {"dep":"api", "path":".decision", "equals":
 "yes"}` to run only if `api`'s handoff included a matching `result: {...}`

@@ -26,6 +26,8 @@ set -euo pipefail
 #           "deps": [],                       # ids that must finish first
 #           "files": ["src/api.js"],          # boundary: overlapping tasks
 #                                             # never run concurrently
+#           "verify": "npm test -- api",      # optional: done = exits 0, run in
+#                                             # the task's workdir (run.sh --verify)
 #           "category": "coding" } ] }
 #
 # Exit: 0 all tasks done | 1 some task failed | 3 setup error
@@ -545,9 +547,14 @@ run_task() { # $1=task id ; runs in a subshell as a background job
   # whether this specific invocation is still alive.
   journal started "$id" "pid=$BASHPID"
   set +e
-  local validate_flag=""
+  local validate_flag="" verify_cmd verify_args=()
   [[ $VALIDATE -eq 1 ]] && validate_flag="--validate"
-  FA_TASK_ID="$id" "$RUN_SH" -c "$category" -w "$workdir" $validate_flag "$prompt" \
+  # The task's own definition of done, run by run.sh in $workdir - the
+  # isolated worktree when there is one, so it checks this task's work BEFORE
+  # anything merges back.
+  verify_cmd="$(task_field "$id" verify)"
+  [[ -n "$verify_cmd" ]] && verify_args=(--verify "$verify_cmd")
+  FA_TASK_ID="$id" "$RUN_SH" -c "$category" -w "$workdir" $validate_flag "${verify_args[@]}" "$prompt" \
     >"$out" 2>"${RESULTS}/${id}.err"
   rc=$?
   set +e
@@ -656,19 +663,25 @@ run_task() { # $1=task id ; runs in a subshell as a background job
   [[ $rc -eq 0 ]] && capture_handoff "$id"
 
   # Check if this was a validation failure (distinct from build failure)
-  local validation_err=""
+  local validation_err="" verify_err=""
   if [[ $rc -ne 0 && -f "${RESULTS}/${id}.err" ]]; then
     validation_err="$(grep -a '^---VALIDATION-FAILED---' "${RESULTS}/${id}.err" | tail -1 || true)"
+    verify_err="$(grep -a '^---VERIFY-FAILED---' "${RESULTS}/${id}.err" | tail -1 || true)"
   fi
 
   case $rc in
     0) journal done "$id" \
          "bucket=$(jq -r '.bucket // ""' <<<"${meta:-null}")" \
          "model=$(jq -r '.model // ""' <<<"${meta:-null}")" \
-         "agent=$(jq -r '.agent // ""' <<<"${meta:-null}")" ;;
+         "agent=$(jq -r '.agent // ""' <<<"${meta:-null}")" \
+         "verified=$(jq -r 'if .verify == "passed" then "yes" else "" end' <<<"${meta:-null}")" ;;
     5) journal no_lane "$id" ;;          # not a failure: requeue
     *)
-      if [[ -n "$validation_err" ]]; then
+      if [[ -n "$verify_err" ]]; then
+        local vj="${verify_err#---VERIFY-FAILED--- }"
+        journal verify_failed "$id" "cmd=$(jq -r '.cmd' <<<"$vj")" \
+          "rounds=$(jq -r '.rounds' <<<"$vj")" "tail=$(jq -r '.tail' <<<"$vj")"
+      elif [[ -n "$validation_err" ]]; then
         journal validation_failed "$id" "${validation_err#---VALIDATION-FAILED--- }"
       else
         journal attempt_failed "$id" "rc=$rc"
@@ -928,8 +941,12 @@ cmd_status() {
   skip_n="$(skipped_tasks | grep -c . || true)"
   printf 'project: %s\n%s/%s done, %s failed, %s skipped\n\n' "$PROJECT" "$done_n" "$total" "$fail_n" "$skip_n"
   jq -r 'select(.event=="done")
-         | "  done    \(.task)  <- \(.bucket // "?")  \(.model // "")"' "$JOURNAL" | sort -u
+         | "  done    \(.task)  <- \(.bucket // "?")  \(.model // "")\(if .verified == "yes" then "  (verified)" else "" end)"' "$JOURNAL" | sort -u
   jq -r 'select(.event=="failed") | "  FAILED  \(.task)"' "$JOURNAL" | sort -u
+  # A verify command that never passed: the work exists but does not do what
+  # the task said it must. Shown with the command, so it can be run by hand.
+  jq -r 'select(.event=="verify_failed")
+         | "  VERIFY FAILED  \(.task)  `\(.cmd)` after \(.rounds) fix round(s)"' "$JOURNAL" | sort -u
   jq -r 'select(.event=="skipped") | "  SKIPPED \(.task)  (when clause not satisfied)"' "$JOURNAL" | sort -u
   # Validation failures: distinct from build failures — the agent built
   # something that doesn't parse. Show them prominently.

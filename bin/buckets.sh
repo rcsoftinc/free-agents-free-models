@@ -145,17 +145,31 @@ models_from_verbose() { # $1=cli  -> provider<TAB>model_arg<TAB>upstream<TAB>fre
 # refusal), so callers MUST classify on content, not on rc alone.
 probe_one() { # $1=agent $2=model_arg $3=provider -> "state<TAB>ms"
   local agent="$1" model="$2" provider="${3:-}" out rc=0 t0 t1
-  t0=$(date +%s%3N)
+  t0=$(now_ms)
   out="$(adapter_invoke "$agent" "$model" "$provider" "$PROBE_PROMPT")" || rc=$?
-  t1=$(date +%s%3N)
+  t1=$(now_ms)
   printf '%s\t%s\n' "$(classify "$rc" "$out")" "$((t1 - t0))"
 }
 
 # ------------------------------------------------------------------ commands --
 
+# Why identification came back empty. The two causes need different fixes, and
+# the one that happened for real - cron running the daily refresh with a PATH
+# that holds no agent CLI - is invisible unless it is named, PATH included.
+no_identities_reason() {
+  local found; found="$(adapters_installed | tr '\n' ' ')"
+  if [[ -z "$found" ]]; then
+    local bins="" a
+    for a in "${FA_AGENTS[@]}"; do bins+="${bins:+ }$(adapter_binaries "$a")"; done
+    printf 'no agent CLI found on PATH (looked for: %s; PATH=%s)' "$bins" "$PATH"
+  else
+    printf 'found %sbut no credential any of them can use' "$found"
+  fi
+}
+
 cmd_identify() {
   local rows; rows="$(collect_identities)"
-  [[ -z "$rows" ]] && die "no agents or credentials found"
+  [[ -z "$rows" ]] && die "$(no_identities_reason)"
   # Apply the SAME canonical-wallet rule discover uses, so what is printed here
   # is the bucket id that will actually exist. These drifted apart once already;
   # a listing that disagrees with the registry is worse than no listing.
@@ -176,7 +190,14 @@ cmd_identify() {
 cmd_discover() {
   # One identify pass, reused: it names both the credentials and the agents this
   # discovery actually looked at, which is what staleness is measured against.
-  local _ident; _ident="$(cmd_identify 2>/dev/null || true)"
+  #
+  # `|| true` belongs OUTSIDE the substitution. cmd_identify dies - exit, not
+  # return - when it finds nothing, which ends the subshell before an inner
+  # `|| true` can run; the failed assignment then killed discover under set -e,
+  # with the only error message already sent to /dev/null. That is how the daily
+  # cron refresh failed silently for weeks. Falling through reaches the check
+  # below, which says why.
+  local _ident; _ident="$(cmd_identify 2>/dev/null)" || true
 
   local do_probe=0
   [[ "${1:-}" == "--probe" ]] && do_probe=1
@@ -184,7 +205,7 @@ cmd_discover() {
   mkdir -p "$STATE_DIR"
   local idfile="${TEMP_DIR}/ids.tsv" modfile="${TEMP_DIR}/models.tsv"
   collect_identities > "$idfile"
-  [[ -s "$idfile" ]] || die "no agents or credentials found"
+  [[ -s "$idfile" ]] || die "$(no_identities_reason)"
 
   : > "$modfile"
   # Every harness in the adapter list enumerates its own models (opencode and

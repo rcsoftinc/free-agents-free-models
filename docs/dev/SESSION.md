@@ -8,7 +8,7 @@
 
 **Complete, working, and proven on a real project.** Published (public) at
 `github.com/rcsoftinc/free-agents-free-models`. Full suite green:
-**636 assertions, 34 suites, offline.**
+**668 assertions, 35 suites, offline.**
 
 **It has built real software unattended.** All independently verified against what
 the code does rather than what the agents reported:
@@ -112,7 +112,7 @@ data/model-seed.json      OPTIONAL cold-start opinion per model/category - hand-
 data/provider-notes.json  OPTIONAL ToS/evidence note per provider - same rules as model-seed.json
 prompts/          coordinator.md - the single pasted prompt
 skills/           skill cards, linked into the project by bootstrap
-test/             34 suites, a stub for every agent, fixture registry - fully offline
+test/             35 suites, a stub for every agent, fixture registry - fully offline
 ```
 
 ## Lanes on this machine
@@ -340,14 +340,9 @@ value:
    (only `run.sh`'s `registry_txn` takes it), so a refresh racing a build can
    lose a cooldown it just recorded. Build it together with that lock, or
    skip a run while any lease is held.
-7. **The rest of the "director" plan (2026-10-04 entry below)** - steps 1-2
-   are built; in order, what is left:
-   - **Reserve the coordinator's own wallet.** When the coordinator runs on one
-     of fa's lanes, a worker on that same key races it into the rate limit -
-     the director's own conversation starts getting 429s exactly while a build
-     runs. `run.sh -x` already excludes a bucket; it needs to happen
-     automatically (the open question is how fa learns which bucket the
-     coordinator is on).
+7. **The rest of the "director" plan (2026-10-04 entries below)** - steps
+   1-3 are built (workers never dispatch, --detach, the coordinator keeps its
+   own wallet); in order, what is left:
    - **herdr panes.** Inside herdr (`HERDR_ENV=1`), open each background job in
      its own pane - `herdr pane split` / `pane run` / `pane report-agent` /
      `notification show` all exist in 0.9.1 - so the director sees jobs in the
@@ -1041,3 +1036,55 @@ workers run headless - and now says so, with herdr panes as planned work; the
 README layout listed `analyze.sh` under `bin/` (it is in `bin/lib/`).
 
 Full suite: 34 suites / 636 assertions, offline, zero real pi sessions.
+
+## Feature: workers leave the coordinator's own wallet alone (2026-10-04)
+
+Commit `b4c84d8` (code + tests).
+
+Step 3 of the director plan. Since `--detach`, the coordinator keeps talking to
+the director while a build runs - on its own wallet. A worker landing on that
+same wallet races it into one rate limit, and the director's conversation
+starts failing exactly while work is in flight. (Before `--detach` the
+coordinator sat blocked and silent during a build, so this rarely bit.)
+
+**Finding the coordinator** (`coordinator_agent`, common.sh): walk up fa's own
+process tree to the first agent CLI. Checked against this machine's real
+processes before writing any of it: opencode, kilo and agy are native
+executables (process name = agent); hermes names its process `hermes` though it
+runs as `python -m hermes_cli.main`; copilot and pi are node scripts, so the
+name is the script argument (`node .../bin/pi`); cursor-agent's wrapper can
+leave only `node .../cursor-agent/.../index.js`, matched by directory - for
+names of 4+ characters only, so `pi` never matches a stray `/pi/`. A shebang
+script's own process is named `bash`; only its argument says what it is. The
+nearest agent wins, and an agent fa has no adapter for (claude - this was
+built from inside one) stops the search: it is on none of fa's lanes. Linux
+/proc only; elsewhere nothing is detected and nothing held.
+
+**Holding it back** (`coordinator_buckets`): every bucket that agent reaches -
+which one its TUI is using right now is out of reach, so all of them, costing
+a lane when one agent reaches two wallets. Applied in run.sh's chain (its own
+line in the exclusion report; `-b` still wins), `buckets.sh lanes --workers`
+(the dispatch gate's count - the plain count stays the inventory, so doctor
+and setup never call a working machine laneless), orch's width and free-lane
+check (counting the held lane as free would launch tasks into exit 5 and
+straight back into the queue), and `fa doctor` names what is held and why.
+Never every lane: with no other bucket holding a free model nothing is held,
+and when everything else is cooling down run.sh shares the lane rather than
+fail. A detached job is reparented, so its ancestry no longer leads to the
+coordinator: job_start reads it at detach time and hands it down as
+`FA_COORDINATOR` (also kept in the job dir). `FA_COORDINATOR=none` turns the
+reservation off - and the test harness sets that by default, so a suite run
+from inside an opencode session cannot quietly lose a lane.
+
+Verified on the real registry: as opencode, `fa rank coding` drops all 9 of
+opencode:zen's candidates and says why; lanes is 7 as inventory, 6 for
+workers; doctor names the held wallet. From this session (claude): nothing
+held, 7 and 7.
+
+`test_coordinator_lane.sh` (32), mutation-tested seven ways: without the
+directory rule cursor-agent goes unseen; without claude stopping the search an
+outer opencode is held for nothing; without the hand-down a detached run loses
+the reservation; and the chain, orch width, never-every-lane and sharing rules
+are each caught by their own assertion.
+
+Full suite: 35 suites / 668 assertions, offline, zero real pi sessions.

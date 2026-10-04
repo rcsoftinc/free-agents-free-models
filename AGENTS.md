@@ -35,7 +35,9 @@ This is real code, not a restatement of the rule for you to re-derive: it checks
 whether at least one pair of tasks has no dependency on each other (a genuine
 split) and whether `fa lanes` reports **≥2**, and prints a `SPLIT EVALUATION`
 line naming both, then either tells you to work directly or dispatches
-`fa orch run` itself. `fa dispatch "<goal>"` (with a goal) also plans first —
+`fa orch run` itself. Its lane count leaves out your own wallet - the one
+you, the coordinator, are running on - since a worker there would race your
+conversation into the same rate limit. `fa dispatch "<goal>"` (with a goal) also plans first —
 useful for a one-shot invocation with no context already loaded, but paying for
 that cold re-derivation of a project you already understand is rarely what you
 want mid-conversation.

@@ -31,6 +31,9 @@ buckets, nothing else.
 ## Invariants — breaking one of these is a regression, not a refactor
 
 - **One task per credential at a time.** Two agents on one key are not faster.
+  That includes the coordinator: workers are kept off the wallet of the agent
+  fa runs under (`coordinator_buckets`, common.sh), or the director's own
+  conversation races a build into one rate limit.
 - **Attribution decides blast radius.** Wallet faults (rate limit / billing /
   auth) cool the **wallet**; a model hang demotes the **model** only;
   `local_network` is recorded **nowhere** — a failure we caused is not evidence

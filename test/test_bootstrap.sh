@@ -182,7 +182,7 @@ SP="$PROJ/setup-orch"; mkdir -p "$SP"
 cp "$REPO/setup.sh" "$TOOL/setup.sh"
 out="$(FREE_AGENTS_STATE="$PROJ/nostate" bash "$TOOL/setup.sh" --no-bootstrap "$SP" 2>&1)"
 assert_true "setup seeds .orch/tasks.json" '[[ -f "$SP/.orch/tasks.json" ]]'
-for pat in journal.ndjson results/ handoffs/ '*.lock'; do
+for pat in journal.ndjson results/ handoffs/ '*.lock' jobs/; do
   assert_contains "setup's .orch/.gitignore excludes $pat" \
     "$(cat "$SP/.orch/.gitignore" 2>/dev/null)" "$pat"
 done
@@ -210,6 +210,8 @@ printf 'journal.ndjson\nresults/\nmine.txt\n' > "$SP/.orch/.gitignore"
 ORCH_PROJECT="$SP" bash "$TOOL/bin/orch.sh" init >/dev/null 2>&1
 assert_contains "an older .orch/.gitignore gains handoffs/" \
   "$(cat "$SP/.orch/.gitignore")" "handoffs/"
+assert_contains "and jobs/ (background jobs came later)" \
+  "$(cat "$SP/.orch/.gitignore")" "jobs/"
 assert_contains "a hand-added ignore line survives the repair" \
   "$(cat "$SP/.orch/.gitignore")" "mine.txt"
 

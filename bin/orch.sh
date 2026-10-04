@@ -499,6 +499,8 @@ snapshot_files() { # $1=task id
 
 run_task() { # $1=task id ; runs in a subshell as a background job
   local id="$1" prompt category out rc=0 meta before wt_slot=""
+  # The project run lock belongs to the orchestrator alone (cmd_run).
+  [[ -n "${RUN_LOCK_FD:-}" ]] && exec {RUN_LOCK_FD}>&-
   prompt="$(build_prompt "$id")"
   category="$(task_field "$id" category)"; category="${category:-coding}"
   out="${RESULTS}/${id}.out"; mkdir -p "$RESULTS"
@@ -677,6 +679,14 @@ cmd_run() {
     || die "$TASKS_FILE has no tasks"
 
   write_orch_gitignore
+  # One run per project at a time. While runs only happened in the foreground,
+  # two at once took two people starting them; `fa dispatch --detach` makes it
+  # one stray command, and two runs replaying one journal would each dispatch
+  # the same pending tasks. Held by this process alone - run_task closes it - so
+  # a worker still running after its orchestrator died never blocks the resume
+  # that is meant to recover from exactly that.
+  exec {RUN_LOCK_FD}>"${ORCH_DIR}/.run.lock"
+  flock -n "$RUN_LOCK_FD" || die "a run is already in progress in this project - see: fa jobs, fa status"
   local width="${MAX_PARALLEL:-$(healthy_buckets)}"
   [[ "$width" -ge 1 ]] || width=1
   
@@ -952,11 +962,15 @@ cmd_status() {
 #   worktrees/      NO  - git worktrees for isolated task execution.
 write_orch_gitignore() {
   mkdir -p "$ORCH_DIR"
-  # Never clobber a hand-edited file - but do repair the one line that an older
-  # setup.sh left out, or those handoffs stay tracked forever.
+  # Never clobber a hand-edited file - but do repair the lines an older version
+  # left out, or what they cover stays tracked forever: handoffs/ (an older
+  # setup.sh) and jobs/ (background jobs, which came later).
   if [[ -f "${ORCH_DIR}/.gitignore" ]]; then
-    grep -qx 'handoffs/' "${ORCH_DIR}/.gitignore" \
-      || printf 'handoffs/\n' >> "${ORCH_DIR}/.gitignore"
+    local line
+    for line in handoffs/ jobs/; do
+      grep -qx "$line" "${ORCH_DIR}/.gitignore" \
+        || printf '%s\n' "$line" >> "${ORCH_DIR}/.gitignore"
+    done
     return 0
   fi
   cat > "${ORCH_DIR}/.gitignore" <<'EOF'
@@ -967,6 +981,7 @@ results/
 handoffs/
 *.lock
 worktrees/
+jobs/
 EOF
 }
 
@@ -996,6 +1011,9 @@ EOF
 usage() { sed -n '6,32p' "$0" >&2; exit 3; }
 
 CMD="${1:-}"; shift || true
+# Before the option loop: a positional after `run` is copied over tasks.json
+# right there, and a worker must not get even that far (common.sh).
+case "$CMD" in run|resume) refuse_if_worker "orch.sh $CMD" ;; esac
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --max-parallel) MAX_PARALLEL="$2"; shift 2 ;;

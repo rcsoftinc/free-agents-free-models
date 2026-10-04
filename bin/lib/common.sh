@@ -24,6 +24,21 @@ log()  { printf '[%s] %s\n' "${LOG_TAG:-free-agents}" "$*" >&2; }
 die()  { printf '[%s] ERROR: %s\n' "${LOG_TAG:-free-agents}" "$*" >&2; exit 3; }
 have() { command -v "$1" >/dev/null 2>&1; }
 
+# Workers never dispatch. Every agent fa launches is a WORKER: adapter_invoke
+# hands it FA_DEPTH=1, which its shell commands inherit whichever of the seven
+# CLIs it is. Anything that would launch agents in turn refuses inside one.
+# AGENTS.md is read by every agent, workers included, so without this a worker
+# that decided to hand its task on would start another layer of workers, each
+# free to do the same. A prompt can ask a free model not to; only this enforces
+# it. Exit 6, so no caller can mistake it for run.sh's requeue (5) or failure (2).
+refuse_if_worker() { # $1=what was attempted
+  local d="${FA_DEPTH:-0}"
+  [[ "$d" =~ ^[0-9]+$ && "$d" -ge 1 ]] || return 0
+  printf '[fa] REFUSED: %s inside a worker (FA_DEPTH=%s).\n' "$1" "$d" >&2
+  printf '[fa] fa launched you to do one task: do it here, directly. Nothing you start may launch agents.\n' >&2
+  exit 6
+}
+
 # The system dependencies every entry point needs, and the SINGLE canonical list
 # of harnesses the tool can drive. Both are sourced here so setup.sh, fa,
 # buckets.sh and run.sh ask the same question and can never drift apart.

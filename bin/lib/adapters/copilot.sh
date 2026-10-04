@@ -10,7 +10,7 @@
 
 FA_copilot_BINARY="copilot"
 FA_copilot_METERED=1
-FA_copilot_VERIFIED_VERSION="1.0.83"
+FA_copilot_VERIFIED_VERSION="1.0.86"
 FA_copilot_VERSION_BIN="copilot"
 
 copilot_identify() {

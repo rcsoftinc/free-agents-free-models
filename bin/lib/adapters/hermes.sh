@@ -16,7 +16,7 @@ HERMES_ENV="${HERMES_ENV:-$HOME/.hermes/.env}"
 
 FA_hermes_BINARY="hermes"
 FA_hermes_METERED=0
-FA_hermes_VERIFIED_VERSION="0.20.5"
+FA_hermes_VERIFIED_VERSION="0.21.3"
 FA_hermes_VERSION_BIN="hermes"
 
 # -> provider<TAB>token<TAB>base_url, from up to three sources in auth.json:

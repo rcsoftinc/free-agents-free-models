@@ -20,7 +20,7 @@ done
 # agy --version
 for a in "$@"; do
   if [[ "$a" == "--version" || "$a" == "version" ]]; then
-    printf '1.2.0\n'
+    printf '1.2.16\n'
     exit 0
   fi
 done

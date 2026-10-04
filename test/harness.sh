@@ -44,6 +44,13 @@ unset _v
 # lose a lane. Off unless a suite asks (test_coordinator_lane.sh does).
 export FA_COORDINATOR="${FA_COORDINATOR:-none}"
 
+# And HERDR: inside a herdr session every process inherits HERDR_ENV and the
+# session's socket, and a background job opens a pane there (bin/lib/jobs.sh) -
+# so a suite run from a herdr pane would fill the developer's live session with
+# panes. Hidden from every suite; test_herdr.sh opts in against the stub.
+while IFS= read -r _v; do unset "$_v"; done < <(compgen -e | grep '^HERDR_' || true)
+unset _v
+
 # And the CRONTAB: bootstrap installs a daily refresh and doctor reads it back,
 # so a suite that forgot the stub would rewrite (or list) the developer's real
 # one. The stub keeps its whole "crontab" in $FAKE_CRONTAB.

@@ -8,7 +8,7 @@
 
 **Complete, working, and proven on a real project.** Published (public) at
 `github.com/rcsoftinc/free-agents-free-models`. Full suite green:
-**668 assertions, 35 suites, offline.**
+**695 assertions, 36 suites, offline.**
 
 **It has built real software unattended.** All independently verified against what
 the code does rather than what the agents reported:
@@ -112,7 +112,7 @@ data/model-seed.json      OPTIONAL cold-start opinion per model/category - hand-
 data/provider-notes.json  OPTIONAL ToS/evidence note per provider - same rules as model-seed.json
 prompts/          coordinator.md - the single pasted prompt
 skills/           skill cards, linked into the project by bootstrap
-test/             35 suites, a stub for every agent, fixture registry - fully offline
+test/             36 suites, a stub for every agent (and herdr), fixture registry - fully offline
 ```
 
 ## Lanes on this machine
@@ -341,13 +341,8 @@ value:
    lose a cooldown it just recorded. Build it together with that lock, or
    skip a run while any lease is held.
 7. **The rest of the "director" plan (2026-10-04 entries below)** - steps
-   1-3 are built (workers never dispatch, --detach, the coordinator keeps its
-   own wallet); in order, what is left:
-   - **herdr panes.** Inside herdr (`HERDR_ENV=1`), open each background job in
-     its own pane - `herdr pane split` / `pane run` / `pane report-agent` /
-     `notification show` all exist in 0.9.1 - so the director sees jobs in the
-     sidebar and is notified when one ends. Optional, one branch in jobs.sh,
-     never per adapter.
+   1-4 are built (workers never dispatch, --detach, the coordinator keeps its
+   own wallet, herdr panes); what is left:
    - **Director mode in prompts/coordinator.md**: answer, spec, detach, report
      back when the job ends - with AGENTS.md's "keep the small work" intact.
 
@@ -1088,3 +1083,58 @@ the reservation; and the chain, orch width, never-every-lane and sharing rules
 are each caught by their own assertion.
 
 Full suite: 35 suites / 668 assertions, offline, zero real pi sessions.
+
+## Feature: inside herdr, every background job gets a pane (2026-10-04)
+
+Commit `183455c` (code + tests).
+
+Step 4 of the director plan. The user runs everything inside herdr, a
+terminal multiplexer for coding agents whose sidebar shows each pane's agent
+as working / blocked / done / idle. Inside herdr (`HERDR_ENV=1`, the herdr CLI
+on PATH), a detached job now opens a pane of its own beside the coordinator's
+that follows it (`fa jobs --follow`, new, and useful outside herdr too:
+`tail -f --pid` on the runner, then the job's verdict), reports its state to
+the sidebar (`pane report-agent --source fa`: working, then idle - which
+herdr shows as `done` until someone looks), and ends with a `notification
+show` - herdr's `done` sound, or its `request` (attention) sound on a failure.
+
+Built from herdr's own agent reference (`herdr --skill`) and the 0.9.1 CLI on
+this machine, not from memory: split the CALLER's pane (`--current`), wide to
+the right and tall downward (a cell is about twice as tall as wide), with
+`--no-focus` and the caller's cwd; read the new pane's id from the split's
+JSON; close only panes fa opened (herdr's own rule - `fa jobs --clean` closes
+finished jobs' panes, never a running one's). The pane is a window and nothing
+more: the job runs exactly as it does outside herdr, so closing its pane stops
+nothing, and every herdr call is best-effort and time-boxed
+(`FA_HERDR_TIMEOUT`, 5s) - a dead or hung herdr server costs a detach seconds,
+never the job or the coordinator. `FA_HERDR=0` turns it all off. One branch
+in jobs.sh, nothing per adapter.
+
+**Safety first, then code:** this session itself runs inside the user's
+herdr, and every test process inherits `HERDR_ENV` and the live socket - the
+moment jobs.sh could open panes, every suite that detaches a job would have
+opened them in the user's real session. `harness.sh` now unsets every
+`HERDR_*` variable before any suite runs, and `test/stubs/herdr` (logs each
+call; fail and hang modes) shadows the real CLI; `test_herdr.sh` opts in
+against the stub. Its mutation run showed the risk was real: without the
+harness line, a suite inside herdr did call herdr (the stub, here).
+
+**Verified in the live herdr session:** a real detached job (anonymous kilo
+lane) returned in 1s, opened pane wD:p6 beside the coordinator's, herdr
+reported it as agent `fa`, status `working`, then `done` after the run (rc 0,
+1m47s); the pane showed the worker's output live, then `job j3: done after
+1m47s`, then its shell prompt. `fa jobs --clean` closed it (`pane_not_found`
+afterwards); the user's own panes (this session, an idle opencode) were never
+touched.
+
+Seen, not acted on: the kilo worker, given a near-empty scratch dir, spent its
+first turns reading `.orch/jobs/*` - even with the worker preamble no longer
+naming any tools, so workers explore whatever directory they are given; in a
+real project there is real work there to look at instead.
+
+`test_herdr.sh` (27), mutation-tested six ways: the harness no longer hiding
+herdr, the split taking focus, the split ignoring the pane's shape, the
+runner never reporting its end, herdr calls without a time box (a hung herdr
+then held the detach for 121s), and `--clean` closing a running job's pane.
+
+Full suite: 36 suites / 695 assertions, offline, zero real pi sessions.

@@ -46,7 +46,7 @@ Háblale al agente. Pídele que construya algo, investigue algo, arregle algo. E
 
 ### Paso 4: Monitorea (opcional)
 
-Abre otra terminal y ejecuta `fa status` para ver qué está corriendo: el progreso de las tareas, más los trabajos en segundo plano. Los trabajadores corren sin ventana: `fa jobs <id>` muestra el log de un trabajo. (Un panel por trabajador en herdr está planeado, no construido.)
+Abre otra terminal y ejecuta `fa status` para ver qué está corriendo: el progreso de las tareas, más los trabajos en segundo plano; `fa jobs --follow <id>` transmite el log de un trabajo hasta que termina. Dentro de [herdr](https://herdr.dev), cada trabajo en segundo plano abre su propio panel junto al del coordinador, así que ni siquiera necesitas la otra terminal (ver Trabajo en segundo plano más abajo).
 
 Cuando termina, el coordinador imprime un reporte de salida: archivos cambiados, estado de verificación, trabajo restante.
 
@@ -496,6 +496,7 @@ fa dispatch --detach                                                # el plan en
 fa dispatch --detach "agrega login con OAuth"                       # también lo planifica, en segundo plano
 fa jobs                 # los trabajos en segundo plano del proyecto: running / done / FAILED / DIED
 fa jobs j3              # un trabajo: estado, código de salida, las últimas líneas de su log
+fa jobs --follow j3     # transmite su log hasta que termina
 fa status               # progreso de las tareas, con los trabajos en segundo plano al final
 fa jobs --clean         # elimina los terminados
 ```
@@ -504,6 +505,7 @@ fa jobs --clean         # elimina los terminados
 - **No toques sus archivos.** Un dispatch en segundo plano imprime los archivos que declara su plan. Ni tú ni el coordinador deben editarlos hasta que el trabajo termine.
 - **Una ejecución por proyecto.** Mientras un plan corre, un segundo `fa dispatch` o `fa resume` en ese proyecto se rechaza - dos ejecuciones repitiendo un mismo journal enviarían las mismas tareas dos veces. Los trabajos de `fa run --detach` son independientes y pueden correr lado a lado, un carril cada uno.
 - **El coordinador conserva su propia billetera.** fa detecta bajo qué CLI de agente está corriendo (recorriendo hacia arriba su propio árbol de procesos) y mantiene a los trabajadores fuera de toda billetera que ese agente alcanza - si no, un trabajador y tu conversación compiten por el mismo límite de tasa, y el coordinador empieza a fallar a mitad de la construcción. `fa lanes -v` y `fa doctor` muestran qué se reserva; la puerta de dispatch cuenta solo los carriles restantes. Si la billetera del coordinador es el único carril, se comparte en vez de dejar el trabajo atascado. `FA_COORDINATOR=none` lo desactiva.
+- **Dentro de herdr, cada trabajo tiene su panel.** Cuando fa corre dentro de un panel de herdr (`HERDR_ENV=1`), un trabajo en segundo plano abre un panel junto al del coordinador - dividido a la derecha o hacia abajo según la propia regla de herdr, sin quitarte el foco - que sigue el log del trabajo. La barra lateral lo muestra `working` y luego `done`, y una notificación dice cómo terminó (con el sonido de atención de herdr si falla). El panel es solo una ventana: cerrarlo no detiene nada, y que herdr esté caído o lento nunca hace fallar ni bloquea un trabajo (cada llamada tiene tiempo límite). `fa jobs --clean` cierra los paneles de los trabajos terminados - solo los que abrió fa. `FA_HERDR=0` lo desactiva.
 - **Sobrevive a quien lo lanzó.** Un trabajo corre en su propia sesión con su propio log, así que una CLI de agente que termina (o mata) una llamada de shell no se lo lleva. Un trabajo que muere de todos modos - la máquina se suspendió - aparece como `DIED`, nunca como corriendo.
 
 El trabajo pequeño sigue siendo más rápido hacerlo directamente: un trabajador arranca en frío, en un modelo gratuito, sin esta conversación. Envía al segundo plano lo que de otro modo te tendría esperando.

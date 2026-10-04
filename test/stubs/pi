@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+# Stub agent (pi) for offline, deterministic testing.
+# Behavior is controlled by env vars:
+#   PI_STUB_MODE   : success | ratelimit | error | hang | slow   (default: success)
+#   GOOD_MODEL     : if set and equals the --model model_id, force success
+#   STUB_LOG       : if set, append invocations to this file
+#
+# pi was the one adapter with no stub here, and sandbox_on keeps the real PATH
+# behind test/stubs/ - so every suite that bootstrapped found the developer's
+# REAL pi, read the real ~/.pi/agent/auth.json, and probed real models with the
+# real key. This stub exists so that can never happen again; test_adapters.sh
+# asserts every adapter's binary has one.
+
+AGENT="pi"
+
+# Parse --model <model_id>
+MODEL_ID=""
+prev=""
+for a in "$@"; do
+  if [[ "$prev" == "--model" ]]; then MODEL_ID="$a"; fi
+  prev="$a"
+done
+
+# pi --version
+for a in "$@"; do
+  if [[ "$a" == "--version" ]]; then
+    printf '0.85.1\n'
+    exit 0
+  fi
+done
+
+# `pi --list-models` - the adapter skips the header line and parses
+# space-aligned columns with human-readable sizes. Two free models (":free")
+# and one paid, to prove the free filter actually filters.
+for a in "$@"; do
+  if [[ "$a" == "--list-models" ]]; then
+    printf 'provider    model                         context  max-out  thinking  images\n'
+    printf 'openrouter  qwen/qwen3-coder:free         262K     65K      no        no\n'
+    printf 'openrouter  deepseek/deepseek-r1:free     164K     65K      yes       no\n'
+    printf 'openrouter  anthropic/claude-opus-paid    1M       128K     yes       yes\n'
+    exit 0
+  fi
+done
+
+MODE="PI_STUB_MODE"
+MODE="${!MODE:-success}"
+
+if [[ -n "${STUB_LOG:-}" ]]; then
+  echo "${AGENT} ${MODEL_ID} mode=${MODE}" >> "${STUB_LOG}"
+fi
+
+# GOOD_MODEL override: force success for a specific model
+if [[ -n "${GOOD_MODEL:-}" && "$MODEL_ID" == "$GOOD_MODEL" ]]; then
+  MODE="success"
+fi
+
+case "$MODE" in
+  ratelimit)
+    # Exact OpenRouter credit/in-flight message; exits 0 (the bug we reproduce)
+    printf 'Error: This request would exceed your available credits given your in-flight requests. Retry after in-flight requests settle, or add credits.'
+    exit 0
+    ;;
+  error)
+    printf 'generic failure: something went wrong'
+    exit 1
+    ;;
+  hang)
+    sleep 60
+    printf 'should never be seen'
+    exit 0
+    ;;
+  slow)
+    sleep 1
+    printf '{"ok":true,"agent":"%s","model":"%s","summary":"stub slow success"}' "$AGENT" "$MODEL_ID"
+    exit 0
+    ;;
+  success|*)
+    printf '{"ok":true,"agent":"%s","model":"%s","summary":"stub success"}' "$AGENT" "$MODEL_ID"
+    exit 0
+    ;;
+esac

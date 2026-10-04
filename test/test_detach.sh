@@ -116,7 +116,22 @@ sleep 0 & dead=$!; wait "$dead"
 echo "$dead" > "$D/pid"; echo "fa run \"lost\"" > "$D/cmd"; echo $(( $(date +%s) - 60 )) > "$D/started_at"
 assert_contains "a job with no exit and no process shows DIED" "$(fajobs)" "j99  DIED"
 
-# --- 7. --clean drops what ended, never what runs ------------------------------
+# --- 7. --news: each ending reported once, silence when nothing happened -------
+# The coordinator runs this at the start of every reply (director mode), so it
+# must say each ending exactly once - and nothing at all when nothing happened.
+news="$(fajobs --news)"
+assert_contains "--news reports a job that ended" "$news" "ended: j1 done after"
+assert_contains "  ...with what to review" "$news" "review it: fa jobs j1"
+assert_contains "  ...including a dispatch's tasks" "$news" "fa status (its tasks)"
+assert_eq "--news reports each ending only once" "$(fajobs --news | grep -c '^ended:' || true)" "0"
+STUB_HOLD=4 out="$(cd "$PROJ" && "$FA" run --detach -b b0:fp0 "news in progress" </dev/null 2>&1)"
+nid="$(grep -o 'job j[0-9]*' <<<"$out" | cut -d' ' -f2)"
+assert_contains "--news names what is still running" "$(fajobs --news)" "running: ${nid} ("
+wait_for 30 has_rc "$nid"
+assert_contains "and reports it once it ends" "$(fajobs --news)" "ended: ${nid} done"
+assert_eq "--news is silent when nothing ended and nothing runs" "$(fajobs --news)" ""
+
+# --- 8. --clean drops what ended, never what runs ------------------------------
 out="$(cd "$PROJ" && "$FA" run --detach -b b0:fp0 "still running" </dev/null 2>&1)"
 running="$(grep -o 'job j[0-9]*' <<<"$out" | cut -d' ' -f2)"
 fajobs --clean >/dev/null

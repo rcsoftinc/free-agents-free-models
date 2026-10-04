@@ -30,6 +30,8 @@ Puedes lanzar ejecuciones desde PowerShell de Windows o VS Code Remote — pero 
 
 Trabajas dentro del TUI de un agente como siempre. La diferencia es que el agente tiene acceso a carriles paralelos y decide cuándo usarlos.
 
+> **¿Primera vez?** [`docs/WALKTHROUGH.md`](docs/WALKTHROUGH.md) (en inglés) cuenta el flujo completo como una historia corta: un proyecto pequeño, desde `mkdir` hasta producción, desde la silla del director - cada prompt, decisión y verificación en el camino.
+
 ### Paso 1: Abre tu TUI
 
 Abre cualquier agente soportado (opencode, kilo, hermes, pi, agy, copilot, cursor). Usa tmux o herdr para ver múltiples ventanas a la vez — esta es la configuración recomendada porque verás a los trabajadores lanzarse en sus propias ventanas.
@@ -767,13 +769,15 @@ DRY_RUN_LIMIT=0 bin/run.sh --dry-run   # la cadena candidata completa, gasta nad
 
 ## Documentación
 
+- **`docs/WALKTHROUGH.md`** — una semana con fa contada como historia (en inglés): un proyecto pequeño desde `mkdir` hasta producción, desde la silla del director (empieza aquí)
 - **`docs/SETUP.md`** — instalación, dónde cada agente esconde sus credenciales, layout completo de archivos
 - **`docs/dev/PARADIGMS.md`** — paradigmas de flujo de trabajo multi-agente: framework Grafo/Bucle/Contenedor, cobertura de fa, brechas y roadmap priorizado
 - **`docs/dev/ALIGNMENT.md`** — el diseño y cada hallazgo
 - **`docs/dev/SESSION.md`** — estado actual, invariantes, bugs
-- **`docs/dev/RUN-*.md`** — registros de ejecuciones reales de proyectos
 
 ## Peligros
+
+- **Un trabajador puede pasar su propio `verify` editando las pruebas.** fa todavía no impide que una tarea cambie archivos fuera de los que declaró, pruebas incluidas, ni avisa cuando lo hace. En un worktree aislado solo los archivos declarados vuelven al proyecto - la prueba editada se queda atrás, pero el código que escondía sí llega, marcado `(verified)`; corriendo en el sitio (un solo `fa run`), la edición llega a tu proyecto. Revisa el diff de cada tarea terminada buscando archivos que no debía tocar, y deja que la suite completa y la CI tengan la última palabra. Los archivos protegidos están planeados, no construidos.
 
 Estos CLIs **salen 0 en fallos duros** (hermes devuelve 0 en HTTP 404 y en un rechazo de facturación). Clasifica por salida, nunca por código de salida.
 - **La contención difiere por agente**: `opencode --dir`, `kilo --dir`, y hermes vía `HOME`.

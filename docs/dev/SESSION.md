@@ -346,6 +346,22 @@ value:
    enough for a cold worker, keeps its hands off a running job's files, and
    actually runs `fa jobs --news` every turn. Record what it gets wrong with
    `fa findings --note` - that is the evidence the next change needs.
+8. **Protected files, and a report of undeclared changes** (found writing
+   `docs/WALKTHROUGH.md`, 2026-10-04). A worker can make its own verify pass by
+   editing the tests: verify runs in the worker's copy, and nothing stops - or
+   reports - a change outside the task's declared files. Under `--isolate` only
+   declared files merge back, so the edited test stays behind but the code it
+   hid lands `(verified)`; in place (`fa run`, a one-task plan) the edit lands in
+   the project and the full suite passes with it. And since verified outcomes
+   now feed the ranking, a cheating model gets ranked UP. The plan: a task's
+   `"readonly": [globs]` plus a project default in `.orch/config.yaml` (tests,
+   CI files); before running verify, put any protected file the worker touched
+   back to its committed content, so verify always runs against the real
+   tests; tell the worker in the fix round; record a finding. Separately, list
+   every changed file outside `files` after each task, with whether it was
+   dropped (worktree) or kept (in place). Until then the coordinator prompt
+   tells it to say "tests are read-only" in each spec and to check every
+   diff for undeclared changes.
 
 **Do not** add: token budgets on unmetered lanes, live leaderboard fetching (see
 ALIGNMENT for why gateway metadata beats it), or a summariser-based handoff — each
@@ -1243,3 +1259,21 @@ dropping the task's verify, and no time limit - each caught by its own
 assertion.
 
 Full suite: 37 suites / 742 assertions, offline, zero real pi sessions.
+
+## Docs: a director's walkthrough, and the gap it exposed (2026-10-04)
+
+`docs/WALKTHROUGH.md`: a week with fa told as a story - one small project
+(Linkbox, intranet short links) from `mkdir` to production, from the
+director's chair, with every prompt, decision and check, including what goes
+wrong (a rate limit, a fix round, a worker editing a test to pass, a page that
+passes and looks wrong, a security hole no scanner sees, an invented
+dependency). Every command and printed line was checked against the code; its
+own Appendix D says what is real and what is story. Linked from both READMEs
+as the place to start.
+
+Writing it exposed item 8 under "Next": nothing stops or reports a worker's
+changes outside its declared files, so a worker can pass its own verify by
+editing the tests. Documented now as a README pitfall (EN + ES), and the
+coordinator prompt now says to tell workers the tests are read-only and to
+check every finished task's diff for undeclared changes. Also: both READMEs
+still listed `docs/dev/RUN-*.md` run records, deleted back in `5615d50`.

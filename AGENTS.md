@@ -2,6 +2,14 @@
 
 Every coding agent (opencode, kilo, hermes, pi, copilot, cursor, agy) reads this file. It decides **how** you work on a request.
 
+## If fa launched you, you are a worker
+
+When the coordinator hands a task to a lane, the agent that receives it is a
+**worker**: it does that one task itself, directly. Everything below about the
+gate, planning and dispatching is the coordinator's job, not yours - and fa
+enforces it: `fa run`, `fa dispatch`, `fa plan` and `orch.sh` refuse to start
+inside a worker (exit 6). Do the work, verify it, write the exit report.
+
 ## Default: work directly
 
 Read what you need, edit, verify, report. No skills, no subagents, no ceremony.
@@ -101,6 +109,13 @@ continuing this workflow. If it prints `-> ORCHESTRATE`, it has already run
 `fa orch run`: the runner holds **one lane per credential**, routes around busy
 and rate-limited wallets, and journals every transition. You do not schedule;
 you specify.
+
+To stay available to the user while work runs, add `--detach`: `fa dispatch
+--detach` (or `fa run --detach "task"` for a single task) returns at once with a
+job id and runs it in the background - the whole plan, whatever the split; a
+chain simply runs one task at a time. Check on it with `fa jobs` / `fa status`,
+and do not edit the files it lists until it ends. Keep quick work for yourself:
+a worker starts cold, on a free model, without your conversation.
 
 ### Phase 3 — Review and integrate
 Run the declared verification (tests, lint, build). Review by **diff and test

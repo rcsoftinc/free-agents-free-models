@@ -46,6 +46,11 @@ buckets, nothing else.
   registry records `identified` and `examined_agents` for exactly this reason: a
   credential that reached no free model yields no bucket, and would otherwise
   read as "new" on every single run.
+- **Workers never dispatch.** Every agent fa launches carries `FA_DEPTH`
+  (`adapter_invoke`), and everything that launches agents refuses inside one
+  (`refuse_if_worker`, exit 6). Two levels only: coordinator and workers. A
+  rule in a prompt is not enough - workers read AGENTS.md too, and a free model
+  told to "delegate" will.
 - **One writer per artifact.** Two copies of one thing, and the wrong copy wins
   by ordering — this repo has been bitten twice (a stale coordinator playbook
   under `.opencode/`, and `.orch/.gitignore`). If you find yourself writing a
@@ -62,6 +67,7 @@ bin/orch.sh       per-project task graph   init | run | status | resume
 bin/lib/adapters.sh   the agent roster (FA_AGENTS); one file per agent in adapters/
 bin/lib/classify.sh   the error taxonomy - has its own self-test
 bin/lib/schedule.sh   the daily refresh cron, and doctor's report on it
+bin/lib/jobs.sh       background jobs: fa run/dispatch --detach, fa jobs
 ```
 
 ## Before you commit

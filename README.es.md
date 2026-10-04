@@ -46,7 +46,7 @@ Háblale al agente. Pídele que construya algo, investigue algo, arregle algo. E
 
 ### Paso 4: Monitorea (opcional)
 
-Abre otra terminal y ejecuta `fa status` para ver qué está corriendo. En tmux/herdr verás ventanas de trabajadores aparecer y desaparecer según se usen los carriles.
+Abre otra terminal y ejecuta `fa status` para ver qué está corriendo: el progreso de las tareas, más los trabajos en segundo plano. Los trabajadores corren sin ventana: `fa jobs <id>` muestra el log de un trabajo. (Un panel por trabajador en herdr está planeado, no construido.)
 
 Cuando termina, el coordinador imprime un reporte de salida: archivos cambiados, estado de verificación, trabajo restante.
 
@@ -486,11 +486,33 @@ Su trabajo es:
 - **Mantener las cosas pequeñas** — arreglos de una línea, renombres, ajustes de config, archivos de pegamento cuestan más a un carril que a ti. Si escribir la especificación toma tanto como hacer el trabajo, haz el trabajo.
 - **Registrar juicio** — la herramienta ve salidas, no intención. Cuando una especificación fue ambigua, una división causó una colisión, o un trabajador perdió el punto, escríbelo con `fa findings`. Esas observaciones se pierden cuando la sesión cierra.
 
+### Trabajo en segundo plano: el coordinador sigue disponible
+
+`fa run` y `fa dispatch` normalmente ocupan al coordinador hasta que el trabajo termina, y mientras tanto no puedes preguntarle nada. Agrega `--detach` y el mismo trabajo arranca en segundo plano; el comando regresa de inmediato con un id de trabajo, y la conversación vuelve a ser tuya.
+
+```sh
+fa run --detach "corrige el bug del parser descrito en ISSUE.md"   # una tarea, un trabajador
+fa dispatch --detach                                                # el plan en .orch/tasks.json
+fa dispatch --detach "agrega login con OAuth"                       # también lo planifica, en segundo plano
+fa jobs                 # los trabajos en segundo plano del proyecto: running / done / FAILED / DIED
+fa jobs j3              # un trabajo: estado, código de salida, las últimas líneas de su log
+fa status               # progreso de las tareas, con los trabajos en segundo plano al final
+fa jobs --clean         # elimina los terminados
+```
+
+- **Dividir sigue siendo decisión de la puerta.** Un dispatch en segundo plano corre el plan sea cual sea su forma - una cadena simplemente corre una tarea a la vez - porque el objetivo no es velocidad sino mantener al coordinador disponible. Si se *paraleliza* lo sigue decidiendo la puerta: tareas realmente independientes en 2+ carriles.
+- **No toques sus archivos.** Un dispatch en segundo plano imprime los archivos que declara su plan. Ni tú ni el coordinador deben editarlos hasta que el trabajo termine.
+- **Una ejecución por proyecto.** Mientras un plan corre, un segundo `fa dispatch` o `fa resume` en ese proyecto se rechaza - dos ejecuciones repitiendo un mismo journal enviarían las mismas tareas dos veces. Los trabajos de `fa run --detach` son independientes y pueden correr lado a lado, un carril cada uno.
+- **Sobrevive a quien lo lanzó.** Un trabajo corre en su propia sesión con su propio log, así que una CLI de agente que termina (o mata) una llamada de shell no se lo lleva. Un trabajo que muere de todos modos - la máquina se suspendió - aparece como `DIED`, nunca como corriendo.
+
+El trabajo pequeño sigue siendo más rápido hacerlo directamente: un trabajador arranca en frío, en un modelo gratuito, sin esta conversación. Envía al segundo plano lo que de otro modo te tendría esperando.
+
 ### Trabajadores (agentes enviados)
 
 Agentes de arranque frío que reciben un prompt auto-contenido, lo ejecutan, y reportan de vuelta. No hablan contigo, no ven otras tareas, y no pueden hacer preguntas.
 
 Sus restricciones:
+- **Los trabajadores nunca envían trabajo.** Cada agente que fa lanza queda marcado como trabajador (`FA_DEPTH`), y `fa run`, `fa dispatch`, `fa plan`, `fa resume` y todo lo demás que lanza agentes se rechaza dentro de uno (salida 6). Los trabajadores también leen AGENTS.md; sin esto, un trabajador que decidiera pasar su tarea a otro iniciaría otra capa de trabajadores. Siempre dos niveles: coordinador y trabajadores.
 - **Sin estado compartido** — cada trabajador obtiene su propio worktree (cuando `--isolate` está activo) y no ve nada de los otros.
 - **Sin conversación** — el prompt debe estar completo. El trabajador nunca ve esta conversación.
 - **Archivos declarados son obligatorios** — tareas superpuestas nunca corren juntas. Los archivos se verifican después de la ejecución; archivos byte-identicos cuentan como no verificados.
@@ -687,8 +709,8 @@ Cada adaptador identifica credenciales, lista modelos (TSV prefijado por agente)
 │   ├── run.sh                 motor de envío: fallback, lease, breaker
 │   ├── plan.sh                meta -> grafo de tareas
 │   ├── orch.sh                grafo de tareas + resumen basado en journal
-│   ├── analyze.sh             análisis post-ejecución del journal + aprendizajes
-│   └── lib/                   common.sh, deps.sh, adapters.sh, classify.sh, keys.sh, quota.sh
+│   └── lib/                   common.sh, deps.sh, adapters.sh, classify.sh, keys.sh, quota.sh,
+│                              schedule.sh, jobs.sh, findings.sh, graph.sh, analyze.sh
 │       └── adapters/          un archivo por agente (opencode, kilo, hermes, copilot, cursor, agy, pi)
 ├── data/model-seed.json       opinión OPCIONAL de arranque en frío - edítala a mano o
 │                               genérala de un leaderboard; bórrala y nada se rompe (ver su
@@ -711,6 +733,7 @@ Cada adaptador identifica credenciales, lista modelos (TSV prefijado por agente)
 <proyecto>/.orch/results/                 transcripciones de agente POR PROYECTO
 <proyecto>/.orch/handoffs/                handoffs de tareas POR PROYECTO
 <proyecto>/.orch/worktrees/               worktrees aislados POR PROYECTO (temp)
+<proyecto>/.orch/jobs/                    trabajos en segundo plano POR PROYECTO (ignorado por git)
 <proyecto>/.orch/learnings.md             patrones de ejecuciones POR PROYECTO (ignorado por git)
 ```
 

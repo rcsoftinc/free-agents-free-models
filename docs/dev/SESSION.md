@@ -1,6 +1,6 @@
 # SESSION STATE — read this first on resume
 
-**Last updated:** 2026-10-03
+**Last updated:** 2026-10-04
 
 ---
 
@@ -8,7 +8,7 @@
 
 **Complete, working, and proven on a real project.** Published (public) at
 `github.com/rcsoftinc/free-agents-free-models`. Full suite green:
-**564 assertions, 32 suites, offline.**
+**636 assertions, 34 suites, offline.**
 
 **It has built real software unattended.** All independently verified against what
 the code does rather than what the agents reported:
@@ -102,17 +102,17 @@ constantly. Fingerprints do not move — the nous one is the token's `sub` claim
 ## Layout
 
 ```
-bin/fa            entry point: bootstrap doctor lanes run plan dispatch/go rank profile quota orch status resume findings
+bin/fa            entry point: bootstrap doctor lanes run plan dispatch/go rank profile quota orch status resume jobs findings
 bin/buckets.sh    credential registry      lanes | discover | probe | show | profile | quota
 bin/run.sh        dispatch engine          fallback chain, bucket lease, breaker, agent/harness ranking, exclusion trace
 bin/plan.sh       goal -> task graph       planning itself has fallback, rejects malformed graphs locally
 bin/orch.sh       per-project task graph   run | status | resume (journal replay), "when" conditional edges
-bin/lib/          common.sh, deps.sh, adapters.sh, classify.sh, quota.sh, schedule.sh + adapters/ (one file per harness)
+bin/lib/          common.sh, deps.sh, adapters.sh, classify.sh, quota.sh, schedule.sh, jobs.sh + adapters/ (one file per harness)
 data/model-seed.json      OPTIONAL cold-start opinion per model/category - hand-edit or delete, nothing breaks
 data/provider-notes.json  OPTIONAL ToS/evidence note per provider - same rules as model-seed.json
 prompts/          coordinator.md - the single pasted prompt
 skills/           skill cards, linked into the project by bootstrap
-test/             32 suites, a stub for every agent, fixture registry - fully offline
+test/             34 suites, a stub for every agent, fixture registry - fully offline
 ```
 
 ## Lanes on this machine
@@ -340,6 +340,21 @@ value:
    (only `run.sh`'s `registry_txn` takes it), so a refresh racing a build can
    lose a cooldown it just recorded. Build it together with that lock, or
    skip a run while any lease is held.
+7. **The rest of the "director" plan (2026-10-04 entry below)** - steps 1-2
+   are built; in order, what is left:
+   - **Reserve the coordinator's own wallet.** When the coordinator runs on one
+     of fa's lanes, a worker on that same key races it into the rate limit -
+     the director's own conversation starts getting 429s exactly while a build
+     runs. `run.sh -x` already excludes a bucket; it needs to happen
+     automatically (the open question is how fa learns which bucket the
+     coordinator is on).
+   - **herdr panes.** Inside herdr (`HERDR_ENV=1`), open each background job in
+     its own pane - `herdr pane split` / `pane run` / `pane report-agent` /
+     `notification show` all exist in 0.9.1 - so the director sees jobs in the
+     sidebar and is notified when one ends. Optional, one branch in jobs.sh,
+     never per adapter.
+   - **Director mode in prompts/coordinator.md**: answer, spec, detach, report
+     back when the job ends - with AGENTS.md's "keep the small work" intact.
 
 **Do not** add: token budgets on unmetered lanes, live leaderboard fetching (see
 ALIGNMENT for why gateway metadata beats it), or a summariser-based handoff — each
@@ -936,3 +951,93 @@ alone). `fa doctor` is clean: every harness `ok`, the daily refresh section
   understanding why it is always exactly 2 before touching the limit.
 
 Full suite: 32 suites / 564 assertions, offline.
+
+## Feature: the coordinator stays free - workers never dispatch, work can detach (2026-10-04)
+
+Commit `049d4ce` (code + tests).
+
+The user's ask, as a software director: while the coordinator implements
+something they are stuck waiting - no questions, no checking anything else -
+so could the coordinator always hand implementation to an agent, "even if
+it's himself", and stay available? And would that make orchestrators create
+orchestrators?
+
+Reframed before building: the need is not "always delegate" but "the
+coordinator never blocks". Splitting for SPEED is the existing gate's call and
+did not change; running in the BACKGROUND (for availability) is a separate
+decision. And yes, as a rule in AGENTS.md it would have recursed: every agent
+reads AGENTS.md, workers included, and nothing in fa stopped a worker from
+calling `fa run` (checked - no guard existed). Steps 1-2 of a 5-step plan are
+built; 3-5 are item 7 under "Next, if resuming".
+
+**1. Workers never dispatch.** `adapter_invoke` - the one place any agent is
+launched - exports `FA_DEPTH` one deeper than its caller (`local` + `export`:
+the agent and its children see it, the caller's own value is back on return).
+`refuse_if_worker` (common.sh) exits 6 inside a worker, called at every entry
+point that launches agents: `run.sh` (not `--dry-run`, which `fa rank`
+uses), `plan.sh` (its own check, since planning retries a failed call on
+another candidate and would read a refusal as a bad model), `orch.sh run|resume`
+(before its option loop, which copies a positional over tasks.json),
+`buckets.sh discover|probe` (so `bootstrap`/`refresh` too) and `fa dispatch`.
+Exit 6 is new: run.sh's 5 means requeue and 2 means failed, and a refusal must
+not be mistaken for either. Workers are also told in the prompt
+(`worker_preamble`, worded so plan.sh's planner is not told to stop planning),
+and AGENTS.md now opens with "If fa launched you, you are a worker".
+
+**2. `--detach` (bin/lib/jobs.sh).** `fa run --detach` / `fa dispatch --detach`
+start the same command as a job in `.orch/jobs/<id>/` (j1, j2, ... -
+sequential so a person can type them) and return at once. Detaching has to
+survive the CALLER, an agent CLI's shell tool: `setsid` (own session, so a
+tool that kills its process group on return does not take the job), stdio to
+the job's log with stdin from /dev/null (a job holding the tool's stdout makes
+the tool wait anyway), and a double fork. The runner records its own pid and,
+on exit, `rc` + `finished_at`; `job_state` tells running from DIED by the
+runner's command line, never `kill -0` alone (pids get reused). A detached
+dispatch exports `FA_JOB`, and inside a job `fa dispatch` runs the plan
+through orch whatever the gate says - in the background there is nobody to
+"work directly"; a chain just runs serially. Cheap mistakes (no plan, a stdin
+prompt) fail in the foreground, before anything detaches. `fa jobs [id |
+--clean]`; `fa status` lists jobs at the end.
+
+**A project run lock came with it.** Two `orch.sh run`s replaying one journal
+would each dispatch the same pending tasks; in the foreground that took two
+people, with `--detach` it is one stray command. `cmd_run` now holds
+`.orch/.run.lock` (flock, `exec {RUN_LOCK_FD}>` - the codebase's own lease
+idiom) for the run's whole life, and `run_task` closes it in each task
+subshell, so a worker still running after its orchestrator died never blocks
+the resume meant to recover it. `.orch/.gitignore` gains `jobs/`, repaired in
+older projects the way `handoffs/` already was.
+
+**Tested, and mutation-tested against each failure it exists to prevent:**
+`test_worker_guard.sh` (36) - including end to end, a fake agent that runs
+`fa run` itself: refused (6), its own run completes, exactly one agent ever
+started; removing the marker shows the nested run really dispatching to
+another lane. `test_detach.sh` (33) - "returns at once" is measured through
+`$(...)`, which waits on a leaked stdout exactly like a shell tool would;
+without `setsid`, a job dies with its caller's killed process group; without
+the lock a second dispatch and a resume both get through; without the FA_JOB
+branch a detached chain "works directly" and does nothing.
+
+**Verified for real, not only against stubs:** a detached job has NO
+controlling terminal at all (orch's task subshells still sit under the
+coordinator's), and some CLIs misbehave without one. Two real detached runs,
+side by side from a scratch project, on the anonymous lanes: kilo and opencode
+both finished `done`, exit 0, in 29s, reparented and tty-less (`?` in ps).
+The same run showed two prompt problems, both fixed and pinned:
+- Every section of a worker's prompt ran into the next ("...absolute
+  paths.Reply with..."): `$(...)` strips each preamble's trailing newlines.
+  Pre-existing for the workdir and isolation preambles; the new worker
+  preamble inherited it. Now joined with explicit blank lines.
+- The first worker preamble named fa, run.sh, orch.sh and plan.sh. The opencode
+  worker then spent its first turns listing `.orch/`, reading the job files and
+  running `ps` before answering (the kilo one did not) - one sample, so not
+  proof, but naming tools to a weak model invites it to go look. The preamble
+  now names none; FA_DEPTH enforces the rule regardless.
+
+**Also, in passing:** `run.sh --help` printed a fixed line range that had
+already stopped short of the exit codes (now the whole header comment); the
+README's "In tmux/herdr you'll see worker windows appear" was never true -
+workers run headless - and now says so, with herdr panes as planned work; the
+README layout listed `analyze.sh` under `bin/` (it is in `bin/lib/`).
+
+Full suite: 34 suites / 636 assertions, offline, zero real pi sessions.

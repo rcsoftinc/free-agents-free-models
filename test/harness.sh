@@ -24,6 +24,27 @@ ROOT_LOG="${HARNESS_DIR}/test.log"
 export FREE_AGENTS_STATE="${FREE_AGENTS_STATE:-$(mktemp -d)/state}"
 mkdir -p "$FREE_AGENTS_STATE"
 
+# The same rule for CREDENTIALS. Every adapter reads its agent's real credential
+# file from $HOME unless told otherwise, and sandbox_on keeps the real PATH behind
+# the stubs - so a suite that fabricated only SOME agents' credentials quietly
+# read the developer's real ones for the rest. For pi, the one agent that had no
+# stub, bootstrap then went on to probe real models with the real key: hundreds
+# of real requests from test runs before anyone noticed. Every override an
+# adapter declares points at nothing here - the list is read FROM the adapters,
+# so a new one is covered without an edit - and a suite that wants a credential
+# fabricates it explicitly, as test_bootstrap.sh does.
+while IFS= read -r _v; do
+  export "${_v}=${!_v:-/nonexistent/fa-test/${_v}}"
+done < <(grep -ohE '^[A-Z][A-Z0-9_]*="\$\{[A-Z][A-Z0-9_]*:-\$HOME/' \
+           "${REPO_DIR}"/bin/lib/adapters/*.sh | cut -d= -f1)
+unset _v
+
+# And the CRONTAB: bootstrap installs a daily refresh and doctor reads it back,
+# so a suite that forgot the stub would rewrite (or list) the developer's real
+# one. The stub keeps its whole "crontab" in $FAKE_CRONTAB.
+export FA_CRONTAB_CMD="${FA_CRONTAB_CMD:-${STUBS_DIR}/crontab}"
+export FAKE_CRONTAB="${FAKE_CRONTAB:-$(mktemp)}"
+
 # Offline test settings: stub agents only, short timeouts, no real credentials.
 export BACKOFF_BASE=0 BACKOFF_CAP=0 RUNNER_SKIP_PREFLIGHT=1
 export ATTEMPT_TIMEOUT="${ATTEMPT_TIMEOUT:-10}" PROBE_TIMEOUT=10

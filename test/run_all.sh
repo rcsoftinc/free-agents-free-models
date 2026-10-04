@@ -3,7 +3,8 @@
 cd "$(dirname "$0")/.." || exit 3
 total_p=0; total_f=0; failed=()
 for f in test/test_*.sh; do
-  out="$(timeout "${SUITE_TIMEOUT:-240}" bash "$f" 2>&1)"; rc=$?
+  # </dev/null: no suite may ever wait on a prompt (setup/bootstrap ask y/N).
+  out="$(timeout "${SUITE_TIMEOUT:-240}" bash "$f" </dev/null 2>&1)"; rc=$?
   line="$(printf '%s' "$out" | grep -oE 'passed=[0-9]+ failed=[0-9]+' | tail -1)"
   p="${line#passed=}"; p="${p%% *}"; fl="${line##*failed=}"
   printf '%-22s %s%s\n' "$(basename "$f")" "${line:-no summary}" \

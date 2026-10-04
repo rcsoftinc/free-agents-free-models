@@ -50,12 +50,15 @@ assert_eq "an unknown harness returns 3" "$rc" "3"
 # These two were the blind spot: the old doctor only knew opencode/kilo/hermes.
 fixture_registry 1 || exit 1
 out="$(FREE_AGENTS_STATE="$FIXTURE_DIR" timeout 90 "$FA" doctor 2>&1)"
+# The pins are read from the adapters, so re-verifying a CLI and bumping its pin
+# is one edit there (plus its stub's --version), not a hunt through the tests.
+pin() { bash -c '. '"$COMMON"'; adapter_field '"$1"' VERIFIED_VERSION'; }
 assert_contains "copilot is present" "$out" "copilot"
-assert_contains "doctor verifies against the pinned copilot version" "$out" "1.0.83"
+assert_contains "doctor verifies against the pinned copilot version" "$out" "ok      copilot   $(pin copilot)"
 assert_contains "cursor-agent is present" "$out" "cursor"
-assert_contains "doctor verifies against the pinned cursor build" "$out" "2026.09.02"
+assert_contains "doctor verifies against the pinned cursor build" "$out" "ok      cursor    $(pin cursor)"
 assert_contains "agy is present" "$out" "agy"
-assert_contains "doctor verifies against the pinned agy version" "$out" "1.2.0"
+assert_contains "doctor verifies against the pinned agy version" "$out" "ok      agy       $(pin agy)"
 assert_contains "the metered lanes are marked as such" "$out" "metered"
 
 # --- 5. the presence broom: unfamiliar harnesses are surfaced, not ignored -----
@@ -74,10 +77,42 @@ got="$(PATH="$FAKEBIN" bash -c '. '"$COMMON"'; missing_deps')"
 assert_eq "missing_deps() reports exactly jq" "$got" "jq"
 
 SP="$(mktemp -d)"; trap 'rm -rf "$FAKEBIN" "$FIXTURE_DIR" "$SP"' EXIT
-PATH="$FAKEBIN" bash "$REPO/setup.sh" --no-bootstrap "$SP" >"$SP/out" 2>&1; rc=$?
+# </dev/null: setup offers to install the missing dependency and reads the
+# answer from stdin. From a terminal - or any stdin that never reaches EOF - the
+# suite otherwise sat waiting on a prompt whose text it had captured into a file.
+PATH="$FAKEBIN" bash "$REPO/setup.sh" --no-bootstrap "$SP" </dev/null >"$SP/out" 2>&1; rc=$?
 assert_eq "setup exits 3 when a dependency is missing" "$rc" "3"
 assert_contains "setup names the missing dependency" "$(cat "$SP/out")" "jq"
 assert_contains "setup says how to install it" "$(cat "$SP/out")" "apt-get"
+
+# --- 7. no test can reach a real agent CLI or a real credential ---------------
+# sandbox_on puts test/stubs/ FIRST on PATH but keeps the real PATH behind it,
+# so an adapter whose binary has no stub silently drives the developer's real
+# CLI. pi shipped without one: every suite that bootstrapped probed real models
+# with the real key, and nothing failed - the requests just quietly went out.
+for a in $(bash -c '. '"$COMMON"'; printf "%s\n" "${FA_AGENTS[@]}"'); do
+  b="$(bash -c '. '"$COMMON"'; adapter_field '"$a"' VERSION_BIN')"
+  assert_eq "$a resolves to its offline stub, never the real $b" \
+    "$(command -v "$b")" "$STUBS_DIR/$b"
+done
+
+# Every adapter falls back to a credential file under $HOME. Which variables
+# those are is asked of the adapters themselves - loaded in a clean environment
+# with a fake HOME - rather than trusting the pattern the harness uses to find
+# them, so a fallback the harness misses is still caught here.
+home_vars="$(env -i HOME=/nonexistent/fakehome PATH="$PATH" bash -c '. '"$COMMON"'
+  for v in $(compgen -v); do
+    [[ "$v" == "_" ]] && continue   # bash'"'"'s last-argument variable, not a setting
+    [[ "${!v:-}" == /nonexistent/fakehome/* ]] && printf "%s\n" "$v"
+  done; true')"
+assert_true "the adapters do derive credential paths from HOME (sanity)" \
+  '[[ "$(wc -w <<<"$home_vars")" -ge 5 ]]'
+leaks=""
+for v in $home_vars; do
+  val="$(bash -c '. '"$COMMON"'; printf "%s" "${'"$v"':-}"')"
+  [[ "$val" == "$HOME"/* ]] && leaks+="$v "
+done
+assert_eq "no adapter reads a real credential file during a test" "$leaks" ""
 
 end_suite
 final_report

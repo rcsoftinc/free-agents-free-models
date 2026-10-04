@@ -238,6 +238,25 @@ if [[ -f "$REPO/CLAUDE.md" ]]; then
     '[[ -x "$REPO/test/run_all.sh" || -f "$REPO/test/run_all.sh" ]]'
 fi
 
+# --- the coordinator prompt names only commands that exist ---------------------
+# prompts/coordinator.md is what every coordinator acts on, so a command it names
+# that fa does not have fails in front of the user. It drifted once already: it
+# kept a hand-computed gate and `fa plan` + `fa orch run` long after `fa
+# dispatch` took that decision over.
+if [[ -f "$REPO/prompts/coordinator.md" ]]; then
+  bad=""
+  while IFS= read -r c; do
+    grep -qE "^  ${c}\)" "$REPO/bin/fa" || bad+=" $c"
+  done < <(grep -oE '(\.free-agents/bin/fa|`fa) [a-z][a-z-]*' "$REPO/prompts/coordinator.md" \
+             | awk '{print $2}' | sort -u)
+  assert_eq "every fa command the coordinator prompt names exists" "$bad" ""
+  for flag in --detach --news; do
+    assert_true "fa still has the $flag the prompt relies on" 'grep -qF -- "$flag" "$REPO/bin/fa"'
+  done
+  assert_contains "the prompt has the coordinator check its jobs at every reply" \
+    "$(cat "$REPO/prompts/coordinator.md")" "start of every reply:.*fa jobs --news"
+fi
+
 # --- repo hygiene ------------------------------------------------------------
 # What a clone GIVES you is part of setup, so it is asserted here. All three of
 # these caught something real: 12.3 MB of this dev machine's npm cache tracked in

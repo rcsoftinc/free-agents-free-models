@@ -29,6 +29,44 @@ It checks the machine and reports the registry's state. Act on what it says:
 The registry is machine-wide, so on a machine that has run this before there is
 nothing to do here.
 
+## How we work: I direct, you stay available
+
+I work as a director: I ask, you analyze and give me an answer with options, I
+pick one. Then **you stay available.** Implementation that would keep me
+waiting longer than a normal reply runs in the background, and you come
+straight back to me - I can keep asking you things while it runs.
+
+1. **Detach anything slower than a reply.** Once I have picked an option that
+   means real implementation, write it as a self-contained spec and start it in
+   the background:
+   - one piece: `.free-agents/bin/fa run --detach "<self-contained task>"`
+   - several pieces, or files that must be verified: write `.orch/tasks.json`
+     (see "Writing the task graph" below), then `.free-agents/bin/fa dispatch --detach`
+
+   Tell me in one line: the job id, what it is doing, the files it owns. Then
+   carry on with me.
+2. **Keep the quick stuff.** A rename, a one-line fix, a config tweak - anything
+   quicker to do than to specify - do it yourself, now. The same if I say "do it
+   here". A worker starts cold, on a free model, without this conversation.
+3. **Hands off a running job's files.** Do not edit what a running job owns. If I
+   ask for something that touches those files, tell me, and offer to do it after
+   the job ends or as a follow-up job.
+4. **Check in at the start of every reply:** run `.free-agents/bin/fa jobs --news`.
+   It prints each job that ended since you last asked - once - and what is still
+   running, and nothing at all when nothing changed. For every job that ended,
+   review it by the diff and the test output, not by what the worker says it
+   did, and tell me in two or three lines what landed, whether it verified and
+   what is left. If it failed or missed the point, say so - then fix it
+   directly or detach a sharper spec, and note why with `fa findings --note`.
+5. **Looking in while it runs:** `.free-agents/bin/fa jobs <id>` shows its latest
+   log lines, `.free-agents/bin/fa status` a dispatch's tasks. Never
+   `fa jobs --follow` - that one waits until the job ends. (Inside herdr I can
+   watch each job in its own pane; you do not need to.)
+
+fa keeps workers off the wallet you are running on, so our conversation never
+races a build into one rate limit. If I tell you to work in the foreground,
+do that instead.
+
 ## Then: decide what I'm asking for, and act
 
 Read my request and pick the mode yourself. Do not ask me which mode to use.
@@ -37,9 +75,9 @@ Read my request and pick the mode yourself. Do not ask me which mode to use.
 |---|---|
 | understand the project, get oriented, explain something | Explore and answer directly. No tooling needed. |
 | research, compare options, decide between approaches | Research directly, then give me a recommendation — not a survey. |
-| do one bounded thing (a file, a function, a fix, a script) | Just do it. If you hit a rate limit, hand it to `.free-agents/bin/fa run "<self-contained task>"` rather than stopping. |
-| build something that splits into independent pieces | Check the gate below. If it passes, plan → dispatch. If not, build it directly. |
-| continue after an interruption | `.free-agents/bin/fa status`, then `.free-agents/bin/fa resume`. The journal is the truth, not your memory of the session. |
+| do one bounded thing (a file, a function, a fix, a script) | Quick: just do it. Slower than a reply: `.free-agents/bin/fa run --detach "<self-contained task>"`. If you hit a rate limit doing it yourself, hand it over the same way rather than stopping. |
+| build something with several pieces | Write the task graph (below), then `.free-agents/bin/fa dispatch --detach`. |
+| continue after an interruption | `.free-agents/bin/fa status` and `.free-agents/bin/fa jobs`, then `.free-agents/bin/fa resume` if a plan stopped part-way. The journal is the truth, not your memory of the session. |
 
 ## Keep the small work yourself
 
@@ -92,28 +130,10 @@ Declared `files` for an existing file must actually **change**; a file left
 byte-identical is reported unverified, the same as one never written. If a task
 might legitimately change nothing, give it an empty `files` list.
 
-## The gate — the only thing you must not get wrong
+## Writing the task graph
 
-Split work across lanes **only when BOTH** are true:
-
-1. You can name **2+ tasks with disjoint file sets** and no dependency between them.
-2. `.free-agents/bin/fa lanes` reports **2 or more**.
-
-A lane is a **credential**, not an agent. Two agents sharing one API key are ONE
-lane — running both just races that key into its own rate limit. With one lane,
-working directly is strictly better than splitting.
-
-If you cannot write each task's file boundary down, you have one task, not several.
-
-## When the gate passes
-
-```
-.free-agents/bin/fa plan "the goal"     # writes .orch/tasks.json
-.free-agents/bin/fa orch run            # executes across every healthy lane
-.free-agents/bin/fa status              # progress
-```
-
-Or write `.orch/tasks.json` yourself:
+Write `.orch/tasks.json` yourself - your context is already loaded, which makes
+it cheaper and better than `fa plan`'s cold re-read of the project:
 
 ```json
 {"tasks":[{"id":"slug","prompt":"self-contained instruction","deps":[],
@@ -123,11 +143,22 @@ Or write `.orch/tasks.json` yourself:
 - `prompt` must be self-contained — the worker sees **nothing else**: not this
   conversation, not the goal, not another task's output.
 - `files` is enforced: overlapping tasks never run together, and the files are
-  checked afterwards.
+  checked afterwards. If you cannot write each task's file boundary down, you
+  have one task, not several.
 - `category` is one of `coding | reasoning | research | general | fast`. It is
   real: the engine tracks which models succeed per category and ranks accordingly.
 
-Tell me the mode you chose, the lane count, and the task boundaries — then go.
+Then `.free-agents/bin/fa dispatch --detach`. How wide it runs is
+`fa dispatch`'s call, not yours - do not compute it in your head. It prints a
+SPLIT EVALUATION: tasks run in parallel only when they are genuinely
+independent AND 2+ lanes are free for workers. A lane is a **credential**, not
+an agent - two agents sharing one API key are ONE lane - and yours is held
+back for our conversation. With `--detach` the plan runs in the background
+whatever the split (a chain just runs one task at a time); without it, a
+`-> DIRECT` means do the work yourself, now.
+
+Tell me the job id, the task boundaries and what will run in parallel — then
+carry on with me.
 
 ## What the engine already does — do not rebuild it
 

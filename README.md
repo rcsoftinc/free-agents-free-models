@@ -42,7 +42,10 @@ Paste `.free-agents/prompts/coordinator.md` into the TUI at the start of a sessi
 
 Talk to the agent. Ask it to build something, research something, fix something. The agent picks the mode:
 - **Small task** → does it directly in your TUI
-- **Multi-part build** → plans, dispatches workers across your lanes, monitors them
+- **Anything slower than a reply** → writes a self-contained spec and runs it in the background (`--detach`), then comes straight back to you - you keep asking it things while the work runs
+- **Multi-part build** → writes the task graph and dispatches it in the background, in parallel across your lanes where the pieces are independent
+
+At the start of every reply it checks `fa jobs --news`, and when a job has ended it reviews the diff and tests and tells you what landed. That is the coordinator prompt's **director mode**: you decide, it stays available. Tell it to work in the foreground whenever you'd rather wait.
 
 ### Step 4: Monitor (optional)
 

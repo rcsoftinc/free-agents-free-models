@@ -5,8 +5,9 @@ someone's project, you want `prompts/coordinator.md` instead — different job.
 
 ## What this is, in one paragraph
 
-It runs AI coding agents (opencode, kilo, hermes, copilot, cursor) on **free
-models** without ever blocking on a rate limit. The central idea: **a bucket is
+It runs AI coding agent CLIs (opencode, kilo, hermes and the rest of
+`FA_AGENTS` in `bin/lib/adapters.sh` - the roster lives there and nowhere else)
+on **free models** without ever blocking on a rate limit. The central idea: **a bucket is
 one wallet — one `(provider, credential)` pair — and the wallet is the unit of
 rate limiting, therefore the unit of scheduling.** Never the agent. Two agents
 configured with the same API key are **one lane**, and running them in parallel
@@ -23,8 +24,9 @@ buckets, nothing else.
 3. **`README.md`** — the user-facing story, and when a registry refresh is needed.
 4. **`docs/SETUP.md`** — install, where each agent hides its credentials, and the
    full file layout (project side vs machine-wide).
-5. **`test/`** — 245 assertions, 15 suites, offline against stubs. The most
-   reliable specification here; prose can drift, these cannot.
+5. **`test/`** — offline against stubs (the current count is in
+   `docs/dev/SESSION.md`). The most reliable specification here; prose can
+   drift, these cannot.
 
 ## Invariants — breaking one of these is a regression, not a refactor
 
@@ -52,11 +54,14 @@ buckets, nothing else.
 ## The tooling
 
 ```
-bin/fa            single entry point (bootstrap | refresh | doctor | lanes | run | orch | findings)
-bin/buckets.sh    credential registry      identify | discover | probe | lanes | show
+bin/fa            single entry point; fa help lists every command
+bin/buckets.sh    credential registry      identify | discover | probe | lanes | show | profile | quota
 bin/run.sh        dispatch engine          one task -> one result, with fallback
+bin/plan.sh       goal -> task graph       rejects malformed graphs locally
 bin/orch.sh       per-project task graph   init | run | status | resume
+bin/lib/adapters.sh   the agent roster (FA_AGENTS); one file per agent in adapters/
 bin/lib/classify.sh   the error taxonomy - has its own self-test
+bin/lib/schedule.sh   the daily refresh cron, and doctor's report on it
 ```
 
 ## Before you commit
@@ -71,6 +76,12 @@ test may contact a provider or touch the real registry at
 `~/.local/state/free-agents/`. `test/harness.sh` redirects `FREE_AGENTS_STATE` to
 a temp dir at source time and asserts it is disposable; do not defeat that. A
 test must also never write into the checkout it is testing.
+
+The harness does the same for every adapter's credential file and for the
+crontab, and **a new adapter needs a stub in `test/stubs/` in the same commit.**
+`pi` shipped without one: `sandbox_on` keeps the real `PATH` behind the stubs,
+so every bootstrap in the suite drove the real `pi` with the real key for two
+weeks, and nothing failed. `test/test_adapters.sh` now fails on exactly that.
 
 ## How real usage feeds back
 

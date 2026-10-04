@@ -26,15 +26,19 @@ gh repo clone rcsoftinc/free-agents-free-models \
 Install whichever you want. **Each additional agent is only worth installing if you
 give it a DIFFERENT credential** — the same key in two agents is one lane, not two.
 
-Known-good versions (the ones this was built and verified against):
+Known-good versions - each last verified by a real probe through that adapter's
+own invoke (the exact call real dispatch makes), on 2026-10-03. The pins live in
+each `bin/lib/adapters/<agent>.sh` as `FA_<agent>_VERIFIED_VERSION`:
 
 | Agent | Verified | Metered | Why it matters |
 |---|---|---|---|
-| opencode | 1.17.20 | | `--dir` contains it; `run -m provider/model` |
-| kilo | 7.5.5 | | `--dir` contains it; needs `--auto` to act unattended |
-| hermes | 0.20.5 | | `-z`/`-m` are TOP-LEVEL flags, not `chat` args; needs `--provider` for non-active providers |
-| copilot | 1.0.83 | yes | allowance-based: auto-included once a token is detected, tried last; `FA_METERED=0/1` forces off/on |
-| cursor | 2026.09.02 | yes | allowance-based: auto-included once a token is detected, tried last; `FA_METERED=0/1` forces off/on |
+| opencode | 1.18.33 | | `--dir` contains it; `run -m provider/model` |
+| kilo | 7.6.2 | | `--dir` contains it; needs `--auto` to act unattended |
+| hermes | 0.21.3 | | `-z`/`-m` are TOP-LEVEL flags, not `chat` args; needs `--provider` for non-active providers |
+| copilot | 1.0.86 | yes | allowance-based: auto-included once a token is detected, tried last; `FA_METERED=0/1` forces off/on |
+| cursor | 2026.09.18 | yes | allowance-based: auto-included once a token is detected, tried last; `FA_METERED=0/1` forces off/on |
+| agy | 1.2.16 | | `--add-dir` contains it, `--print` makes it non-interactive; it updates itself, so expect `differs` between re-verifications |
+| pi | 0.85.1 | | `--add-dir` contains it, `--print` makes it non-interactive |
 
 `fa doctor` warns if a version differs. These CLIs have already changed invocation
 shape once during this project (`hermes chat -m X -z P` was a usage error), and a
@@ -241,6 +245,8 @@ tool only ever *reads* these — it never writes them and never copies them in:
 ~/.local/state/free-agents/       THE REGISTRY — shared by every project
   ├── buckets.json                wallets, models, health, rankings  ~260 KB
   ├── findings.ndjson
+  ├── refresh.log                 the daily refresh's output, one stamped run each
+  ├── schedule.path               the PATH `fa schedule` ran with - cron's own finds no agent
   └── leases/                     one lock per wallet, machine-wide
 
 ~/.local/share/opencode/auth.json      credentials — read only, never written
@@ -338,9 +344,36 @@ health is learned and stored globally, and why nothing that cannot be attributed
 | Installed a new agent CLI | `fa refresh` |
 | A model hangs or fails repeatedly | Check `fa findings` — the tool may already have blocklisted it |
 | Provider changed its free-model list | `fa discover && fa probe` (daily cron handles this automatically) |
+| Installed an agent CLI in a new directory | `fa schedule` — the daily refresh only sees the `PATH` it was scheduled with |
+| `fa doctor`'s **daily refresh** section reports a problem | Do what that line says — usually `fa schedule` from the shell you run your agents in |
 
 `fa doctor` reports `current` / `STALE` / `aged:<days>` / `MISSING` — trust it over
 guessing.
+
+### Is the daily refresh actually running?
+
+`fa doctor` answers that in its own **daily refresh** section, and never fails
+over it (like registry age, a stale refresh stops nothing today):
+
+```
+daily refresh
+  ok      0 3 * * *  /path/to/.free-agents/bin/fa refresh  (finds all 7 installed agents)
+  ok      last run: 2026-10-04T07:00:02Z scheduled refresh: finished rc=0
+```
+
+It flags, each with the fix: a line installed by an older copy of the tool
+(which ran with cron's bare `PATH` and failed every night, silently — the reason
+this section exists), a saved `PATH` that can no longer find an installed agent,
+a last run that failed or never finished (details in
+`~/.local/state/free-agents/refresh.log`), and a registry two or more days old
+despite the schedule. That last one is usually not a failure at all: **cron
+skips a run while the machine is off or asleep, and does not catch it up.** A
+laptop or WSL machine that is rarely on at 03:00 should move the run to an hour
+it is:
+
+```sh
+FA_SCHEDULE_HH=13 FA_SCHEDULE_MIN=0 fa schedule   # later refreshes keep this time
+```
 
 ### When to add a new agent adapter
 

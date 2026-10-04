@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Stub herdr for offline testing of background jobs' herdr panes (jobs.sh).
+# Never talks to a herdr server: every call is appended, one line of
+# arguments, to $HERDR_STUB_LOG, and the answers below are what herdr 0.9.1
+# returns for the commands fa uses.
+#   HERDR_STUB_W / HERDR_STUB_H   size of the caller's pane (default 130 x 39)
+#   HERDR_STUB_FAIL=1             every command fails, as with a dead server
+#   HERDR_STUB_HANG=N             every command hangs N seconds first
+[[ -n "${HERDR_STUB_LOG:-}" ]] && printf '%s\n' "$*" >> "$HERDR_STUB_LOG"
+[[ -n "${HERDR_STUB_HANG:-}" ]] && sleep "$HERDR_STUB_HANG"
+if [[ "${HERDR_STUB_FAIL:-0}" == 1 ]]; then
+  echo '{"error":{"code":"server_unavailable","message":"stub: no server"}}' >&2
+  exit 1
+fi
+case "${1:-} ${2:-}" in
+  "pane layout")
+    printf '{"id":"cli:pane:layout","result":{"layout":{"panes":[{"pane_id":"%s","rect":{"height":%s,"width":%s,"x":0,"y":0}}]},"type":"pane_layout"}}\n' \
+      "${HERDR_PANE_ID:-wT:p1}" "${HERDR_STUB_H:-39}" "${HERDR_STUB_W:-130}" ;;
+  "pane split")
+    printf '{"id":"cli:pane:split","result":{"pane":{"pane_id":"wT:p9"}},"type":"pane_split"}\n' ;;
+  *)
+    printf '{"id":"cli:stub","result":{}}\n' ;;
+esac
+exit 0

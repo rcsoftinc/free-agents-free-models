@@ -116,6 +116,17 @@ coordinator_buckets() {
 # The same, as a JSON array for jq programs (--argjson).
 coordinator_buckets_json() { coordinator_buckets | jq -R . | jq -sc 'map(select(length > 0))'; }
 
+# The project's read-only files: `readonly:` in .orch/config.yaml, globs over
+# paths relative to the project, separated by spaces (`*` matches across
+# directories, so tests/* covers everything below tests/). What no worker may
+# change unless its task declares the file. One reader for fa run and orch.
+project_readonly_globs() { # $1=project dir -> one glob per line
+  local config="${1:-.}/.orch/config.yaml"
+  [[ -f "$config" ]] || return 0
+  grep -E '^readonly:' "$config" 2>/dev/null | head -1 | sed 's/^readonly:[[:space:]]*//' \
+    | tr -s '[:space:]' '\n' | sed '/^#/,$d' | sed '/^$/d'
+}
+
 now_epoch() { date +%s; }
 iso_now()   { date -u +%Y-%m-%dT%H:%M:%SZ; }
 

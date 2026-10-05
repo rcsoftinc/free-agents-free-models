@@ -37,6 +37,11 @@ set -euo pipefail
 #                                   test run, a build, a type check); a failure
 #                                   goes back to the same agent with its output.
 #                                   In tasks.json: a task's "verify" field
+#                       --readonly GLOB / --writable FILE  files the worker must
+#                                   not change (edits are put back before any
+#                                   check), and exemptions; the project's own
+#                                   list (`readonly:` in .orch/config.yaml)
+#                                   always applies
 #   fa plan "goal"     goal -> .orch/tasks.json
 #                       --graph     print the task graph as an ASCII diagram
 #   fa dispatch "goal" plan, then decide DIRECT vs ORCHESTRATE for real -
@@ -357,7 +362,12 @@ case "$cmd" in
       job_started_msg "$id"
       exit 0
     fi
-    exec "${HERE}/run.sh" -w "$(pwd)" "$@" ;;
+    # The project's read-only files apply to every run (common.sh); a task
+    # meant to write one says so with --writable.
+    ro=()
+    while IFS= read -r g; do [[ -n "$g" ]] && ro+=(--readonly "$g"); done \
+      < <(project_readonly_globs "$(pwd)")
+    exec "${HERE}/run.sh" -w "$(pwd)" "${ro[@]}" "$@" ;;
   plan)     exec "${HERE}/plan.sh" -w "$(pwd)" "$@" ;;
 
   graph)

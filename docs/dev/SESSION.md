@@ -8,7 +8,7 @@
 
 **Complete, working, and proven on a real project.** Published (public) at
 `github.com/rcsoftinc/free-agents-free-models`. Full suite green:
-**778 assertions, 38 suites, offline.**
+**782 assertions, 38 suites, offline.**
 
 **It has built real software unattended.** All independently verified against what
 the code does rather than what the agents reported:
@@ -942,6 +942,8 @@ alone). `fa doctor` is clean: every harness `ok`, the daily refresh section
   (limit <= 2), with the old timing and the new alike, and one full-suite run
   got 3 and failed. A pre-existing flake, not this session's change; worth
   understanding why it is always exactly 2 before touching the limit.
+  (Understood and fixed 2026-10-04: "Fix: tasks launched into lanes only on
+  their way to being taken", below.)
 
 Full suite: 32 suites / 564 assertions, offline.
 
@@ -1327,3 +1329,40 @@ project list, the fix round not told, the old loop that killed run.sh - and
 the first default list.
 
 Full suite: 38 suites / 778 assertions, offline, zero real pi sessions.
+
+## Fix: tasks launched into lanes only on their way to being taken (2026-10-04)
+
+Found while committing read-only files: that commit, run alone in a worktree,
+failed test_concurrency's "width above lane count does not cause churn" (got
+3, limit 2). Not new - the 2026-10-03 entry above saw it sit at exactly 2 and
+asked why before anyone touched the limit - but read-only files made it fail
+4 runs in 6, against 1 in 6 for the commit before (alternating runs, same
+machine).
+
+Why: orch's free-lane check counted only leases already HELD. A task launched
+a moment ago has not taken its lane yet - run_task does its own setup, then
+run.sh starts and picks one - so its lane still looked free, and the loop
+launched another task into it; that one found every lane busy, exited 5 and
+requeued (LANE_WAIT, 5s, escalating). The window is everything between
+`run_task &` and the lease, so anything added to a task's start widens it:
+the read-only lookups added a few milliseconds, and the check began failing.
+
+Fix: run.sh touches `FA_LEASED_SIGNAL` once it holds a lane; orch points it
+at `.orch/results/<id>.leased` (cleared before each launch and after each
+reap) and counts a live task without one as holding a lane
+(`unleased_running`). The two counts are taken in the order that errs safe:
+tasks on their way first, held leases second. A task that takes its lane in
+between is then counted twice - one launch too few, made up on the next pass;
+the other order counted it not at all, which showed up as a churn of 1. That
+order is argued in the code, not pinned: no test can make a lease land
+between the two counts on purpose (the swapped order passed 3 runs of 3).
+
+The over-wide check now demands 0 - 18 runs of 18 gave 0 after the fix, ten
+of them while other test runs competed for the CPU. New in test_concurrency:
+a fan-out whose every start takes a second (a copy of bin/ with run.sh behind
+a `sleep 1`) - the old check launched the whole width and 5 tasks requeued;
+now none do - and both halves of the handshake: orch gives every task a
+signal path, run.sh writes it. Mutation-checked: the old check (churn 3 and
+5), run.sh never signalling, orch never passing the path.
+
+Full suite: 38 suites / 782 assertions, offline, zero real pi sessions.

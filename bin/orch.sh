@@ -28,6 +28,9 @@ set -euo pipefail
 #                                             # never run concurrently
 #           "verify": "npm test -- api",      # optional: done = exits 0, run in
 #                                             # the task's workdir (run.sh --verify)
+#           "readonly": ["fixtures/*"],       # optional: more files the worker must
+#                                             # not change, on top of the project's
+#                                             # `readonly:` in .orch/config.yaml
 #           "category": "coding" } ] }
 #
 # Exit: 0 all tasks done | 1 some task failed | 3 setup error
@@ -473,6 +476,36 @@ wt_pool_prepare() { # $1=project $2=slot -> worktree dir, or empty
   return 1
 }
 
+# What a task changed outside its declared files. In its own worktree that
+# work is DROPPED at merge - only declared files come back - which quietly
+# loses a line the task really needed; in place it is KEPT, which quietly keeps
+# what nobody reviewed. Either way it is said now. git-backed: a project
+# without git gets no report.
+dirty_state() { # $1=dir -> "<md5> <path>" per modified, deleted or untracked file
+  git -C "$1" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
+  local f h
+  while IFS= read -r f; do
+    [[ -z "$f" ]] && continue
+    h="$(cd "$1" && md5sum -- "$f" 2>/dev/null | cut -d' ' -f1)"
+    printf '%s %s\n' "${h:-deleted}" "$f"
+  done < <( { git -C "$1" ls-files --modified --deleted
+              git -C "$1" ls-files --others --exclude-standard; } | sort -u )
+  return 0
+}
+
+undeclared_changes() { # $1=dir $2=dirty_state before $3=task -> paths, one per line
+  local f declared
+  declared="$(task_files "$3")"
+  comm -13 <(printf '%s\n' "$2" | sort) <(dirty_state "$1" | sort) | cut -d' ' -f2- \
+    | while IFS= read -r f; do
+        [[ -z "$f" ]] && continue
+        case "$f" in .orch/*|.free-agents/*) continue ;; esac
+        if grep -qxF -- "$f" <<<"$declared"; then continue; fi
+        printf '%s\n' "$f"
+      done
+  return 0
+}
+
 deps_met() { # $1=task
   # A skipped dependency (its own "when" clause decided not to run) is
   # RESOLVED for this purpose, same as done - a dependent must not wait
@@ -547,18 +580,54 @@ run_task() { # $1=task id ; runs in a subshell as a background job
   # whether this specific invocation is still alive.
   journal started "$id" "pid=$BASHPID"
   set +e
-  local validate_flag="" verify_cmd verify_args=()
+  local validate_flag="" verify_cmd verify_args=() ro_args=() g f
   [[ $VALIDATE -eq 1 ]] && validate_flag="--validate"
+  # Read-only: the project's list plus the task's own - minus the files this
+  # task declares, which it is meant to write. run.sh puts any other change to
+  # them back before a single check runs.
+  while IFS= read -r g; do [[ -n "$g" ]] && ro_args+=(--readonly "$g"); done \
+    < <(project_readonly_globs "$PROJECT"; jq -r --arg id "$id" \
+          '.tasks[] | select(.id == $id) | (.readonly // [])[]' "$TASKS_FILE")
+  if [[ ${#ro_args[@]} -gt 0 ]]; then
+    while IFS= read -r f; do [[ -n "$f" ]] && ro_args+=(--writable "$f"); done < <(task_files "$id")
+  fi
+  local before_dirty; before_dirty="$(dirty_state "$workdir")"
   # The task's own definition of done, run by run.sh in $workdir - the
   # isolated worktree when there is one, so it checks this task's work BEFORE
   # anything merges back.
   verify_cmd="$(task_field "$id" verify)"
   [[ -n "$verify_cmd" ]] && verify_args=(--verify "$verify_cmd")
-  FA_TASK_ID="$id" "$RUN_SH" -c "$category" -w "$workdir" $validate_flag "${verify_args[@]}" "$prompt" \
-    >"$out" 2>"${RESULTS}/${id}.err"
+  FA_TASK_ID="$id" "$RUN_SH" -c "$category" -w "$workdir" $validate_flag "${verify_args[@]}" \
+    "${ro_args[@]}" "$prompt" >"$out" 2>"${RESULTS}/${id}.err"
   rc=$?
   set +e
   meta="$(sed -n 's/^---RUN-META--- //p' "${RESULTS}/${id}.err" | tail -1)"
+
+  # Read-only files the worker changed and run.sh put back, for fa status.
+  local restored
+  restored="$(sed -n 's/^---PROTECTED-RESTORED--- //p' "${RESULTS}/${id}.err" \
+              | jq -rs 'add // [] | unique | join(" ")' 2>/dev/null)"
+  [[ -n "$restored" ]] && journal protected "$id" "files=${restored}"
+
+  # And whatever it changed that it never declared.
+  local undeclared fate patch=""
+  undeclared="$(undeclared_changes "$workdir" "$before_dirty" "$id")"
+  if [[ -n "$undeclared" ]]; then
+    if [[ -n "$wt_slot" ]]; then
+      fate="dropped, not merged"
+      # Kept as a patch, in case it was a line the task really needed:
+      # git apply .orch/results/<id>.undeclared.patch
+      patch="${RESULTS}/${id}.undeclared.patch"
+      mapfile -t _u <<<"$undeclared"
+      git -C "$workdir" add -N -- "${_u[@]}" >/dev/null 2>&1
+      git -C "$workdir" diff -- "${_u[@]}" > "$patch" 2>/dev/null
+    else
+      fate="kept, in the project"
+    fi
+    log "$id changed files it did not declare (${fate}): $(tr '\n' ' ' <<<"$undeclared")"
+    journal undeclared "$id" "files=$(tr '\n' ' ' <<<"$undeclared" | sed 's/ $//')" \
+      "fate=${fate}" ${patch:+"patch=${patch#"${PROJECT}"/}"}
+  fi
 
   # VERIFY, do not trust. An agent reporting success is not evidence the work
   # happened: models have claimed to create a file and written it elsewhere, or
@@ -943,6 +1012,12 @@ cmd_status() {
   jq -r 'select(.event=="done")
          | "  done    \(.task)  <- \(.bucket // "?")  \(.model // "")\(if .verified == "yes" then "  (verified)" else "" end)"' "$JOURNAL" | sort -u
   jq -r 'select(.event=="failed") | "  FAILED  \(.task)"' "$JOURNAL" | sort -u
+  # What a worker did outside its task: read-only files it changed (put back
+  # before any check ran), and files it changed without declaring them.
+  jq -r 'select(.event=="protected")
+         | "  note    \(.task): read-only files it changed were put back: \(.files)"' "$JOURNAL" | sort -u
+  jq -r 'select(.event=="undeclared")
+         | "  note    \(.task): changed files it did not declare (\(.fate)\(if .patch then "; patch: \(.patch)" else "" end)): \(.files)"' "$JOURNAL" | sort -u
   # A verify command that never passed: the work exists but does not do what
   # the task said it must. Shown with the command, so it can be run by hand.
   jq -r 'select(.event=="verify_failed")
@@ -1026,6 +1101,12 @@ mode: strict
 
 # Allow autonomous merging (only with push mode)
 automerge: false
+
+# Files no worker may change: globs over paths relative to the project,
+# separated by spaces (* matches across directories). A worker's edits to them
+# are put back before any check runs - so it cannot pass its verify by editing
+# the tests - and a task may still write any file it declares in its "files".
+readonly: tests/* test/* spec/* __tests__/* src/test/* */tests/* */test/* */__tests__/* */src/test/* *.Tests/* *.test.* *.spec.* *_test.* .github/*
 EOF
     log "created ${ORCH_DIR}/config.yaml (mode: strict)"
   fi

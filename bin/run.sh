@@ -37,6 +37,14 @@ set -euo pipefail
 #                         (FA_VERIFY_TIMEOUT: seconds per run, default 600)
 #       --validate-rounds N  checks before giving up, with a fix round between
 #                            each - shared by --validate and --verify (default 3)
+#       --readonly GLOB   files the worker must not change (repeatable; `*`
+#                         matches across directories). Any change to them is
+#                         put back after every agent call, BEFORE any check
+#                         runs - so a worker cannot pass its verify by editing
+#                         the tests. fa run adds the project's own list
+#                         (`readonly:` in .orch/config.yaml).
+#       --writable FILE   exempt FILE from --readonly (repeatable): a file this
+#                         task is meant to write, e.g. a test it was asked for
 #
 # Exit: 0 ok | 1 the work did not pass --validate/--verify after its fix rounds
 #       2 all candidates exhausted | 3 setup error | 4 network down
@@ -68,6 +76,10 @@ VALIDATE_ALL=0
 VALIDATE_ROUNDS="${FA_VALIDATE_ROUNDS:-3}"
 VERIFY_CMD=""
 VERIFY_TIMEOUT="${FA_VERIFY_TIMEOUT:-600}"
+READONLY=()
+WRITABLE=()
+PROT_SNAP=""
+PROTECTED_RESTORED=()
 PROMPT=""
 
 while [[ $# -gt 0 ]]; do
@@ -83,6 +95,8 @@ while [[ $# -gt 0 ]]; do
     --validate-all) VALIDATE=1; VALIDATE_ALL=1; shift ;;
     --validate-rounds) VALIDATE_ROUNDS="$2"; shift 2 ;;
     --verify)      VERIFY_CMD="$2"; shift 2 ;;
+    --readonly)    READONLY+=("$2"); shift 2 ;;
+    --writable)    WRITABLE+=("$2"); shift 2 ;;
     --allow-metered) export FA_ALLOW_METERED=1; shift ;;
     --no-metered)    export FA_METERED=0; shift ;;
     # The whole header comment, not a fixed line range - a range here had
@@ -394,7 +408,7 @@ lease_release() {
   exec {LEASE_FD}>&-
   LEASE_FD=""
 }
-trap lease_release EXIT
+trap 'lease_release; [[ -z "$PROT_SNAP" ]] || rm -rf "$PROT_SNAP"' EXIT
 
 # ------------------------------------------------------------------ invoking --
 # A route is (agent, model, PROVIDER). hermes resolves a bare -m against its
@@ -563,6 +577,79 @@ run_verify() { # -> 0 passed; otherwise prints how it failed: exit code + tail
   return 1
 }
 
+# ---------------------------------------------------------------- readonly --
+# The files a worker must not change (--readonly): its tests, its CI config.
+# Without this a worker could make its own verify pass by editing the check -
+# and in its own worktree nothing noticed. Edits are put back, not argued with:
+# the files are snapshotted before the first agent call and restored after
+# every call, BEFORE any gate looks at the work, so verify always runs against
+# the real tests. Restored from the snapshot, never from git: a director's own
+# uncommitted change to a test must survive a worker's run.
+protected_list() { # -> paths under WORKDIR matching READONLY, minus WRITABLE
+  local f g w
+  { if git -C "$WORKDIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+      git -C "$WORKDIR" ls-files --cached --others --exclude-standard
+    else
+      ( cd "$WORKDIR" && find . -type f -not -path './.git/*' -not -path './node_modules/*' ) \
+        | sed 's|^\./||'
+    fi; } | sort -u | while IFS= read -r f; do
+      case "$f" in .orch/*|.free-agents/*) continue ;; esac
+      for w in "${WRITABLE[@]}"; do
+        if [[ "$f" == "$w" ]]; then continue 2; fi
+      done
+      # `if`, never `[[ ]] && ...`: a non-matching LAST file left the loop's
+      # status at 1, and under set -e + pipefail that killed run.sh outright -
+      # every run in a project with a readonly: list, until the full suite ran.
+      for g in "${READONLY[@]}"; do
+        # shellcheck disable=SC2053  # $g is a pattern on purpose
+        if [[ "$f" == $g ]]; then printf '%s\n' "$f"; break; fi
+      done
+    done
+    return 0
+}
+
+# Taken before the first agent call - and again after every verify run: the
+# verify command is the director's own, and test runners write into test
+# folders (a first Playwright baseline, a new Jest snapshot). Without the
+# refresh the next restore would delete those as if a worker had made them.
+protect_snapshot() {
+  [[ ${#READONLY[@]} -gt 0 ]] || return 0
+  [[ -z "$PROT_SNAP" ]] || rm -rf "$PROT_SNAP"
+  PROT_SNAP="$(mktemp -d)"
+  protected_list > "$PROT_SNAP/.list"
+  local f
+  while IFS= read -r f; do
+    [[ -e "$WORKDIR/$f" ]] || continue
+    mkdir -p "$PROT_SNAP/files/$(dirname "$f")"
+    cp -p "$WORKDIR/$f" "$PROT_SNAP/files/$f"
+  done < "$PROT_SNAP/.list"
+}
+
+protect_restore() { # $1=agent $2=model -> 0 if it had to put anything back
+  [[ -n "$PROT_SNAP" ]] || return 1
+  local f put=()
+  while IFS= read -r f; do      # changed or deleted
+    [[ -e "$PROT_SNAP/files/$f" ]] || continue
+    if [[ ! -e "$WORKDIR/$f" ]] || ! cmp -s "$PROT_SNAP/files/$f" "$WORKDIR/$f"; then
+      mkdir -p "$WORKDIR/$(dirname "$f")"
+      cp -p "$PROT_SNAP/files/$f" "$WORKDIR/$f"; put+=("$f")
+    fi
+  done < "$PROT_SNAP/.list"
+  while IFS= read -r f; do      # created where nothing may be created
+    grep -qxF -- "$f" "$PROT_SNAP/.list" && continue
+    rm -f "$WORKDIR/$f"; put+=("$f (new, removed)")
+  done < <(protected_list)
+  [[ ${#put[@]} -gt 0 ]] || return 1
+  PROTECTED_RESTORED+=("${put[@]}")
+  log "put back read-only files the worker changed: ${put[*]}"
+  printf '%s %s\n' '---PROTECTED-RESTORED---' \
+    "$(printf '%s\n' "${put[@]}" | jq -R . | jq -sc .)" >&2
+  record_finding protected_edit \
+    "a worker changed files its task may not touch - put back before any check ran" \
+    "model=${2:-?} files=${put[*]}" "agent=${1:-?}" "model=${2:-?}" "task=${FA_TASK_ID:-}"
+  return 0
+}
+
 # A fix round is a brand-new, cold agent session: it remembers nothing of the
 # attempt it is fixing. So it gets everything again - the preambles, the whole
 # original task - plus what failed and why. (It used to get only "VALIDATION
@@ -572,6 +659,10 @@ fix_prompt() { # $1=what failed $2=its output
   p="$(worker_preamble)"$'\n\n'"$(workdir_preamble "$WORKDIR")"$'\n\n'
   [[ "${FA_ISOLATE:-0}" == "1" ]] && p="$(isolation_preamble)"$'\n\n'"$p"
   p+="An earlier attempt at the task below did not pass ${1}:"$'\n\n'"${2}"$'\n\n'
+  if [[ ${#PROTECTED_RESTORED[@]} -gt 0 ]]; then
+    p+="Its changes to these files were undone - they are read-only for this task,"
+    p+=" part of the check, not part of the work: $(printf '%s\n' "${PROTECTED_RESTORED[@]}" | sort -u | tr '\n' ' ')"$'\n\n'
+  fi
   p+="Fix the work so that it passes. Do not weaken, skip or delete the checks or"
   p+=" tests to get there, unless the task itself says to change them."$'\n\n'
   p+="The task:"$'\n'"${PROMPT}$(exit_report_preamble)"
@@ -596,6 +687,7 @@ run_gates() { # $1=agent $2=model $3=provider -> 0 passed, 1 gave up
     elif [[ -n "$VERIFY_CMD" ]]; then
       if fail="$(run_verify)"; then log "verified: ${VERIFY_CMD}"
       else what="its verify command, \`${VERIFY_CMD}\`"; fi
+      protect_snapshot
     fi
     [[ -z "$what" ]] && return 0
     if [[ $check -ge $VALIDATE_ROUNDS ]]; then
@@ -613,6 +705,7 @@ run_gates() { # $1=agent $2=model $3=provider -> 0 passed, 1 gave up
     GATE_ROUNDS=$((GATE_ROUNDS + 1))
     log "${what} failed - fix round ${GATE_ROUNDS}/$((VALIDATE_ROUNDS - 1)), same agent, same lane"
     out="$(invoke "$agent" "$model" "$provider" "$(fix_prompt "$what" "$fail")")" || true
+    protect_restore "$agent" "$model" || true
   done
 }
 
@@ -653,6 +746,7 @@ if [[ $DRY_RUN -eq 1 ]]; then
   exit 0
 fi
 
+protect_snapshot
 attempt=0
 # Buckets written off for the rest of this run: either another task holds the
 # lane, or the wallet itself answered with a bucket-level fault. Both are facts
@@ -687,6 +781,9 @@ for row in "${CHAIN[@]}"; do
   t0=$(now_ms); rc=0
   out="$(invoke "$agent" "$model" "$provider" "$full_prompt")" || rc=$?
   t1=$(now_ms); ms=$((t1-t0))
+  # Whatever came back, nothing read-only stays changed - not even for the
+  # next candidate, which starts from this same workdir.
+  protect_restore "$agent" "$model" || true
   IFS=$'\t' read -r state matched <<<"$(classify_ex "$rc" "$out")"
   # Nothing in the taxonomy recognised this. It is still handled as dead - the
   # safe default - but the text is kept, because a silent default is how every
@@ -723,9 +820,11 @@ for row in "${CHAIN[@]}"; do
               --arg p "$provider" --argjson n "$attempt" --argjson ms "$ms" \
               --argjson est "${est:-0}" --arg st "$final" --arg vc "$VERIFY_CMD" \
               --argjson fr "${GATE_ROUNDS:-0}" \
+              --argjson pr "$(printf '%s\n' "${PROTECTED_RESTORED[@]}" | sort -u | jq -R . | jq -sc 'map(select(length > 0))')" \
               '{bucket:$b, model:$m, agent:$a, provider:$p, attempts:$n, ms:$ms,
                 est_prompt_tokens:$est, state:$st, fix_rounds:$fr,
-                verify:(if $vc == "" then null elif $st == "ok" then "passed" else "failed" end)}')" >&2
+                verify:(if $vc == "" then null elif $st == "ok" then "passed" else "failed" end),
+                protected_restored:$pr}')" >&2
     [[ "$final" == ok ]] && exit 0
     exit 1
   fi

@@ -74,7 +74,9 @@ Ready.
 ```
 
 It also created `.orch/`, where this project keeps its plan (`tasks.json`), its
-settings (`config.yaml`) and its run history.
+settings (`config.yaml`) and its run history. The settings already mark the
+usual test folders and CI files **read-only** for workers - you will see why on
+Monday morning.
 
 > **Decision 1: may this code go to free providers?** Free tiers often log
 > prompts, and some reserve the right to train on them. Linkbox is internal,
@@ -354,22 +356,31 @@ same lane, the whole task again, plus the failing test output:
 
 Second try, green. Nobody had to step in.
 
-**The worker that cheats.** The api worker's code answered 500 to a duplicate
-slug instead of 409. Its fix round came back "verified". The worker had changed
-the test, *in its own copy*, to expect 500. Its verify command ran in that copy,
-so it passed.
+**The worker that tries to cheat.** The api worker's code answered 500 to a
+duplicate slug instead of 409, and its first attempt failed its verify. On its
+fix round it took the shortcut free models sometimes take: it changed the test
+to expect 500.
 
-What saves you here is that fa merges back **only the files a task declared**.
-`src/api.ts` came home; the doctored test did not. The project's real test still
-expects 409, and the full suite will say so at review.
+It didn't work. Linkbox's `.orch/config.yaml` marks the tests read-only, so
+after every worker call fa puts back any change to them, *before* any check
+runs:
 
-> **Not built yet.** fa cannot mark files as read-only for a task (say,
-> `"readonly": ["tests/**"]`), and it does not report changes outside a task's
-> declared files. Today the guards are what you just saw: declared-files-only
-> merges, the full suite at review, and CI. And when a task runs in your
-> project folder instead of its own copy (a single `fa run`), the edited test
-> lands in your project, where only a review of the diff catches it. The plan
-> for closing this is in `docs/dev/SESSION.md`.
+```
+[run] its verify command, `npx vitest run tests/api.test.ts` failed - fix round 1/2, same agent, same lane
+[run] put back read-only files the worker changed: tests/api.test.ts
+[run] its verify command, `npx vitest run tests/api.test.ts` failed - fix round 2/2, same agent, same lane
+[run] verified: npx vitest run tests/api.test.ts
+```
+
+The check ran against the real test and failed again. The worker's next round
+was told plainly: *its changes to these files were undone - they are read-only
+for this task, part of the check, not part of the work.* On the third try it
+fixed the code. Verified, honestly.
+
+It also changed `src/contract.ts`, adding an `error` field it fancied - a file
+its task never declared. In its own copy of the repository that change was
+simply dropped at merge (only declared files come back), but not silently: fa
+kept it as a patch and noted it.
 
 At 11:02 a herdr notification slides in, **fa j1 done**, with its "done" sound,
 and the sidebar badge turns to **done**.
@@ -391,24 +402,30 @@ ended: j1 done after 57m12s - fa dispatch
 
 Then it reviews, and you watch:
 
-1. `fa status`: four tasks done, all **(verified)**; import waiting.
-2. The full suite, the way CI will run it: `npx vitest run`. One failure:
-   `api › duplicate slug returns 409: expected 409, received 500`.
-3. It reads `.orch/results/api.out`, the worker's own transcript: *"Updated
-   the test to expect 500 to match the implementation."*
-4. It fixes `src/api.ts` itself: four lines that turn SQLite's uniqueness error
-   into a 409. Quick work stays with the coordinator.
-5. It records what no detector could see:
-   `fa findings --note "api worker passed its verify by editing the test in its worktree; the full suite caught it" task=api`
-6. `npx tsc --noEmit`, `npx eslint .`, `npx playwright test`: clean.
-7. `git log --oneline` shows the workers' commits (`fa: store`, `fa: cli`,
-   `fa: api`, `fa: ui`), then its own fix.
+1. `fa status`: four tasks done, all **(verified)**; import waiting; and two
+   notes about the api worker:
 
-Its report to you is four lines long.
+   ```
+     note    api: read-only files it changed were put back: tests/api.test.ts
+     note    api: changed files it did not declare (dropped, not merged; patch: .orch/results/api.undeclared.patch): src/contract.ts
+   ```
+2. The full suite, the way CI will run it: `npx vitest run`. All green - the
+   edited test never landed anywhere.
+3. It reads the patch: an optional `error` field nobody asked for. It leaves it
+   out, and says so.
+4. The attempt to edit the test is already on record: fa wrote a
+   `protected_edit` finding naming the model, without anyone asking.
+5. `npx tsc --noEmit`, `npx eslint .`, `npx playwright test`: clean.
+6. `git log --oneline` shows the workers' commits: `fa: store`, `fa: cli`,
+   `fa: api`, `fa: ui`.
 
-> **Decision 7: a new house rule.** "From now on, every task says the tests are
-> read-only, and every review checks the workers' transcripts for test edits."
-> One sentence from you, applied to every future task.
+Its report to you is four lines long, and ends with a question: *"Wednesday's
+import will need a test of its own. Should a worker be allowed to write it?"*
+
+> **Decision 7: who may write tests.** "The tests are the contract, so I'd
+> rather you write them. But if a task is meant to write one, it declares that
+> file in its `files` - read-only means *not yours to change*, not
+> *untouchable*."
 
 ## Chapter 10: 11:30. The page that passes and still looks wrong
 
@@ -475,7 +492,7 @@ gh pr checks --watch
 
 The coordinator wrote the description: what each piece does, how each was
 verified, what is not done (import, blocked), and the two incidents (the
-doctored test, the stray dependency). CI goes green: types, lint, every unit
+test a worker tried to edit, the stray dependency). CI goes green: types, lint, every unit
 and API test, the browser tests and one screenshot comparison.
 
 > **Decision 11: merge.** You read the description and the test list, open
@@ -531,8 +548,9 @@ spreadsheet again.
 .free-agents/bin/fa findings
 ```
 
-One note, the doctored test from Monday. It is a lesson about free models, not
-a bug in fa, so you keep it. If it had been fa's fault, `fa findings --issue
+One finding: `protected_edit`, the api worker's attempt on Monday to edit a test,
+recorded by fa itself. It is a lesson about free models, not a bug in fa, so
+you keep it. If it had been fa's fault, `fa findings --issue
 --post` would file it on the tool's own GitHub repository, after listing it and
 asking you once.
 
@@ -610,7 +628,7 @@ gh pr checks --watch            # CI: all of the above, on every push
 | 4 | Mon 9:20 | Contract and tests first; 409 on duplicates; optional expiry. |
 | 5 | Mon 9:40 | Approve the tests as the contract; add the expired-link test. |
 | 6 | Mon 10:10 | Docker on the intranet server; credentials stay with you. |
-| 7 | Mon 11:05 | Tests are read-only in every task; reviews check for test edits. |
+| 7 | Mon 11:05 | The tests are yours; a task meant to write one declares it in `files`. |
 | 8 | Mon 11:30 | Truncate long URLs; approve the screenshot baseline. |
 | 9 | Mon 11:50 | Only http and https targets, test first. |
 | 10 | Mon 12:10 | No unrequested dependencies; Dependabot and dependency review. |
@@ -623,8 +641,9 @@ gh pr checks --watch            # CI: all of the above, on every push
 |---|---|---|
 | Acceptance tests, written first | Does each piece do what you approved? | The contract every worker built against |
 | A task's `verify` command | Is this task done? | Sent cli back for a fix round |
-| The full suite at review | Does it still work all together? | Caught the doctored 409 test |
-| Declared-files-only merges | What a worker may change | Kept the doctored test out of the project |
+| Read-only files (`readonly:`) | Can a worker change the check? | Put back the edited 409 test before verify ran |
+| The full suite at review | Does it still work all together? | Confirmed the cheat never landed |
+| Declared-files-only merges | What a worker may change | Dropped the undeclared contract change, kept as a patch |
 | `tsc` and ESLint | Types and obvious mistakes | Quiet guards on every task |
 | Playwright and screenshots | Does the page work, and look right? | The overflowing table, then a baseline |
 | Semgrep, gitleaks | Known security patterns, leaked secrets | Clean, and blind to the `javascript:` link |
@@ -634,7 +653,9 @@ gh pr checks --watch            # CI: all of the above, on every push
 
 ## Appendix D: what's real and what's story
 
-- **Real, as printed today:** setup's output, `fa doctor`, `fa dispatch
+- **Real, as printed today:** setup's output, the read-only default in a new
+  project's config, the put-back and fix-round lines, the `fa status` notes,
+  `fa doctor`, `fa dispatch
   --detach` and its job messages, the herdr pane and its sidebar state and
   notification, `fa status` with `(verified)` and `WAITING`, `fa jobs --news`,
   the fix-round and rate-limit lines, worktree isolation, declared-files-only
@@ -644,6 +665,6 @@ gh pr checks --watch            # CI: all of the above, on every push
   models in `fa status`, and every mistake. The mistakes are typical (a test
   edited to pass, an invented dependency, a missing security check), but these
   particular ones are made up.
-- **Not built in fa:** read-only files per task, and a report of changes
-  outside a task's declared files (Chapter 8). Everything else the coordinator
-  does here, it does with ordinary tools: git, npm, Playwright, Semgrep and gh.
+- **Built after the first draft of this story:** read-only files and the
+  report of undeclared changes (Chapters 8 and 9). The first draft's version of
+  that scene had the edited test slip through to the review.

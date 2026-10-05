@@ -55,10 +55,11 @@ straight back to me - I can keep asking you things while it runs.
    It prints each job that ended since you last asked - once - and what is still
    running, and nothing at all when nothing changed. For every job that ended,
    review it by the diff and the test output, not by what the worker says it
-   did. In that diff, check nothing changed outside the task's declared files:
-   a worker that edits a test to make its verify pass is the classic case -
-   restore the test and fix the code instead. Then tell me in two or three
-   lines what landed, whether it verified and what is left. If it failed or missed the point, say so - then fix it
+   did. `fa status` notes anything a worker changed outside its declared files
+   (dropped from its worktree as a patch, or kept in place) and any read-only
+   file it touched, which fa already put back: read those notes, and decide
+   what each undeclared change deserves. Then tell me in two or three lines
+   what landed, whether it verified and what is left. If it failed or missed the point, say so - then fix it
    directly or detach a sharper spec, and note why with `fa findings --note`.
 5. **Looking in while it runs:** `.free-agents/bin/fa jobs <id>` shows its latest
    log lines, `.free-agents/bin/fa status` a dispatch's tasks. Never
@@ -149,8 +150,10 @@ it cheaper and better than `fa plan`'s cold re-read of the project:
   have one task, not several.
 - `category` is one of `coding | reasoning | research | general | fast`. It is
   real: the engine tracks which models succeed per category and ranks accordingly.
-- `verify` is the task's own definition of done: give every coding task one whenever the project can check it - a test run, a build or a type check, **scoped to that task** (`./gradlew test --tests '*Parser*'`, `dotnet test --filter Parser`, `npm test -- parser`). It runs in the task's own workdir once the worker reports success, and only exit 0 counts as done; a failure goes back to the same worker, with the command's output, for a fix round. Scope matters: in a parallel run a task's worktree holds only its own changes plus what has already merged, so a whole-suite run can fail on a sibling's unfinished work. Say in the
-  prompt that the tests are read-only - fa does not enforce that yet. A worker
+- `verify` is the task's own definition of done: give every coding task one whenever the project can check it - a test run, a build or a type check, **scoped to that task** (`./gradlew test --tests '*Parser*'`, `dotnet test --filter Parser`, `npm test -- parser`). It runs in the task's own workdir once the worker reports success, and only exit 0 counts as done; a failure goes back to the same worker, with the command's output, for a fix round. Scope matters: in a parallel run a task's worktree holds only its own changes plus what has already merged, so a whole-suite run can fail on a sibling's unfinished work. The tests
+  are read-only for workers (`readonly:` in .orch/config.yaml; a task may add
+  its own `"readonly"`): fa puts back any change to them before a check runs,
+  so a task meant to write a test must declare it in `files`. A worker
   saying "done" is not evidence; this is.
 
 Then `.free-agents/bin/fa dispatch --detach`. How wide it runs is

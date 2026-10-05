@@ -84,6 +84,10 @@ concurrently, and it verifies afterwards that the declared files exist.
 shell command run in the task's workdir after the worker finishes: only exit
 0 counts as done, and a failure goes back to the same worker with its output.
 Scope it to the task - a parallel task's worktree has only its own changes.
+Files the project lists as read-only (`readonly:` in `.orch/config.yaml` - by
+default its tests and CI files), plus any in a task's own `"readonly"`, are
+put back after the worker runs, before the check: a worker cannot pass by
+editing the test. A task may still write any file it declares in `files`.
 
 A task can also declare `"when": {"dep":"api", "path":".decision", "equals":
 "yes"}` to run only if `api`'s handoff included a matching `result: {...}`

@@ -763,6 +763,8 @@ for row in "${CHAIN[@]}"; do
   # Someone else is already using this wallet - move to another lane rather than
   # queueing, which is the whole point of having several.
   lease_acquire "$bucket" || { log "lane busy: $bucket"; SKIP[$bucket]=busy; continue; }
+  # Tell the orchestrator this task now holds a lane (orch.sh: unleased_running).
+  if [[ -n "${FA_LEASED_SIGNAL:-}" ]]; then : > "$FA_LEASED_SIGNAL" 2>/dev/null || true; fi
 
   attempt=$((attempt+1))
   # Joined with explicit blank lines: $(...) strips each section's trailing

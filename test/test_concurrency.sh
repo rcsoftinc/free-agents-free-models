@@ -84,6 +84,9 @@ assert_true "no fan-out churn at the default width (got ${no_lane})" '[[ ${no_la
 # free-lane check at all. Force the width ABOVE the number of lanes: now only the
 # free-lane check stands between the scheduler and a task launched into a full
 # house, which is exactly the churn that produced 9 requeues for one task.
+# Zero, not "a few": every run measured used to land on exactly 2 - the first
+# burst launched tasks into lanes only on their way to being taken (see below)
+# - and an off-by-one in counting those shows up here as a 1.
 PROJ2="$(mktemp -d)"; mkdir -p "$PROJ2/.orch"
 cp "$PROJ/.orch/tasks.json" "$PROJ2/.orch/tasks.json"
 rm -rf "$CONC"; mkdir -p "$CONC"
@@ -92,10 +95,42 @@ rm -rf "$CONC"; mkdir -p "$CONC"
 rc2=$?
 assert_eq "an over-wide fan-out still completes" "$rc2" "0"
 churn="$(jq -r 'select(.event=="no_lane")|.task' "$PROJ2/.orch/journal.ndjson" 2>/dev/null | wc -l)"
-assert_true "width above lane count does not cause churn (got ${churn})" '[[ ${churn:-0} -le 2 ]]'
+assert_eq "width above lane count does not cause churn" "${churn:-0}" "0"
 v2="$(cat "$CONC/violations" 2>/dev/null | wc -l)"
 assert_eq "the lease still holds when width exceeds lanes" "$v2" "0"
 rm -rf "$PROJ2"
+
+# The same race, made wide. The free-lane check sees only leases already held,
+# and a task just launched has not taken its lane yet - so until it does, that
+# lane still looks free and the loop launches another task into it, which
+# finds every lane busy and requeues. The check above only ever saw a few
+# milliseconds of that window, and it failed whenever the window grew by a few
+# more. Here every start takes a second (a copy of bin/ whose run.sh waits
+# first): counted only by held leases, the whole width launched at once.
+TOOL="$(mktemp -d)"; cp -r "$REPO/bin" "$TOOL/"
+mv "$TOOL/bin/run.sh" "$TOOL/bin/run-real.sh"
+printf '#!/usr/bin/env bash\necho "${FA_LEASED_SIGNAL:-}" >> "$STUB_CONC_DIR/signals"\nsleep 1\nexec "$(dirname "$0")/run-real.sh" "$@"\n' \
+  > "$TOOL/bin/run.sh"
+chmod +x "$TOOL/bin/run.sh"
+PROJ3="$(mktemp -d)"; mkdir -p "$PROJ3/.orch"
+cp "$PROJ/.orch/tasks.json" "$PROJ3/.orch/tasks.json"
+rm -rf "$CONC"; mkdir -p "$CONC"
+( cd "$PROJ3" && timeout 300 "$TOOL/bin/orch.sh" run .orch/tasks.json --max-parallel 8 ) \
+  >"$PROJ3/out.log" 2>&1
+rc3=$?
+assert_eq "a fan-out whose tasks are slow to start completes" "$rc3" "0"
+churn3="$(jq -r 'select(.event=="no_lane")|.task' "$PROJ3/.orch/journal.ndjson" 2>/dev/null | wc -l)"
+assert_eq "  ...and never launches a task into a lane another is about to take" "$churn3" "0"
+# The handshake behind it, both halves: orch tells each task where to signal,
+# and run.sh signals once it holds a lane. Without either, nothing churns -
+# every task just counts as still on its way, and lanes sit idle.
+assert_eq "orch gives every task a place to say it holds its lane" \
+  "$(grep -c "^${PROJ3}/.orch/results/t[0-9]*\.leased$" "$CONC/signals" 2>/dev/null)" "$NTASKS"
+sig="$(mktemp -u)"
+( cd "$PROJ3" && FA_LEASED_SIGNAL="$sig" "$REPO/bin/run.sh" -w "$PROJ3" "one more" ) >/dev/null 2>&1
+assert_true "  ...and run.sh says so once it has one" '[[ -e "$sig" ]]'
+rm -f "$sig"
+rm -rf "$PROJ3" "$TOOL"
 
 end_suite
 final_report

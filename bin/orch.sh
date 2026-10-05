@@ -168,6 +168,22 @@ free_lanes() {
   printf '%s' "$n"
 }
 
+# free_lanes sees only leases already held, and a task launched a moment ago
+# has not taken its lane yet: run_task does its own setup first, then run.sh
+# starts up and picks one. Until then the lane it is about to take still looks
+# free, the loop launches another task into it, and that one finds every lane
+# busy, exits 5 and requeues - churn, worse the longer a task takes to start.
+# run.sh touches FA_LEASED_SIGNAL once it holds a lane; until it has, a task
+# still alive counts as holding one.
+unleased_running() {
+  local id n=0
+  for id in "${!RUNNING[@]}"; do
+    if [[ -e "${RESULTS}/${id}.leased" || -z "${PIDS[$id]:-}" ]]; then continue; fi
+    if kill -0 "${PIDS[$id]}" 2>/dev/null; then n=$((n+1)); fi
+  done
+  printf '%s' "$n"
+}
+
 healthy_buckets() {
   local now; now="$(now_epoch)"
   registry_read '[ .buckets[]
@@ -597,7 +613,8 @@ run_task() { # $1=task id ; runs in a subshell as a background job
   # anything merges back.
   verify_cmd="$(task_field "$id" verify)"
   [[ -n "$verify_cmd" ]] && verify_args=(--verify "$verify_cmd")
-  FA_TASK_ID="$id" "$RUN_SH" -c "$category" -w "$workdir" $validate_flag "${verify_args[@]}" \
+  FA_TASK_ID="$id" FA_LEASED_SIGNAL="${RESULTS}/${id}.leased" \
+    "$RUN_SH" -c "$category" -w "$workdir" $validate_flag "${verify_args[@]}" \
     "${ro_args[@]}" "$prompt" >"$out" 2>"${RESULTS}/${id}.err"
   rc=$?
   set +e
@@ -827,7 +844,7 @@ cmd_run() {
     done < <(jq -r 'select(.event == "attempt_failed") | .task' "$JOURNAL" 2>/dev/null \
              | sort | uniq -c | awk '{print $1"\t"$2}')
   fi
-  local todo remaining id pid finished progressed orphan_ids
+  local todo remaining id pid finished progressed orphan_ids onway
 
   while :; do
     todo=""; remaining=0; orphan_ids=()
@@ -877,8 +894,13 @@ cmd_run() {
       [[ ${#RUNNING[@]} -ge $width ]] && break
       # Never dispatch into a full house. Without this the task launches only to
       # discover every wallet is busy, and burns a cycle finding out.
+      # Tasks still on their way to a lane are counted FIRST, held leases
+      # second: one that takes its lane in between is then counted twice (one
+      # launch too few, made up on the next pass). The other order counts it
+      # not at all - one launch too many, straight into exit 5.
       if [[ $DRY_RUN -eq 0 && ${#RUNNING[@]} -gt 0 ]]; then
-        [[ "$(free_lanes)" -gt 0 ]] || break
+        onway="$(unleased_running)"
+        [[ $(( $(free_lanes) - onway )) -gt 0 ]] || break
       fi
       # Blocked, or downstream of something blocked: skip silently. Journalled
       # once so the record explains the gap, then never attempted.
@@ -907,6 +929,7 @@ cmd_run() {
           "$(task_deps "$id" | tr '\n' ' ')" "$(task_files "$id" | tr '\n' ' ')"
         RUNNING[$id]=dry; continue
       fi
+      rm -f "${RESULTS}/${id}.leased"
       run_task "$id" & PIDS[$id]=$!; RUNNING[$id]=1
       log "dispatch $id (pid ${PIDS[$id]})"
       progressed=1
@@ -947,6 +970,7 @@ cmd_run() {
 
     set +e; wait "${PIDS[$finished]}"; rc=$?; set -e
     unset 'RUNNING[$finished]' 'PIDS[$finished]'
+    rm -f "${RESULTS}/${finished}.leased"
 
     if [[ $rc -eq 0 ]]; then
       unset 'LANEWAIT[$finished]'

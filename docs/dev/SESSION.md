@@ -8,7 +8,7 @@
 
 **Complete, working, and proven on a real project.** Published (public) at
 `github.com/rcsoftinc/free-agents-free-models`. Full suite green:
-**742 assertions, 37 suites, offline.**
+**778 assertions, 38 suites, offline.**
 
 **It has built real software unattended.** All independently verified against what
 the code does rather than what the agents reported:
@@ -112,7 +112,7 @@ data/model-seed.json      OPTIONAL cold-start opinion per model/category - hand-
 data/provider-notes.json  OPTIONAL ToS/evidence note per provider - same rules as model-seed.json
 prompts/          coordinator.md - the single pasted prompt
 skills/           skill cards, linked into the project by bootstrap
-test/             37 suites, a stub for every agent (and herdr), fixture registry - fully offline
+test/             38 suites, a stub for every agent (and herdr), fixture registry - fully offline
 ```
 
 ## Lanes on this machine
@@ -143,7 +143,7 @@ shows credits left, and a spent allowance drops off the lane list on its own.
 - **Verify, do not trust.** A task's declared `files` must exist afterwards AND,
   on an existing codebase, must have **changed** — a file left byte-identical is
   as unverified as one never written. An agent reporting success is not evidence.
-- **Findings are the feedback path**, and cover eight kinds: `unclassified`,
+- **Findings are the feedback path**, and cover nine kinds: `unclassified`,
   `all_lanes_failed`, `unverified_repeat`, `missing_handoff`, `deadlock`,
   `orphan_abandoned`, `malformed_result`, `note`. The first seven are the tool
   noticing something about itself; **`note` is the manual channel** for what no
@@ -346,22 +346,8 @@ value:
    enough for a cold worker, keeps its hands off a running job's files, and
    actually runs `fa jobs --news` every turn. Record what it gets wrong with
    `fa findings --note` - that is the evidence the next change needs.
-8. **Protected files, and a report of undeclared changes** (found writing
-   `docs/WALKTHROUGH.md`, 2026-10-04). A worker can make its own verify pass by
-   editing the tests: verify runs in the worker's copy, and nothing stops - or
-   reports - a change outside the task's declared files. Under `--isolate` only
-   declared files merge back, so the edited test stays behind but the code it
-   hid lands `(verified)`; in place (`fa run`, a one-task plan) the edit lands in
-   the project and the full suite passes with it. And since verified outcomes
-   now feed the ranking, a cheating model gets ranked UP. The plan: a task's
-   `"readonly": [globs]` plus a project default in `.orch/config.yaml` (tests,
-   CI files); before running verify, put any protected file the worker touched
-   back to its committed content, so verify always runs against the real
-   tests; tell the worker in the fix round; record a finding. Separately, list
-   every changed file outside `files` after each task, with whether it was
-   dropped (worktree) or kept (in place). Until then the coordinator prompt
-   tells it to say "tests are read-only" in each spec and to check every
-   diff for undeclared changes.
+8. ~~Protected files, and a report of undeclared changes~~ - built
+   2026-10-04 (entry below).
 
 **Do not** add: token budgets on unmetered lanes, live leaderboard fetching (see
 ALIGNMENT for why gateway metadata beats it), or a summariser-based handoff — each
@@ -1277,3 +1263,67 @@ editing the tests. Documented now as a README pitfall (EN + ES), and the
 coordinator prompt now says to tell workers the tests are read-only and to
 check every finished task's diff for undeclared changes. Also: both READMEs
 still listed `docs/dev/RUN-*.md` run records, deleted back in `5615d50`.
+
+## Feature: read-only files - a worker cannot pass by editing the check (2026-10-04)
+
+Item 8, found writing the walkthrough: a worker could make its own verify pass
+by editing the test, and nothing stopped or reported a change outside a
+task's declared files. Under `--isolate` the edited test stayed behind but the
+code it hid landed `(verified)`; in place it landed outright - and since
+verified outcomes feed the ranking, the model that cheated got ranked UP.
+
+**Read-only files** (`run.sh --readonly GLOB`, exempt with `--writable FILE`;
+`readonly:` in `.orch/config.yaml`, which a new project now gets for its test
+folders and CI files; a task's own `"readonly"` in tasks.json).
+The default covers the usual layouts - pytest, RSpec, Maven/Gradle, Go,
+Jest/Vitest, .NET test projects, GitHub workflows - and a test pins each one,
+next to code whose names merely contain "test" (`src/latest/`, `contest.py`)
+that must stay writable. The first default list missed Jest's `__tests__/` and
+.NET's `*.Tests/` projects; that test is how it showed. Snapshotted
+before the first agent call, and after every call - any outcome, initial
+attempt or fix round - each changed or deleted protected file is put back and
+each new one removed, BEFORE any gate looks at the work. So verify always runs
+against the real tests. Restored from the snapshot, never from git: a
+director's own uncommitted edit to a test survives. The fix round is told what
+was undone and why; RUN-META lists it; a `---PROTECTED-RESTORED---` marker
+lets orch journal it; a new finding kind, `protected_edit` (the ninth), names
+the model. The snapshot is refreshed after every verify run: the verify
+command is the director's own, and test runners write into test folders (a
+first Playwright baseline, a new Jest snapshot) - without the refresh the next
+restore deleted those as if a worker had made them. A task may still write
+any file it declares (orch passes them as `--writable`); `fa run` applies the
+project's list too.
+
+**Undeclared changes, reported** (orch): before and after each task, git's view
+of modified/deleted/untracked files with their hashes; whatever changed that
+the task did not declare is journaled `undeclared` with its fate - "dropped,
+not merged" from a worktree (and saved as `.orch/results/<id>.undeclared.patch`,
+in case it was a line the task really needed) or "kept, in the project" in
+place. git-backed only. `fa status` shows both kinds of note.
+
+**A real bug, caught by the full suite, not the new one.** The protected-file
+listing ended its loop on `[[ $f == $g ]] && ...`: when the LAST file listed
+matched no pattern, the loop's status was 1, and under set -e + pipefail that
+killed run.sh before the agent ever ran - every `fa run` in a project with a
+`readonly:` list, which every new project now has. test_readonly.sh's own
+fixtures happened to end on a matching file; the detach and herdr suites'
+projects (whose .orch/config.yaml now carries the default) did not, and 15
+assertions failed. Fixed with `if`, and orch's two new helpers end with an
+explicit `return 0`. Pinned: a project whose file list ends on a non-match -
+fails on the old loop.
+
+`docs/WALKTHROUGH.md`'s cheating-worker scene now shows the new behavior: the
+worker tries, fa puts the test back, the fix round is told, the worker fixes
+the code, and `fa status` notes both the put-back and an undeclared change
+kept as a patch. README (EN + ES) gains a "Tests stay the tests" bullet; its
+pitfall is now "declare every file a task writes" (and add `readonly:` to a
+project created before this); AGENTS.md, the coordinator prompt (review the
+`fa status` notes) and CLAUDE.md (the invariant, nine finding kinds) follow.
+
+`test_readonly.sh` (36), mutation-tested ten ways: no restore after a call,
+no snapshot refresh after verify, writable exemptions ignored, new protected
+files kept, orch dropping the list, no undeclared report, fa run ignoring the
+project list, the fix round not told, the old loop that killed run.sh - and
+the first default list.
+
+Full suite: 38 suites / 778 assertions, offline, zero real pi sessions.

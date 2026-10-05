@@ -42,8 +42,9 @@ buckets, nothing else.
   once benched a healthy 21-model wallet for 24 hours.
 - **Verify, do not trust.** A declared file must exist afterwards *and*, on an
   existing codebase, must have changed - and a task's own `verify` command must
-  exit 0. An agent reporting success is not evidence; the outcome recorded for
-  ranking is the verified one.
+  exit 0, run against read-only files (tests, CI) that the worker's edits were
+  put back from first. An agent reporting success is not evidence; the outcome
+  recorded for ranking is the verified one.
 - **These CLIs exit 0 on hard failures.** Classify on output, never on `rc`.
 - **They ignore `cd`.** Containment is per-agent: `opencode --dir`, `kilo --dir`,
   hermes via `HOME` + `HERMES_HOME`. There is no uniform flag.
@@ -109,7 +110,7 @@ fa findings --issue --post     # same, then actually file each NEW one via
 fa findings --ack              # mark as seen
 ```
 
-Eight kinds, and the split matters:
+Nine kinds, and the split matters:
 
 | kind | what it means |
 |---|---|
@@ -120,9 +121,10 @@ Eight kinds, and the split matters:
 | `deadlock` | a task graph could not progress |
 | `orphan_abandoned` | a task's previous attempt vanished mid-run (no PID left alive, no terminal event) — resume redispatched it fresh |
 | `malformed_result` | a task's `result:` handoff line was not valid JSON — a `when` clause reading it sees `{}` instead |
+| `protected_edit` | a worker changed a file its task may not touch (read-only) — put back before any check ran, and the model named |
 | `note` | recorded by hand — the channel for what no heuristic reaches |
 
-The first seven are the tool noticing something about itself. **`note` is the one
+The first eight are the tool noticing something about itself. **`note` is the one
 that catches "the spec was ambiguous" or "the plan split this wrong"** — real
 failures that no detector will ever see. If you are the coordinator and you
 notice one, record it; otherwise it dies with the terminal session.

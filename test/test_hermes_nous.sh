@@ -10,6 +10,9 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
 source "$HERE/harness.sh"
 begin_suite "hermes: nous singleton credential (.providers.nous)"
+# hermes_identify() starts with `command -v hermes`: without the stubs first on
+# PATH, section 5 passed only where the real hermes CLI was installed.
+sandbox_on
 
 COMMON="$REPO/bin/lib/common.sh"
 

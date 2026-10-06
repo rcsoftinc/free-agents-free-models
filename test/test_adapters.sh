@@ -62,8 +62,13 @@ assert_contains "doctor verifies against the pinned agy version" "$out" "ok     
 assert_contains "the metered lanes are marked as such" "$out" "metered"
 
 # --- 5. the presence broom: unfamiliar harnesses are surfaced, not ignored -----
-assert_contains "doctor names a harness that has no adapter" "$out" "claude"
-assert_contains "and states the consequence" "$out" "no adapter"
+# Against a fake one: this passed only where the real claude CLI happened to be
+# installed, and a clean machine (CI) has none.
+UNAD="$(mktemp -d)"; printf '#!/usr/bin/env bash\nexit 0\n' > "$UNAD/claude"; chmod +x "$UNAD/claude"
+broom="$(PATH="$UNAD:$PATH" FREE_AGENTS_STATE="$FIXTURE_DIR" timeout 90 "$FA" doctor 2>&1)"
+rm -rf "$UNAD"
+assert_contains "doctor names a harness that has no adapter" "$broom" "claude"
+assert_contains "and states the consequence" "$broom" "no adapter"
 
 # --- 6. missing_deps is real, and setup consults it ----------------------------
 FAKEBIN="$(mktemp -d)"; trap 'rm -rf "$FAKEBIN"; rm -rf "$FIXTURE_DIR"' EXIT

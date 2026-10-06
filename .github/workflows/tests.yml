@@ -1,0 +1,49 @@
+# Runs the offline suite on every push to master and every pull request: on
+# Ubuntu 24.04, what most machines run, and on 26.04, the release this tool is
+# developed on.
+#
+# Offline by design: every agent CLI is a stub in test/stubs/, the registry is
+# a fixture, and no step needs a credential - so the job gets a read-only token
+# and keeps no copy of it.
+name: tests
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  # A newer push to a pull request makes its older run moot. On master every
+  # commit keeps its own result, so a break points at the commit that made it.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  suite:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-26.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # When only one OS fails, the difference is usually in here.
+      - name: Show the toolchain
+        run: |
+          bash --version | head -1
+          date --version | head -1
+          flock --version | head -1
+          jq --version
+          python3 --version
+          git --version
+
+      - name: Run the offline suite
+        run: bash test/run_all.sh

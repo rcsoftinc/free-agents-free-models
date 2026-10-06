@@ -1,5 +1,7 @@
 # free-agents-free-models
 
+[![tests](https://github.com/rcsoftinc/free-agents-free-models/actions/workflows/tests.yml/badge.svg)](https://github.com/rcsoftinc/free-agents-free-models/actions/workflows/tests.yml)
+
 Haz trabajo real de programación con **modelos gratuitos** a través de múltiples agentes CLI (opencode, kilo, hermes, copilot, cursor, agy, pi) sin que un límite de tasa te detenga nunca, y sin que dos trabajadores compitan por la misma clave API.
 
 [English](README.md) | [Español](README.es.md)
@@ -767,6 +769,8 @@ bin/fa doctor                      # deps, CLIs de agente+versiones, presencia, 
 bin/fa lanes                       # verificación de humo: >0 significa que las credenciales funcionan
 DRY_RUN_LIMIT=0 bin/run.sh --dry-run   # la cadena candidata completa, gasta nada
 ```
+
+CI ejecuta la misma suite en cada push a master y en cada pull request, en Ubuntu 24.04 y 26.04 (`.github/workflows/tests.yml`).
 
 ## Documentación
 

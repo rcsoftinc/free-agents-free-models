@@ -83,6 +83,12 @@ bash test/run_all.sh          # must print ALL SUITES PASSED
 bin/fa doctor                 # registry state must not have regressed
 ```
 
+CI runs the same suite on every push to master and every pull request
+(`.github/workflows/tests.yml`, Ubuntu 24.04 and 26.04), on machines with none
+of your agent CLIs, credentials or git identity. A test that passes here and
+fails there is leaning on something installed on your machine;
+`test/README.md` shows how to run the suite the way CI sees it.
+
 The suite is offline and runs against `test/stubs/`. It must stay that way — no
 test may contact a provider or touch the real registry at
 `~/.local/state/free-agents/`. `test/harness.sh` redirects `FREE_AGENTS_STATE` to

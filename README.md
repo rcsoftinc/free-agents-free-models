@@ -1,5 +1,7 @@
 # free-agents-free-models
 
+[![tests](https://github.com/rcsoftinc/free-agents-free-models/actions/workflows/tests.yml/badge.svg)](https://github.com/rcsoftinc/free-agents-free-models/actions/workflows/tests.yml)
+
 Run real coding work on **free models** across several agent CLIs (opencode, kilo, hermes, copilot, cursor, agy, pi) without a rate limit ever stopping you, and without two workers fighting over the same API key.
 
 [English](README.md) | [Español](README.es.md)
@@ -758,6 +760,8 @@ bin/fa doctor                      # deps, harness CLIs+versions, presence, self
 bin/fa lanes                       # smoke check: >0 means credentials work
 DRY_RUN_LIMIT=0 bin/run.sh --dry-run   # the full candidate chain, spends nothing
 ```
+
+CI runs the same suite on every push to master and every pull request, on Ubuntu 24.04 and 26.04 (`.github/workflows/tests.yml`).
 
 ## Docs
 

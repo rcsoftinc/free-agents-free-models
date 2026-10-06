@@ -90,6 +90,22 @@ setting gets the safe one, not the developer's:
 A new adapter needs a stub in `stubs/` named after its binary, in the same
 commit.
 
+## On a clean machine (CI)
+
+`.github/workflows/tests.yml` runs `run_all.sh` on every push to master and
+every pull request, on Ubuntu 24.04 and 26.04. Those machines have none of what
+a developer's has: no agent CLIs, no credentials, no git identity, nothing in
+`~/.local`. `sandbox_on` keeps the real `PATH` behind the stubs, so a suite
+that calls a CLI with no stub - or never calls `sandbox_on` - quietly uses
+whatever is installed, passes here and fails there. Setting up CI found two:
+the presence-broom check in `test_adapters.sh` needed the real `claude`, and
+`test_hermes_nous.sh` the real `hermes`. To see what CI sees before pushing:
+
+```sh
+env -i HOME="$(mktemp -d)" PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+  LANG=C.UTF-8 bash test/run_all.sh
+```
+
 ## Writing a new suite
 
 ```bash

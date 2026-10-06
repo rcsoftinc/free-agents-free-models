@@ -1,9 +1,98 @@
 #!/usr/bin/env bash
-# Stub gh (GitHub CLI) for offline testing of `fa findings --issue --post`.
+# Stub gh (GitHub CLI) for offline testing. Nothing here reaches a network.
+#
+# fa findings --issue --post:
 #   GH_STUB_MODE   success (default) | fail
 #   STUB_LOG       if set, appends "issue create: <title>" per call - never
 #                  the body, which can be large/multiline and isn't needed to
 #                  assert on.
+#
+# orch.sh in mode: push - state in $GH_STUB_DIR (one temp dir per test), with
+# every call appended to $GH_STUB_DIR/calls (prefixed [GH_REPO=...] when that is
+# set) and what it did to $GH_STUB_DIR/log:
+#   auth status             logged in; GH_STUB_AUTH=fail says not
+#   pr create               prints .../pull/<n>, keeps its body as pr-body.<n>;
+#                           GH_STUB_PR=fail refuses
+#   pr view URL --json ...  {"state": GH_STUB_PR_STATE (default OPEN)}
+#   pr merge URL --METHOD   refuses each method listed in GH_STUB_MERGE_DENY
+#   api .../commits/SHA/check-runs   one check run, "suite", per commit: the Nth
+#                           commit asked about gets the Nth word of GH_STUB_CI
+#                           (pass | fail | none; the last word repeats), and
+#                           its first look says in_progress
+#   api .../commits/SHA/status       no statuses
+#   run view --job ID --log-failed   a failing test's log
+#   -q / --jq FILTER        applied with jq, as gh applies it
+D="${GH_STUB_DIR:-${TMPDIR:-/tmp}/gh-stub}"
+
+val() { # $1=long flag $2=short flag, rest=args -> the value after either
+  local long="$1" short="$2" prev="" a; shift 2
+  for a in "$@"; do
+    if [[ "$prev" == "$long" || "$prev" == "$short" ]]; then printf '%s' "$a"; return 0; fi
+    prev="$a"
+  done
+}
+has() { local f="$1" a; shift; for a in "$@"; do [[ "$a" == "$f" ]] && return 0; done; return 1; }
+emit() { # $1=json; the caller's -q/--jq applied
+  local q; q="$(val --jq -q "${ARGS[@]}")"
+  if [[ -n "$q" ]]; then jq -r "$q" <<<"$1"; else printf '%s\n' "$1"; fi
+}
+check_runs() { # $1=sha
+  touch "$D/shas"; grep -qx "$1" "$D/shas" || echo "$1" >> "$D/shas"
+  local n words r looks c url
+  n="$(grep -nx "$1" "$D/shas" | cut -d: -f1)"
+  read -ra words <<<"${GH_STUB_CI:-pass}"
+  r="${words[$((n - 1))]:-${words[-1]}}"
+  if [[ "$r" == none ]]; then echo '{"total_count":0,"check_runs":[]}'; return; fi
+  looks=$(( $(cat "$D/looks.$1" 2>/dev/null || echo 0) + 1 )); echo "$looks" > "$D/looks.$1"
+  url="https://github.com/stub-owner/stub-repo/actions/runs/70${n}/job/90${n}"
+  if [[ $looks -le 1 ]]; then
+    printf '{"total_count":1,"check_runs":[{"name":"suite","status":"in_progress","conclusion":null,"html_url":"%s"}]}\n' "$url"
+  else
+    c=success; [[ "$r" == fail ]] && c=failure
+    printf '{"total_count":1,"check_runs":[{"name":"suite","status":"completed","conclusion":"%s","html_url":"%s"}]}\n' "$c" "$url"
+  fi
+}
+
+ARGS=("$@")
+case "${1:-} ${2:-}" in
+  "auth status"|"pr create"|"pr view"|"pr merge"|"run view"|api\ *)
+    mkdir -p "$D"; printf '%s%s\n' "${GH_REPO:+[GH_REPO=$GH_REPO] }" "$*" >> "$D/calls" ;;
+esac
+case "${1:-} ${2:-}" in
+  "auth status")
+    if [[ "${GH_STUB_AUTH:-ok}" == fail ]]; then
+      echo "You are not logged into any GitHub hosts. Run gh auth login to authenticate." >&2; exit 1
+    fi
+    echo "github.com: logged in (stub)"; exit 0 ;;
+  "pr create")
+    if [[ "${GH_STUB_PR:-ok}" == fail ]]; then echo "pull request create failed: stub refused" >&2; exit 1; fi
+    n=$(( $(cat "$D/prs" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$D/prs"
+    draft=0; if has --draft "$@" || has -d "$@"; then draft=1; fi
+    printf 'pr create head=%s base=%s draft=%s title=%s\n' "$(val --head -H "$@")" \
+      "$(val --base -B "$@")" "$draft" "$(val --title -t "$@")" >> "$D/log"
+    bf="$(val --body-file -F "$@")"; [[ -n "$bf" && -f "$bf" ]] && cp "$bf" "$D/pr-body.$n"
+    echo "https://github.com/stub-owner/stub-repo/pull/$n"; exit 0 ;;
+  "pr view")
+    emit "{\"state\":\"${GH_STUB_PR_STATE:-OPEN}\"}"; exit 0 ;;
+  "pr merge")
+    method=""; for m in --merge --squash --rebase; do has "$m" "$@" && method="$m"; done
+    if [[ " ${GH_STUB_MERGE_DENY:-} " == *" ${method} "* ]]; then
+      echo "X Pull request is not mergeable: the ${method#--} method is not allowed on this repository" >&2; exit 1
+    fi
+    printf 'pr merge %s %s\n' "$method" "${3:-}" >> "$D/log"; exit 0 ;;
+  "run view")
+    printf 'suite\tRun tests\t2026-10-06T00:00:00.0000000Z FAIL tests/api.test.sh > rejects a duplicate slug\n'
+    printf 'suite\tRun tests\t2026-10-06T00:00:00.0000000Z expected status 409, got 500\n'
+    exit 0 ;;
+  api\ *)
+    case "${2:-}" in
+      */check-runs*) sha="${2#*/commits/}"; emit "$(check_runs "${sha%%/*}")" ;;
+      */status)      emit '{"state":"pending","statuses":[]}' ;;
+      *)             emit '{}' ;;
+    esac
+    exit 0 ;;
+esac
+
 for a in "$@"; do
   if [[ "$a" == "issue" ]]; then
     title=""

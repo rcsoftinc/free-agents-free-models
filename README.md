@@ -525,6 +525,7 @@ Their constraints:
 - **Declared files are enforced** — overlapping tasks never run together. Files are checked after execution; byte-identical files count as unverified.
 - **Tests stay the tests** — files listed as read-only (`readonly:` in `.orch/config.yaml`, which a new project gets for its test folders and CI files, plus a task's own `"readonly"`) are snapshotted before a worker runs and put back after every one of its calls, *before* any check — so a worker can no longer pass its `verify` by editing the test it failed. Restored from that snapshot, not from git, so your own uncommitted edits survive. A task may still write any file it declares in `files`. `fa status` notes what was put back (`fa findings` records who tried), and lists anything a task changed **outside** its declared files: dropped from its worktree (kept as `.orch/results/<task>.undeclared.patch`) or kept in place. `fa run` applies the project's list too; `--writable FILE` exempts a file.
 - **A task can define its own "done"** — `"verify": "./gradlew test --tests '*Parser*'"` in tasks.json (or `fa run --verify "..."`) runs in the task's workdir once the worker reports success, and only exit 0 counts. A failure goes back to the same worker, on the same lane, with the whole task and the command's output, for up to `--validate-rounds` checks; the ranking learns from the verified outcome, not the worker's claim. `fa status` marks verified tasks and shows a failed command so you can run it yourself. Scope the command to its task: in a parallel run each worktree has only its own changes.
+- **The whole project, checked once a run lands** — `verify:` in `.orch/config.yaml` (say `npm test`, `dotnet test`, `./gradlew test`) is the project's own check. Each task's `verify` proves that task; two tasks can each pass theirs and still break each other. So once a run's tasks have landed, fa runs this where they landed, and when it fails sends one worker to fix it — with the check's output, the read-only files held, and the check itself as that worker's `verify`. It runs only when something new landed since it last ran. `fa status` shows how it ended, and a check nobody could fix fails the run. `FA_PROJECT_FIX=0` reports without fixing.
 - **Category matters** — tasks declare a category (`coding`, `reasoning`, `research`, `general`, `fast`). The scheduler tracks which models succeed per category and ranks future picks accordingly. A model good at coding may be bad at research — the category keeps that signal separate.
 - **Complexity is optional context, not a gate (yet)** — a task can declare `"complexity": "trivial" | "standard" | "substantial"`. `fa dispatch` surfaces it (a hint when every task in a batch is trivial) but does not yet branch on it; a real batch-dispatch mode for grouping trivial tasks onto one lane is on the roadmap, not built.
 
@@ -561,15 +562,17 @@ A task can add one more line — `result: <one-line JSON>` — but only when som
 
 ### Project modes
 
-How much autonomy workers get, per project:
+What happens to a run's work once its tasks are done, per project (`mode:` in `.orch/config.yaml`):
 
-| Mode | When to use | Behavior |
-|------|-------------|----------|
-| **strict** (default) | Unreviewed code, shared branches | Workers propose changes, coordinator reviews before merging |
-| **push** | Personal projects, trusted lanes | Workers merge their own worktrees after passing verification |
-| **local** | Experimental work, scratch branches | Workers operate in the main working tree, no isolation |
+| Mode | What happens |
+|------|--------------|
+| **strict** (default) | The work lands in your project — written in place, or merged and committed from each task's worktree — for you to review |
+| **local** | The same; it never touches a remote |
+| **push** | The work goes to a new branch, `fa/<time>`, built in its own worktree, so your working directory is never switched or touched. Each task's declared files are committed there. fa pushes it (never forced), opens a pull request — a draft if the project check fails — and waits for the checks GitHub reports on it. A failing check goes to a worker with its log, up to `FA_CI_FIX_ROUNDS` (2) times. A plan keeps its branch and pull request while that is open — `fa resume`, or the same plan run again, adds to it; a new plan, or one whose pull request was merged or closed, starts anew |
 
-Set by editing `.orch/config.yaml` directly (there is no `fa config` command). **Honesty note:** `mode` and `automerge` are read today but do not yet change dispatch behavior differently per mode — every task goes through the same isolated-worktree-and-commit merge-back regardless of which mode is set. Treat this table as the documented intent for where project autonomy is headed, not as enforced behavior yet.
+Push mode needs git, a remote named `origin` and `gh` logged in; fa refuses to start a run without them. `base: <branch>` sets where pull requests go (default: the branch checked out). With `automerge: true`, fa merges the pull request — but only work something checked: CI passed, or there is no CI and the project check passed. It tries a merge commit, then squash, then rebase, whichever the repository allows; `git pull` in your project afterwards to get it. In push mode a file a task wrote outside its declared ones is not committed, so it never reaches the branch (`fa status` lists it). Every wait is bounded: `FA_CI_APPEAR` (120s for a first check to show up, else "no CI"), `FA_CI_TIMEOUT` (3600s), polled every `FA_CI_POLL` (15s).
+
+Set by editing `.orch/config.yaml` directly (there is no `fa config` command).
 
 ## How models and harnesses are ranked
 
@@ -640,7 +643,7 @@ fa dispatch         # same check, against a task graph you already wrote
 | **Crash-safe resume** | Append-only journal; resume any run after interruption, without redispatching a task whose child from a killed process is still running |
 | **Metered lanes** | Auto-includes copilot/cursor when detected with credits, tried last |
 | **Validation gate** | Optional post-build syntax check with auto-fix loop (`--validate`) |
-| **Project modes** | Per-project autonomy: strict (default), push, local — see the honesty note above the mode table |
+| **Project check & push mode** | The project's own check (`verify:`) after every run, a failure sent to a worker; `mode: push` takes the work to a branch, a pull request and CI, and CI's failures back to a worker |
 | **Handoffs** | Structured decisions + rejected + open block passed to dependents; no extra model call. A dependency that leaves no handoff gets a soft caution injected into its dependent's prompt instead of a silent gap |
 | **Findings** | Records what the tool noticed it handled badly; pasteable into issues, or filed directly with `fa findings --issue --post` (asks once before filing anything) |
 
@@ -735,10 +738,13 @@ Each adapter identifies credentials, lists models (agent-prefixed TSV), and invo
 <project>/.orch/journal.ndjson            append-only log   PER PROJECT
 <project>/.orch/results/                  agent transcripts PER PROJECT
 <project>/.orch/handoffs/                 task handoffs     PER PROJECT
-<project>/.orch/worktrees/                isolated worktrees PER PROJECT (temp)
+<project>/.orch/worktrees/                isolated worktrees PER PROJECT (temp; push mode's run/ too)
+<project>/.orch/history/                  earlier plans' journals PER PROJECT (gitignored)
 <project>/.orch/jobs/                     background jobs   PER PROJECT (gitignored)
 <project>/.orch/learnings.md              patterns from runs PER PROJECT (gitignored)
 ```
+
+A new plan starts a new journal: `fa orch run` (or `fa dispatch`) on a plan other than the one the journal belongs to moves it to `.orch/history/`, so a new plan's task never reads as done because an older plan had a task with the same id. `fa resume`, and running the same plan again, keep it — done tasks stay done.
 
 ## Reproducibility
 

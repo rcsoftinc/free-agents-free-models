@@ -528,6 +528,7 @@ Sus restricciones:
 - **Archivos declarados son obligatorios** — tareas superpuestas nunca corren juntas. Los archivos se verifican después de la ejecución; archivos byte-identicos cuentan como no verificados.
 - **Las pruebas siguen siendo las pruebas** — los archivos de solo lectura (`readonly:` en `.orch/config.yaml`, que un proyecto nuevo trae para sus carpetas de pruebas y de CI, más el `"readonly"` propio de una tarea) se copian antes de que corra un trabajador y se restauran después de cada una de sus llamadas, *antes* de cualquier verificación — así un trabajador ya no puede pasar su `verify` editando la prueba que falló. Se restauran desde esa copia, no desde git, así que tus propios cambios sin confirmar sobreviven. Una tarea sí puede escribir cualquier archivo que declare en `files`. `fa status` anota lo que se restauró (`fa findings` registra quién lo intentó) y lista lo que una tarea cambió **fuera** de sus archivos declarados: descartado de su worktree (guardado como `.orch/results/<tarea>.undeclared.patch`) o conservado en el sitio. `fa run` también aplica la lista del proyecto; `--writable ARCHIVO` exime un archivo.
 - **Una tarea puede definir su propio "terminado"** — `"verify": "./gradlew test --tests '*Parser*'"` en tasks.json (o `fa run --verify "..."`) corre en el directorio de trabajo de la tarea cuando el trabajador reporta éxito, y solo la salida 0 cuenta. Un fallo vuelve al mismo trabajador, en el mismo carril, con la tarea completa y la salida del comando, hasta `--validate-rounds` revisiones; la clasificación aprende del resultado verificado, no de lo que dice el trabajador. `fa status` marca las tareas verificadas y muestra el comando que falló para que lo corras tú. Limita el comando a su tarea: en una ejecución en paralelo cada worktree tiene solo sus propios cambios.
+- **El proyecto completo, verificado cuando aterriza una ejecución** — `verify:` en `.orch/config.yaml` (por ejemplo `npm test`, `dotnet test`, `./gradlew test`) es la verificación propia del proyecto. El `verify` de cada tarea prueba esa tarea; dos tareas pueden pasar cada una el suyo y aun así romperse entre ellas. Por eso, cuando las tareas de una ejecución han aterrizado, fa corre esto donde aterrizaron, y si falla envía un trabajador a arreglarlo — con la salida de la verificación, los archivos de solo lectura protegidos, y la verificación misma como el `verify` de ese trabajador. Solo corre cuando algo nuevo aterrizó desde la última vez. `fa status` muestra cómo terminó, y una verificación que nadie pudo arreglar hace fallar la ejecución. `FA_PROJECT_FIX=0` informa sin arreglar.
 - **La categoría importa** — las tareas declaran una categoría (`coding`, `reasoning`, `research`, `general`, `fast`). El planificador rastrea qué modelos tienen éxito por categoría y clasifica las elecciones futuras acordemente. Un modelo bueno para coding puede ser malo para investigación — la categoría mantiene esa señal separada.
 - **La complejidad es contexto opcional, no una puerta (todavía)** — una tarea puede declarar `"complexity": "trivial" | "standard" | "substantial"`. `fa dispatch` la muestra (una pista cuando todas las tareas de un lote son triviales) pero aún no ramifica según ella; un modo real de envío por lotes para agrupar tareas triviales en un solo carril está en el roadmap, no construido.
 
@@ -566,15 +567,17 @@ El campo `category` en una tarea no es cosmético — maneja la selección de mo
 
 ### Modos de proyecto
 
-Cuánta autonomía tienen los trabajadores, por proyecto:
+Qué pasa con el trabajo de una ejecución cuando sus tareas terminan, por proyecto (`mode:` en `.orch/config.yaml`):
 
-| Modo | Cuándo usarlo | Comportamiento |
-|------|-------------|----------------|
-| **strict** (default) | Código no revisado, ramas compartidas | Trabajadores proponen cambios, coordinador revisa antes de fusionar |
-| **push** | Proyectos personales, carriles confiables | Trabajadores fusionan sus propios worktrees después de pasar verificación |
-| **local** | Trabajo experimental, ramas de prueba | Trabajadores operan en el árbol principal, sin aislamiento |
+| Modo | Qué pasa |
+|------|----------|
+| **strict** (default) | El trabajo aterriza en tu proyecto — escrito en el sitio, o fusionado y confirmado desde el worktree de cada tarea — para que lo revises |
+| **local** | Lo mismo; nunca toca un remoto |
+| **push** | El trabajo va a una rama nueva, `fa/<hora>`, construida en su propio worktree, así que tu directorio de trabajo nunca se cambia ni se toca. Los archivos declarados de cada tarea se confirman ahí. fa la sube (nunca forzado), abre un pull request — en borrador si la verificación del proyecto falla — y espera las verificaciones que GitHub reporta. Una verificación que falla va a un trabajador con su log, hasta `FA_CI_FIX_ROUNDS` (2) veces. Un plan conserva su rama y su pull request mientras siga abierto — `fa resume`, o el mismo plan corrido otra vez, le agregan; un plan nuevo, o uno cuyo pull request se fusionó o cerró, empieza de nuevo |
 
-Se configura editando `.orch/config.yaml` directamente (no existe un comando `fa config`). **Nota de honestidad:** hoy `mode` y `automerge` se leen pero todavía no cambian el comportamiento del envío según el modo — toda tarea pasa por el mismo ciclo de worktree-aislado-y-commit-de-fusión sin importar qué modo esté configurado. Trata esta tabla como la intención documentada de hacia dónde va la autonomía por proyecto, no como comportamiento ya exigido.
+El modo push necesita git, un remoto llamado `origin` y `gh` con sesión iniciada; sin ellos fa se niega a empezar. `base: <rama>` indica a dónde van los pull requests (por defecto: la rama activa). Con `automerge: true`, fa fusiona el pull request — pero solo trabajo que algo verificó: CI pasó, o no hay CI y la verificación del proyecto pasó. Intenta un merge commit, luego squash, luego rebase, lo que el repositorio permita; después haz `git pull` en tu proyecto para obtenerlo. En modo push, un archivo que una tarea escribió fuera de los declarados no se confirma, así que nunca llega a la rama (`fa status` lo lista). Toda espera tiene límite: `FA_CI_APPEAR` (120s para que aparezca una primera verificación; si no, "sin CI"), `FA_CI_TIMEOUT` (3600s), consultando cada `FA_CI_POLL` (15s).
+
+Se configura editando `.orch/config.yaml` directamente (no existe un comando `fa config`).
 
 ## Cómo se clasifican modelos y agentes
 
@@ -648,7 +651,7 @@ fa dispatch         # el mismo chequeo, contra un grafo de tareas que ya escribi
 | **Resumen a prueba de caídas** | Registro de solo añadir; resume cualquier ejecución después de una interrupción, sin reenviar una tarea cuyo proceso hijo de una ejecución matada sigue vivo |
 | **Carriles medidos** | Auto-incluye copilot/cursor cuando se detectan con créditos, intentados últimos |
 | **Puerta de verificación** | Verificación de sintaxis post-construcción opcional con bucle de auto-arreglo (`--validate`) |
-| **Modos de proyecto** | Autonomía por proyecto: strict (default), push, local — ver la nota de honestidad arriba de la tabla de modos |
+| **Verificación del proyecto y modo push** | La verificación propia del proyecto (`verify:`) tras cada ejecución, con un trabajador para un fallo; `mode: push` lleva el trabajo a una rama, un pull request y CI, y los fallos de CI de vuelta a un trabajador |
 | **Handoffs** | Bloque estructurado (decisions, rejected, open) pasado a dependientes; sin llamada de modelo extra. Una dependencia que no deja handoff hace que se inyecte una advertencia suave en el prompt de su dependiente, en vez de un vacío silencioso |
 | **Findings** | Registra lo que la herramienta notó que manejó mal; copiable a issues, o archivado directamente con `fa findings --issue --post` (pregunta una vez antes de archivar algo) |
 
@@ -744,10 +747,13 @@ Cada adaptador identifica credenciales, lista modelos (TSV prefijado por agente)
 <proyecto>/.orch/journal.ndjson           registro de solo añadir POR PROYECTO
 <proyecto>/.orch/results/                 transcripciones de agente POR PROYECTO
 <proyecto>/.orch/handoffs/                handoffs de tareas POR PROYECTO
-<proyecto>/.orch/worktrees/               worktrees aislados POR PROYECTO (temp)
+<proyecto>/.orch/worktrees/               worktrees aislados POR PROYECTO (temp; también run/ del modo push)
+<proyecto>/.orch/history/                 journals de planes anteriores POR PROYECTO (ignorado por git)
 <proyecto>/.orch/jobs/                    trabajos en segundo plano POR PROYECTO (ignorado por git)
 <proyecto>/.orch/learnings.md             patrones de ejecuciones POR PROYECTO (ignorado por git)
 ```
+
+Un plan nuevo empieza un journal nuevo: `fa orch run` (o `fa dispatch`) con un plan distinto al del journal lo mueve a `.orch/history/`, así una tarea de un plan nuevo nunca cuenta como hecha porque un plan anterior tenía una tarea con el mismo id. `fa resume`, y volver a correr el mismo plan, lo conservan — las tareas hechas siguen hechas.
 
 ## Reproducibilidad
 

@@ -58,8 +58,10 @@ straight back to me - I can keep asking you things while it runs.
    did. `fa status` notes anything a worker changed outside its declared files
    (dropped from its worktree as a patch, or kept in place) and any read-only
    file it touched, which fa already put back: read those notes, and decide
-   what each undeclared change deserves. Then tell me in two or three lines
-   what landed, whether it verified and what is left. If it failed or missed the point, say so - then fix it
+   what each undeclared change deserves. It also shows the project check (did
+   the whole project pass once the run landed, or did a worker have to fix it)
+   and, in push mode, the branch, the pull request and what CI said. Then tell
+   me in two or three lines what landed, whether it verified and what is left. If it failed or missed the point, say so - then fix it
    directly or detach a sharper spec, and note why with `fa findings --note`.
 5. **Looking in while it runs:** `.free-agents/bin/fa jobs <id>` shows its latest
    log lines, `.free-agents/bin/fa status` a dispatch's tasks. Never
@@ -155,6 +157,16 @@ it cheaper and better than `fa plan`'s cold re-read of the project:
   its own `"readonly"`): fa puts back any change to them before a check runs,
   so a task meant to write a test must declare it in `files`. A worker
   saying "done" is not evidence; this is.
+- The whole project gets its own check, once: `verify:` in
+  .orch/config.yaml - the full test command (`npm test`, `dotnet test`,
+  `./gradlew test`). fa runs it after every run, where the work landed, and
+  sends a failure to one worker; scoped task checks cannot see two tasks
+  breaking each other, this can. Set it when you set up a project.
+- If I want pull requests instead of changes in my working tree, that is
+  `mode: push` in .orch/config.yaml (it needs an `origin` remote and `gh`
+  logged in): fa builds the run on its own branch, pushes it, opens the pull
+  request and hands CI's failures back to a worker. `automerge: true` only if I
+  say so. Workers never push - fa does, after the run.
 
 Then `.free-agents/bin/fa dispatch --detach`. How wide it runs is
 `fa dispatch`'s call, not yours - do not compute it in your head. It prints a

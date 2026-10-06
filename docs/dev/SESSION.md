@@ -8,7 +8,7 @@
 
 **Complete, working, and proven on a real project.** Published (public) at
 `github.com/rcsoftinc/free-agents-free-models`. Full suite green:
-**782 assertions, 38 suites, offline** - and CI runs it on every push to master and
+**879 assertions, 41 suites, offline** - and CI runs it on every push to master and
 every pull request (GitHub Actions, Ubuntu 24.04 + 26.04).
 
 **It has built real software unattended.** All independently verified against what
@@ -113,7 +113,7 @@ data/model-seed.json      OPTIONAL cold-start opinion per model/category - hand-
 data/provider-notes.json  OPTIONAL ToS/evidence note per provider - same rules as model-seed.json
 prompts/          coordinator.md - the single pasted prompt
 skills/           skill cards, linked into the project by bootstrap
-test/             38 suites, a stub for every agent (and herdr), fixture registry - fully offline
+test/             41 suites, a stub for every agent (and herdr), fixture registry - fully offline
 ```
 
 ## Lanes on this machine
@@ -349,6 +349,18 @@ value:
    `fa findings --note` - that is the evidence the next change needs.
 8. ~~Protected files, and a report of undeclared changes~~ - built
    2026-10-04 (entry below).
+9. **Run push mode against a real GitHub repository** (a throwaway one).
+   Built 2026-10-05 and proven only against the gh stub and a bare origin in
+   a temp dir: the real API's check runs, a real `gh pr create`, real merge
+   rules and real CI timing have never been seen by it. Watch for: checks that
+   register late (a second workflow), `gh` asking a question with nobody there,
+   a repository whose rules refuse every merge method.
+10. **Dependencies in fresh worktrees.** Isolated tasks and push mode's run
+   both start from a clean checkout: no `node_modules`, no `.venv`. A verify
+   command that needs them fails for a reason that is not the code; for now
+   the config tells you to install first (`npm ci && npm test`). A `setup:`
+   step run once per fresh worktree would fix it properly - or symlinking the
+   project's own, at the cost of tasks sharing one install.
 
 **Do not** add: token budgets on unmetered lanes, live leaderboard fetching (see
 ALIGNMENT for why gateway metadata beats it), or a summariser-based handoff — each
@@ -1388,3 +1400,108 @@ section the real `hermes` (the suite never called `sandbox_on`, so
 `command -v hermes` found the installed one). Fixed: a fake `claude` on PATH
 for that doctor run, and `sandbox_on` in test_hermes_nous. Nothing else leaned
 on the machine: no test needed the git identity, and none wrote into HOME.
+
+## Feature: the project check - the whole project, once a run lands (2026-10-05)
+
+Option 2 of the CI/CD discussion. Each task's `verify` proves that task in its
+own workdir; two tasks can each pass theirs and still break each other once
+both land, and nothing ran the project's own suite after a run - the
+walkthrough had the director run it by hand.
+
+`verify:` in `.orch/config.yaml` (orch init writes it empty, with examples) is
+run with `bash -c` in $WORK - where the run's work landed - once the dispatch
+loop ends, but only when a `done` came after the last `project_check` in the
+journal: a resume after a crash that came before the check still gets it, a
+run that landed nothing does not. Time-boxed (FA_PROJECT_VERIFY_TIMEOUT,
+1800s). On failure ONE worker is sent (`send_fixer`): run.sh in $WORK with the
+check's output, what landed (each task with its files), the project's
+read-only globs, and the check itself as its `--verify` - so run.sh's own fix
+rounds apply and "fixed" means the check passed. What it changed is git's view
+(dirty_state before/after), like the undeclared report; when the run commits
+its work (--isolate, push mode) the fix is committed as "fa: fix the project
+check", or a later worktree would start without it. FA_PROJECT_FIX=0 reports
+only. `fa status`: check passed / fixed (what the worker changed) / CHECK
+FAILED with the log path; a check nobody fixed makes the run exit 1.
+YAML quotes around the command are dropped.
+
+test_project_check.sh (29): none configured, passes, the pair each passing its
+own check (the motivating case: caught, one worker fixes it, its prompt has
+the check, the output, what landed and the read-only rule), cannot be fixed,
+fixer edits the test (put back, still fails), FA_PROJECT_FIX=0, resume with
+nothing new, quoted command, isolated fix committed, the init line.
+
+## Feature: push mode - a branch, a pull request, and what CI says (2026-10-05)
+
+Option 3. `mode: push` was only ever logged, `automerge` read by a function
+nothing called, and the config template promised "can push and create PRs" -
+the README carried an honesty note saying so. Now it does what it says.
+
+Design. The run builds on a new branch, `fa/<UTC time>` (a `-N` suffix if
+taken), in its own worktree, `.orch/worktrees/run` - the director's working
+directory is never switched or touched, and their uncommitted work never
+mixes in. A new global, $WORK, is where a run's work lands: $PROJECT except in
+push mode; run_task's in-place workdir, snapshot_files, the pool slots' source
+HEAD and the merge-back target all read it now. Every task's DECLARED files are
+committed there - isolated ones by the existing merge-back, in-place ones by a
+new commit_work (same fa identity, same merge lock) - and nothing else: a file
+a task wrote outside its declared ones is "not committed, so not pushed".
+After the project check: push (plain, never forced, GIT_TERMINAL_PROMPT=0 so a
+background job cannot hang on a credential prompt), then `gh pr create`
+(--body-file: each task, its files, model and lane, the project check's
+outcome) - a DRAFT if the project check failed, which then also stops the run
+from waiting on CI or merging. Then ci_wait: the commit's check runs and
+commit statuses through `gh api` - gh 2.46, what Ubuntu ships, has no JSON
+for `pr checks` - polled every FA_CI_POLL (15s); "all finished" counts only
+when two looks in a row agree, since checks register late and not all at once;
+no check at all within FA_CI_APPEAR (120s) is "none"; FA_CI_TIMEOUT (3600s)
+bounds the rest. A failing check goes to one worker with its job's
+`gh run view --job N --log-failed` tail (read-only files held, the project
+check as its verify when there is one), its change committed as "fa: fix CI
+(<checks>)" and pushed, up to FA_CI_FIX_ROUNDS (2); a fixer that changes
+nothing ends it at once. `automerge: true` merges only work something checked
+- CI passed, or no CI and the project check passed - trying merge, squash,
+rebase in turn, from a neutral cwd so gh never touches local branches.
+Setup refuses (exit 3) before any work without git, at least one commit, an
+`origin`, gh, or a logged-in gh; GH_REPO is set from a GitHub origin URL so a
+second remote (a fork's upstream) cannot leave gh asking which one.
+A plan keeps its branch: the journal belongs to one plan (see the fix
+below), so its latest `branch` is this plan's, continued - by `fa resume` or
+by the same plan run again, later pushes updating the same pull request -
+while that pull request is open; merged (by fa, or on GitHub - one `gh pr
+view`) or closed, the next run starts a new branch, as does a new plan. The
+same plan with nothing new pushes nothing and repeats CI's last verdict; a
+branch whose worktree is gone is not continued, with a warning instead of a
+quiet restart. `fa status` shows
+branch -> base, pushed sha, the PR, CI (with fix rounds), merged / not merged
+and why / the last push error.
+
+The gh stub (test/stubs/gh) now scripts all of it - PRs, merges with
+refusable methods, check runs per pushed commit from GH_STUB_CI ("fail pass":
+the first commit fails, the fix's commit passes; each commit's first look is
+in_progress), a failing job log - and applies -q/--jq with real jq. Origin is a
+bare repository in a temp dir; `pushInsteadOf` lets origin claim a GitHub URL
+(for GH_REPO) while pushes still land locally.
+
+test_push_mode.sh (56). Mutation-checked with the project check's and the new
+plan's: 27 mutations on the final code, all caught - after one first escaped:
+the GH_REPO assertion's `[...]` was a grep character class matching nearly
+any line (the second time in this session; escaped now, and every other
+needle in the three suites audited for the same trap).
+
+## Fix: a new plan starts a new run record (2026-10-05)
+
+Found while writing push mode: completed_tasks() read every `done` the journal
+ever held, and nothing reset the journal between plans. plan.sh names tasks
+with short slugs ("api", "tests"), so a second `fa dispatch` whose planner
+reused one had that task skipped as already done - silently; in push mode the
+new branch simply lacked its work. Now cmd_run journals `plan md5=<tasks.json>`
+and, on `orch run` meeting a different plan, moves the journal to
+`.orch/history/journal-<time>.ndjson` first (gitignored; write_orch_gitignore
+repairs old .gitignore files). `resume` never does (an edited plan - an
+unblocked task - continues), `run` on the same plan keeps it (done stays done),
+a dry run changes nothing. A journal from before plans were recorded counts as
+another plan's only when it names a task this plan lacks. test_new_plan.sh
+(12).
+
+The full suite stayed green through all three: nothing relied on the old
+behaviour.

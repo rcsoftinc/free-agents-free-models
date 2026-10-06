@@ -222,9 +222,13 @@ myproject/
 │   └── (no state/ — the registry is machine-wide, see below)
 ├── .orch/                 this project's run state
 │   ├── tasks.json         THE SPEC — commit this
+│   ├── config.yaml        read-only files, check, mode      commit this
 │   ├── journal.ndjson     what happened here                gitignored
+│   ├── history/           earlier plans' journals           gitignored
 │   ├── learnings.md       patterns from past runs           gitignored
 │   ├── results/           raw agent output                  gitignored
+│   ├── worktrees/         isolated tasks; push mode's run/  gitignored
+│   ├── jobs/              background jobs                   gitignored
 │   └── handoffs/          one line per task                 gitignored
 ├── .opencode/skills/      ABSOLUTE symlinks to the skill cards in the clone
 ├── .gitignore             gains `.free-agents/` — only if this is a git repo
@@ -262,7 +266,7 @@ sits outside the project:
 | Moves out | Stays in the project |
 |---|---|
 | `buckets.json`, `findings.ndjson` | `.orch/tasks.json` — the spec |
-| `leases/` | `.orch/journal.ndjson`, `results/`, `handoffs/` |
+| `leases/` | `.orch/journal.ndjson`, `history/`, `results/`, `handoffs/`, `worktrees/`, `jobs/` |
 | | `.opencode/skills/`, the `.gitignore` entry |
 
 `.orch/` never moves — it records what happened *here*.

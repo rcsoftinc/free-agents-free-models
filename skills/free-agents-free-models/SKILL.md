@@ -81,6 +81,10 @@ one task, not several.
 and the files are checked afterwards. `verify` is the task's own definition of
 done - run in its workdir after the worker finishes; only exit 0 counts, and a
 failure goes back to the same worker with the output (`run.sh --verify CMD`).
+The whole project's check is `verify:` in `.orch/config.yaml`, run once a run's
+tasks have landed; a failure goes to one worker. `mode: push` there takes a
+run's work to its own branch and a pull request, and CI's failures back to a
+worker - workers themselves never push.
 
 ## State
 

@@ -8,7 +8,7 @@
 
 **Complete, working, and proven on a real project.** Published (public) at
 `github.com/rcsoftinc/free-agents-free-models`. Full suite green:
-**879 assertions, 41 suites, offline** - and CI runs it on every push to master and
+**882 assertions, 41 suites, offline** - and CI runs it on every push to master and
 every pull request (GitHub Actions, Ubuntu 24.04 + 26.04).
 
 **It has built real software unattended.** All independently verified against what
@@ -349,12 +349,10 @@ value:
    `fa findings --note` - that is the evidence the next change needs.
 8. ~~Protected files, and a report of undeclared changes~~ - built
    2026-10-04 (entry below).
-9. **Run push mode against a real GitHub repository** (a throwaway one).
-   Built 2026-10-05 and proven only against the gh stub and a bare origin in
-   a temp dir: the real API's check runs, a real `gh pr create`, real merge
-   rules and real CI timing have never been seen by it. Watch for: checks that
-   register late (a second workflow), `gh` asking a question with nobody there,
-   a repository whose rules refuse every merge method.
+9. ~~Run push mode against a real GitHub repository~~ - done 2026-10-06
+   (entry below): it worked end to end, and found one flaw, fixed. Still
+   unseen: a repository whose rules refuse every merge method, required
+   reviews, a fork's upstream as the base.
 10. **Dependencies in fresh worktrees.** Isolated tasks and push mode's run
    both start from a clean checkout: no `node_modules`, no `.venv`. A verify
    command that needs them fails for a reason that is not the code; for now
@@ -1482,8 +1480,9 @@ in_progress), a failing job log - and applies -q/--jq with real jq. Origin is a
 bare repository in a temp dir; `pushInsteadOf` lets origin claim a GitHub URL
 (for GH_REPO) while pushes still land locally.
 
-test_push_mode.sh (56). Mutation-checked with the project check's and the new
-plan's: 27 mutations on the final code, all caught - after one first escaped:
+test_push_mode.sh (56; 59 after the real trial below). Mutation-checked with
+the project check's and the new plan's: 27 mutations on the final code, all
+caught (28 with the trial's) - after one first escaped:
 the GH_REPO assertion's `[...]` was a grep character class matching nearly
 any line (the second time in this session; escaped now, and every other
 needle in the three suites audited for the same trap).
@@ -1505,3 +1504,36 @@ another plan's only when it names a task this plan lacks. test_new_plan.sh
 
 The full suite stayed green through all three: nothing relied on the old
 behaviour.
+
+## Push mode against real GitHub - and the flaw it found (2026-10-06)
+
+The trial the stub could not be: a private throwaway repository,
+rcsoftinc/fa-push-trial (safe to delete - the gh token here has no
+delete_repo scope, so it is the web UI or `gh auth refresh -s delete_repo`),
+one task ("write src/greet.sh with a greet function", its own verify the unit
+test), `verify:` the same test, `automerge: true`, and a CI workflow on
+pull_request that also enforces a rule the task never mentions: scripts must
+be executable. `fa orch run`, 170 seconds, exit 0:
+
+- branch fa/20261006-141909 in .orch/worktrees/run; the working directory
+  stayed on its commit with no src/ - only orch's own .orch/.gitignore appeared;
+- the task on kilo:anon (a free kilo model) wrote correct code, its verify and
+  the project check passed; committed as free-agents, pushed over HTTPS
+  through gh's credential helper; PR #1 opened with the generated body;
+- the repository's FIRST workflow run was created 55s after the PR, its check
+  run ~60s after - then failed: "src/greet.sh must be executable - run: chmod
+  +x src/greet.sh" (mode 100644);
+- the CI fixer, on another lane (opencode:zen), got that line through
+  `gh run view --job N --log-failed`, ran chmod +x; dirty_state saw the mode
+  change, commit_work committed it ("fa: fix CI (test)", +0 -0), pushed;
+- the second run started within seconds and passed; `gh pr merge --merge`
+  merged PR #1; main has src/greet.sh at 100755; fa status showed every line.
+
+The flaw: a check run that took 60s to register was half of FA_CI_APPEAR
+(120s), after which ci_wait called it "none" - and none plus a passing
+project check is automerge's green light. A slower day would have merged
+work CI never saw. Now a branch with a workflow mentioning `pull_request` is
+waited for until FA_CI_TIMEOUT, and a timeout never merges; "none" is left for
+repositories with no such workflow. test_push_mode (59) has the case: a PR
+workflow whose checks never show up - timeout, no merge, exit 1; without the
+fix it merged.

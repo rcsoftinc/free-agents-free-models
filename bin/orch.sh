@@ -33,7 +33,13 @@ set -euo pipefail
 #                                             # `readonly:` in .orch/config.yaml
 #           "category": "coding" } ] }
 #
-# Exit: 0 all tasks done | 1 some task failed | 3 setup error
+#   .orch/config.yaml (init writes one): readonly: files no worker may change;
+#   verify: the project's own check, run once a run's tasks have landed (a
+#   failure goes to one worker); mode: push takes the work to a branch and a
+#   pull request, and what CI reports back to a worker.
+#
+# Exit: 0 all tasks done (and checked) | 1 a task failed, the project check
+#       failed, or - push mode - the push or CI failed | 3 setup error
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG_TAG=orch
@@ -52,6 +58,11 @@ JOURNAL_LOCK="${ORCH_DIR}/.journal.lock"
 RESULTS="${ORCH_DIR}/results"
 HANDOFFS="${ORCH_DIR}/handoffs"
 TASKS_FILE="${ORCH_DIR}/tasks.json"
+
+# Where a run's work lands. The project itself - except in push mode, where
+# the run builds on its own branch in its own worktree (push_setup), so the
+# working directory you are in is never switched or touched.
+WORK="$PROJECT"
 
 MAX_PARALLEL=""
 DRY_RUN=0
@@ -547,8 +558,8 @@ snapshot_files() { # $1=task id
   local f
   while IFS= read -r f; do
     [[ -z "$f" ]] && continue
-    if [[ -f "${PROJECT}/${f}" ]]; then
-      printf '%s\t%s\n' "$f" "$(md5sum "${PROJECT}/${f}" 2>/dev/null | cut -d" " -f1)"
+    if [[ -f "${WORK}/${f}" ]]; then
+      printf '%s\t%s\n' "$f" "$(md5sum "${WORK}/${f}" 2>/dev/null | cut -d" " -f1)"
     else
       printf '%s\t-\n' "$f"
     fi
@@ -569,11 +580,11 @@ run_task() { # $1=task id ; runs in a subshell as a background job
   # only ever invoked from inside cmd_run's active call frame, the same way
   # this file already relies on $ISOLATE/$VALIDATE/$DRY_RUN as top-level
   # globals instead.
-  local workdir="$PROJECT"
+  local workdir="$WORK"
   if [[ $ISOLATE -eq 1 && "$category" == "coding" ]]; then
     if wt_pool_claim "${width:-1}"; then
       wt_slot="$WT_ACQUIRED_SLOT"
-      local prepared; prepared="$(wt_pool_prepare "$PROJECT" "$wt_slot")" || true
+      local prepared; prepared="$(wt_pool_prepare "$WORK" "$wt_slot")" || true
       if [[ -n "$prepared" ]]; then
         workdir="$prepared"
         log "isolated $id in pool slot ${wt_slot} ($workdir)"
@@ -630,8 +641,11 @@ run_task() { # $1=task id ; runs in a subshell as a background job
   local undeclared fate patch=""
   undeclared="$(undeclared_changes "$workdir" "$before_dirty" "$id")"
   if [[ -n "$undeclared" ]]; then
-    if [[ -n "$wt_slot" ]]; then
+    if [[ -n "$wt_slot" || "$WORK" != "$PROJECT" ]]; then
+      # Push mode commits only declared files, so in place there too they
+      # stay off the branch that gets pushed.
       fate="dropped, not merged"
+      [[ -z "$wt_slot" ]] && fate="not committed, so not pushed"
       # Kept as a patch, in case it was a line the task really needed:
       # git apply .orch/results/<id>.undeclared.patch
       patch="${RESULTS}/${id}.undeclared.patch"
@@ -721,21 +735,21 @@ run_task() { # $1=task id ; runs in a subshell as a background job
       while IFS= read -r f; do
         [[ -z "$f" ]] && continue
         if [[ -f "${workdir}/${f}" ]]; then
-          mkdir -p "$(dirname "${PROJECT}/${f}")"
-          cp "${workdir}/${f}" "${PROJECT}/${f}" 2>/dev/null && merged+=("$f")
+          mkdir -p "$(dirname "${WORK}/${f}")"
+          cp "${workdir}/${f}" "${WORK}/${f}" 2>/dev/null && merged+=("$f")
         fi
       done < <(task_files "$id")
 
       if [[ ${#merged[@]} -gt 0 ]]; then
         (
           flock -w 30 9 || { log "WARNING: merge lock timed out for $id - files copied but NOT committed, a later dependent task will not see them"; exit 1; }
-          git -C "$PROJECT" add -A -- "${merged[@]}" >/dev/null 2>&1
+          git -C "$WORK" add -A -- "${merged[@]}" >/dev/null 2>&1
           GIT_AUTHOR_NAME="free-agents" GIT_AUTHOR_EMAIL="free-agents@localhost" \
           GIT_COMMITTER_NAME="free-agents" GIT_COMMITTER_EMAIL="free-agents@localhost" \
-            git -C "$PROJECT" commit -q -m "fa: ${id}" -- "${merged[@]}" >/dev/null 2>&1
+            git -C "$WORK" commit -q -m "fa: ${id}" -- "${merged[@]}" >/dev/null 2>&1
         ) 9>"${ORCH_DIR}/.merge.lock" \
           && log "merged and committed $id changes from worktree" \
-          || log "WARNING: $id changes were copied but the commit failed - a later dependent task may not see them; check ${ORCH_DIR}/.merge.lock contention or run 'git -C $PROJECT status'"
+          || log "WARNING: $id changes were copied but the commit failed - a later dependent task may not see them; check ${ORCH_DIR}/.merge.lock contention or run 'git -C $WORK status'"
       fi
 
       # Return the pool slot for the next task to reuse (see wt_pool_claim
@@ -743,6 +757,18 @@ run_task() { # $1=task id ; runs in a subshell as a background job
       # next time, not deleted; there is no per-task branch to clean up
       # anymore.
       wt_pool_release
+    elif [[ "$WORK" != "$PROJECT" ]]; then
+      # Push mode, in place: the task wrote straight onto the run's branch, and
+      # only a commit puts its work on what gets pushed - its declared files,
+      # as a worktree merge would.
+      local landed=()
+      while IFS= read -r f; do
+        if [[ -n "$f" && -e "${WORK}/${f}" ]]; then landed+=("$f"); fi
+      done < <(task_files "$id")
+      if [[ ${#landed[@]} -gt 0 ]]; then
+        commit_work "fa: ${id}" "${landed[@]}" \
+          || log "WARNING: $id's files are on the run's branch but the commit failed - they will not be pushed"
+      fi
     fi
   fi
 
@@ -779,6 +805,462 @@ run_task() { # $1=task id ; runs in a subshell as a background job
   return $rc
 }
 
+# ------------------------------------------------------------ a new plan --
+# A new plan starts a new run record. The journal is the only record of what
+# is done, and plans name their tasks with short slugs ("api", "tests"): a
+# second plan's "api" read as already done, and never ran - in push mode its
+# work was simply missing from the branch. So when `run` meets a plan other
+# than the one the journal belongs to, that journal is put aside in
+# .orch/history/ and this run starts fresh. `resume`, and `run` on the same
+# plan, keep it: done tasks stay done.
+plan_turnover() {
+  local now last stray=""
+  [[ $DRY_RUN -eq 1 ]] && return 0        # a dry run changes nothing
+  now="$(md5sum < "$TASKS_FILE" | cut -d' ' -f1)"
+  last="$(jq -r 'select(.event=="plan") | .md5' "$JOURNAL" 2>/dev/null | tail -1)" || true
+  [[ "$last" == "$now" ]] && return 0
+  if [[ "$CMD" == "run" && -s "$JOURNAL" ]]; then
+    if [[ -z "$last" ]]; then
+      # A journal from before plans were recorded: a task it ran that this
+      # plan does not have means it belonged to another plan.
+      stray="$(comm -23 <(jq -r '.task' "$JOURNAL" 2>/dev/null | grep -vx -- '-' | sort -u) \
+                        <(task_ids | sort -u))" || true
+    fi
+    if [[ -n "$last" || -n "$stray" ]]; then
+      mkdir -p "${ORCH_DIR}/history"
+      mv "$JOURNAL" "${ORCH_DIR}/history/journal-$(date -u +%Y%m%d-%H%M%S).ndjson"
+      log "a new plan: the last one's run record is in .orch/history/, and this run starts fresh"
+    fi
+  fi
+  journal plan - "md5=${now}" "tasks=$(task_ids | grep -c . || true)"
+}
+
+# ----------------------------------------------------------- after a run --
+# Settings with one value per line in .orch/config.yaml, YAML quotes dropped.
+project_setting() { # $1=key -> its value, or empty
+  local config="${ORCH_DIR}/config.yaml" v dq='^"(.*)"$' sq="^'(.*)'\$"
+  [[ -f "$config" ]] || return 0
+  v="$(grep -E "^$1:" "$config" 2>/dev/null | head -1 \
+        | sed "s/^$1:[[:space:]]*//; s/[[:space:]]*\$//")" || true
+  if [[ "$v" =~ $dq || "$v" =~ $sq ]]; then v="${BASH_REMATCH[1]}"; fi
+  printf '%s' "$v"
+}
+
+# Task ids that reached "done" after the last journal event of kind $1 (all of
+# them, if there is none): what landed since the project was last checked, or
+# since push mode started its branch.
+done_since() { # $1=event
+  [[ -f "$JOURNAL" ]] || return 0
+  local n; n="$(grep -n "\"event\":\"$1\"" "$JOURNAL" | tail -1 | cut -d: -f1)" || true
+  tail -n +"$(( ${n:-0} + 1 ))" "$JOURNAL" | jq -r 'select(.event=="done") | .task' 2>/dev/null \
+    | awk '!seen[$0]++' || true
+  return 0
+}
+
+# Commit paths in the run's working tree as fa, under the merge lock the
+# worktree merges take - the same identity, so `git log` tells fa's commits
+# apart from yours.
+commit_work() { # $1=message, rest=paths
+  local msg="$1"; shift
+  (
+    flock -w 30 9 || exit 1
+    git -C "$WORK" add -A -- "$@" >/dev/null 2>&1
+    GIT_AUTHOR_NAME="free-agents" GIT_AUTHOR_EMAIL="free-agents@localhost" \
+    GIT_COMMITTER_NAME="free-agents" GIT_COMMITTER_EMAIL="free-agents@localhost" \
+      git -C "$WORK" commit -q -m "$msg" -- "$@" >/dev/null 2>&1
+  ) 9>"${ORCH_DIR}/.merge.lock"
+}
+
+# What changed in $WORK between two dirty_state snapshots: paths, one per line.
+changed_between() { # $1=before $2=after
+  comm -3 <(printf '%s\n' "$1" | sed '/^$/d' | sort) <(printf '%s\n' "$2" | sed '/^$/d' | sort) \
+    | sed 's/^\t//' | cut -d' ' -f2- | grep -v '^\.orch/' | sort -u || true
+  return 0
+}
+
+# Hand a failure to one worker: run.sh in $WORK, the project's read-only files
+# held, and - when there is one - the project's own check as its verify, so
+# run.sh's fix rounds apply and "fixed" means the check passed. Sets
+# FIX_CHANGED (paths, one per line); returns run.sh's exit code.
+FIX_CHANGED=""
+send_fixer() { # $1=label for its results $2=prompt $3=verify command (may be empty)
+  local ro=() g before frc=0 verify=()
+  while IFS= read -r g; do
+    if [[ -n "$g" ]]; then ro+=(--readonly "$g"); fi
+  done < <(project_readonly_globs "$PROJECT")
+  if [[ -n "$3" ]]; then verify=(--verify "$3"); fi
+  before="$(dirty_state "$WORK")"
+  FA_TASK_ID="$1" FA_VERIFY_TIMEOUT="${FA_PROJECT_VERIFY_TIMEOUT:-1800}" \
+    "$RUN_SH" -c coding -w "$WORK" "${verify[@]}" "${ro[@]}" "$2" \
+    >"${RESULTS}/$1.out" 2>"${RESULTS}/$1.err" || frc=$?
+  FIX_CHANGED="$(changed_between "$before" "$(dirty_state "$WORK")")"
+  return "$frc"
+}
+
+# Each landed task with its declared files, for a prompt or a PR body.
+describe_tasks() { # stdin: ids -> "id (file, file)" per line
+  local id files
+  while IFS= read -r id; do
+    [[ -z "$id" ]] && continue
+    files="$(task_files "$id" 2>/dev/null | tr '\n' ' ' | sed 's/ $//; s/ /, /g')" || true
+    printf '%s%s\n' "$id" "${files:+ (${files})}"
+  done
+  return 0
+}
+
+# ---------------------------------------------------------- project check --
+# The project's own check: `verify:` in .orch/config.yaml, one command (bash
+# -c) that says the whole project works - npm test, dotnet test, ./gradlew
+# test. A task's own verify proves that task in its own workdir, and two tasks
+# can each pass theirs and still break each other once both land. So this
+# runs where the run's work landed, once its tasks are done; when it fails,
+# one worker is sent to fix it, with this same command as its verify.
+CHECK_RESULT=""     # passed | fixed | failed, or empty when it did not run
+project_check() { # -> 1 only when the check fails and a worker could not fix it
+  local cmd; cmd="$(project_setting verify)"
+  [[ -n "$cmd" ]] || return 0
+  # Only when something landed since it last ran: a resume after a crash that
+  # came before the check still gets it, a run that landed nothing does not.
+  local d c
+  d="$(grep -n '"event":"done"' "$JOURNAL" 2>/dev/null | tail -1 | cut -d: -f1)" || true
+  c="$(grep -n '"event":"project_check"' "$JOURNAL" 2>/dev/null | tail -1 | cut -d: -f1)" || true
+  if [[ -z "$d" || ( -n "$c" && "$c" -gt "$d" ) ]]; then
+    log "project check: nothing landed since it last ran - skipped"
+    return 0
+  fi
+  local logf="${RESULTS}/_check.log" t="${FA_PROJECT_VERIFY_TIMEOUT:-1800}" rc=0 landed
+  mkdir -p "$RESULTS"
+  landed="$(done_since project_check | describe_tasks)"
+  log "project check: \`${cmd}\`"
+  ( cd "$WORK" && timeout "$t" bash -c "$cmd" ) >"$logf" 2>&1 || rc=$?
+  if [[ $rc -eq 0 ]]; then
+    CHECK_RESULT=passed
+    journal project_check - "result=passed" "cmd=${cmd}"
+    log "project check passed"
+    return 0
+  fi
+  local why="exited ${rc}"
+  [[ $rc -eq 124 ]] && why="was cut off after ${t}s"
+  log "project check FAILED: it ${why} - output in ${logf#"${PROJECT}"/}"
+  if [[ "${FA_PROJECT_FIX:-1}" == "0" ]]; then
+    CHECK_RESULT=failed
+    journal project_check - "result=failed" "cmd=${cmd}" "rc=${rc}"
+    return 1
+  fi
+  local prompt
+  prompt="The project's own check fails, and it has to pass.
+
+The check: \`${cmd}\`, run in the project root. It ${why}. The end of its output:
+
+$(tail -n 60 "$logf" | cut -c1-300)
+
+What just landed, and so the likeliest cause:
+${landed:-(nothing recorded)}
+
+Find what breaks the check and fix it in the code. The tests, CI files and the
+project's other read-only files are part of the check, not the work: any change
+to them is undone."
+  log "project check: sending one worker to fix it"
+  local frc=0 changed=()
+  send_fixer _check "$prompt" "$cmd" || frc=$?
+  mapfile -t changed < <(printf '%s' "$FIX_CHANGED" | sed '/^$/d')
+  if [[ $frc -eq 0 ]]; then
+    CHECK_RESULT=fixed
+    journal project_check - "result=fixed" "cmd=${cmd}" "files=${changed[*]}"
+    log "project check fixed by a worker${changed[*]:+ - it changed: ${changed[*]}}"
+    # Committed when this run commits its work (isolated tasks, push mode): a
+    # later worktree starts from HEAD and would never see an uncommitted fix.
+    if [[ ${#changed[@]} -gt 0 ]] && { [[ $ISOLATE -eq 1 ]] || [[ "$WORK" != "$PROJECT" ]]; }; then
+      commit_work "fa: fix the project check" "${changed[@]}" \
+        || log "WARNING: the fix for the project check could not be committed"
+    fi
+    return 0
+  fi
+  CHECK_RESULT=failed
+  journal project_check - "result=failed" "cmd=${cmd}" "rc=${rc}" "files=${changed[*]}"
+  log "project check still fails after a worker tried - output in ${logf#"${PROJECT}"/}, the worker's in ${RESULTS#"${PROJECT}"/}/_check.err"
+  return 1
+}
+
+# -------------------------------------------------------------- push mode --
+# mode: push. A run's work goes onto a new branch, fa/<time>, built in its own
+# worktree (.orch/worktrees/run) so your working directory is never switched
+# or touched. Every task's declared files are committed there; at the end the
+# branch is pushed (never forced), a pull request is opened, and fa waits for
+# what GitHub reports on it - each failing check goes to a worker with its log,
+# a bounded number of times. `automerge: true` then merges it, but only work
+# something actually checked. A plan keeps its branch, and its pull request,
+# while that is open; a new plan starts a new one.
+PUSH_BRANCH=""; PUSH_BASE=""; PUSH_FROM=""; PUSHED_SHA=""
+
+push_setup() {
+  git -C "$PROJECT" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+    || die "mode: push needs the project to be a git repository"
+  git -C "$PROJECT" remote get-url origin >/dev/null 2>&1 \
+    || die "mode: push needs a remote named origin (git remote add origin <url>)"
+  have gh || die "mode: push needs gh, the GitHub CLI"
+  gh auth status >/dev/null 2>&1 || die "mode: push needs gh logged in: gh auth login"
+  # Every gh call below means origin. With a second remote (a fork's upstream)
+  # gh would otherwise ask which one - and with nobody there to answer, refuse.
+  local origin_url re='github\.com[:/]([^/]+)/([^/]+)$'
+  origin_url="$(git -C "$PROJECT" remote get-url origin 2>/dev/null)" || true
+  if [[ "$origin_url" =~ $re ]]; then
+    export GH_REPO="${BASH_REMATCH[1]}/${BASH_REMATCH[2]%.git}"
+  fi
+  local dir="${WT_POOL_DIR}/run" last b url state=""
+  mkdir -p "$WT_POOL_DIR"
+  # A plan keeps its branch. The journal belongs to one plan (a new plan puts
+  # it aside - plan_turnover), so its latest branch is this plan's: continue
+  # it - on a resume, or the same plan run again - while its pull request is
+  # open. Merged or closed, by fa or on GitHub, the next run starts anew.
+  last="$(jq -c 'select(.event=="branch")' "$JOURNAL" 2>/dev/null | tail -1)" || true
+  b="$(jq -r '.branch // empty' <<<"${last:-null}" 2>/dev/null)" || true
+  if [[ -n "$b" ]]; then
+    url="$(jq -rs --arg b "$b" '[.[] | select(.event=="pr" and .branch==$b)] | last | .url // empty' \
+           "$JOURNAL" 2>/dev/null)" || true
+    if [[ -n "$url" ]]; then
+      if grep -qF "\"event\":\"merged\",\"task\":\"-\",\"url\":\"${url}\"" "$JOURNAL" 2>/dev/null; then
+        state=MERGED
+      else
+        state="$( (cd / && gh pr view "$url" --json state -q .state) 2>/dev/null)" || true
+      fi
+    fi
+    if [[ "$state" == MERGED || "$state" == CLOSED ]]; then
+      log "push mode: ${b}'s pull request is ${state,,} - starting a new branch"
+    elif [[ -e "${dir}/.git" ]] \
+         && [[ "$(git -C "$dir" symbolic-ref --short -q HEAD 2>/dev/null)" == "$b" ]]; then
+      PUSH_BRANCH="$b"
+      PUSH_BASE="$(jq -r '.base' <<<"$last")"; PUSH_FROM="$(jq -r '.from' <<<"$last")"
+      WORK="$dir"
+      log "push mode: continuing ${PUSH_BRANCH}${url:+ and ${url}}"
+      return 0
+    else
+      log "WARNING: push mode: ${b} cannot be continued - its worktree is gone or on another branch; starting a new branch, without the work of tasks already done (that stays on ${b})"
+    fi
+  fi
+  PUSH_BASE="$(project_setting base)"; PUSH_BASE="${PUSH_BASE%%[[:space:]]#*}"
+  if [[ -z "$PUSH_BASE" ]]; then
+    PUSH_BASE="$(git -C "$PROJECT" symbolic-ref --short -q HEAD 2>/dev/null)" || true
+  fi
+  [[ -n "$PUSH_BASE" ]] \
+    || die "mode: push needs a branch checked out, or base: <branch> in .orch/config.yaml"
+  PUSH_FROM="$(git -C "$PROJECT" rev-parse -q --verify HEAD 2>/dev/null)" \
+    || die "mode: push needs at least one commit to branch from"
+  local stamp i=1; stamp="fa/$(date -u +%Y%m%d-%H%M%S)"; PUSH_BRANCH="$stamp"
+  while git -C "$PROJECT" show-ref --verify -q "refs/heads/${PUSH_BRANCH}"; do
+    i=$((i + 1)); PUSH_BRANCH="${stamp}-${i}"
+  done
+  # The previous run's worktree goes; its branch, and every commit on it, stays.
+  if [[ -e "$dir" ]]; then
+    git -C "$PROJECT" worktree remove --force "$dir" >/dev/null 2>&1 || rm -rf "$dir"
+    git -C "$PROJECT" worktree prune >/dev/null 2>&1 || true
+  fi
+  git -C "$PROJECT" worktree add -q -b "$PUSH_BRANCH" "$dir" "$PUSH_FROM" >/dev/null 2>&1 \
+    || die "mode: push could not create the run's worktree at ${dir}"
+  WORK="$dir"
+  journal branch - "branch=${PUSH_BRANCH}" "base=${PUSH_BASE}" "from=${PUSH_FROM}"
+  log "push mode: building on a new branch, ${PUSH_BRANCH}, from ${PUSH_BASE} at ${PUSH_FROM:0:7} - in ${dir#"${PROJECT}"/}, not in your working directory"
+}
+
+push_branch() {
+  local sha out
+  sha="$(git -C "$WORK" rev-parse HEAD)"
+  # Never forced: a branch someone else also pushed to is theirs to reconcile.
+  # No terminal prompt either - a background job would wait on it forever.
+  if ! out="$(GIT_TERMINAL_PROMPT=0 git -C "$WORK" push -q origin "HEAD:refs/heads/${PUSH_BRANCH}" 2>&1)"; then
+    journal push_failed - "branch=${PUSH_BRANCH}" "error=$(printf '%s' "$out" | tail -3 | tr '\n' ' ')"
+    log "push mode: push FAILED: ${out}"
+    return 1
+  fi
+  PUSHED_SHA="$sha"
+  journal pushed - "branch=${PUSH_BRANCH}" "sha=${sha}"
+  log "pushed ${PUSH_BRANCH} (${sha:0:7})"
+}
+
+pr_open() { # $1=ids -> prints the pull request's URL
+  local body="${RESULTS}/_pr.md" title out url draft=() id m
+  {
+    printf '## What this run did\n\n'
+    while IFS= read -r id; do
+      [[ -z "$id" ]] && continue
+      m="$(jq -rs --arg t "$id" '[.[] | select(.event=="done" and .task==$t)] | last
+            | "\(.model // "?") on \(.bucket // "?")\(if .verified == "yes" then ", its own check passed" else "" end)"' \
+            "$JOURNAL" 2>/dev/null)" || true
+      printf -- '- **%s** - %s\n' "$(describe_tasks <<<"$id")" "$m"
+    done <<<"$1"
+    printf '\n## Checks\n\n'
+    case "$CHECK_RESULT" in
+      passed) printf -- '- The project check, `%s`, passed.\n' "$(project_setting verify)" ;;
+      fixed)  printf -- '- The project check, `%s`, failed once; a worker fixed it.\n' "$(project_setting verify)" ;;
+      failed) printf -- '- **The project check, `%s`, fails** - this is a draft until it passes.\n' "$(project_setting verify)" ;;
+      *)      printf -- '- No project check is set (`verify:` in .orch/config.yaml).\n' ;;
+    esac
+    printf '\nBuilt by fa on `%s`, from `%s` at %s. Each task ran on a free model; its declared files are what landed.\n' \
+      "$PUSH_BRANCH" "$PUSH_BASE" "${PUSH_FROM:0:7}"
+  } > "$body"
+  title="fa: $(printf '%s' "$1" | sed '/^$/d' | tr '\n' ' ' | sed 's/ $//; s/ /, /g' | cut -c1-70)"
+  if [[ "$CHECK_RESULT" == "failed" ]]; then draft=(--draft); fi
+  if ! out="$(cd "$WORK" && gh pr create --head "$PUSH_BRANCH" --base "$PUSH_BASE" \
+                --title "$title" --body-file "$body" "${draft[@]}" 2>&1)"; then
+    journal pr_failed - "branch=${PUSH_BRANCH}" "error=$(printf '%s' "$out" | tail -3 | tr '\n' ' ')"
+    log "push mode: could not open a pull request: ${out}"
+    return 1
+  fi
+  url="$(grep -oE 'https?://[^[:space:]]+/pull/[0-9]+' <<<"$out" | tail -1)" || true
+  [[ -n "$url" ]] || { log "push mode: gh opened no pull request it could name: ${out}"; return 1; }
+  journal pr - "branch=${PUSH_BRANCH}" "url=${url}"
+  log "opened ${url}${draft[*]:+ (draft)}"
+  printf '%s' "$url"
+}
+
+# What GitHub reports on a pushed commit - its check runs (GitHub Actions and
+# other apps) and its commit statuses (older CI services) - from the API: gh's
+# own `pr checks` has JSON output only in versions newer than many distros ship.
+ci_rows() { # $1=sha -> "name<TAB>pending|pass|fail<TAB>link" per check
+  ( cd "$WORK" && {
+      gh api "repos/{owner}/{repo}/commits/$1/check-runs?per_page=100" -q '.check_runs[]
+        | [.name, (if .status != "completed" then "pending"
+                   elif (.conclusion == "success" or .conclusion == "neutral" or .conclusion == "skipped")
+                   then "pass" else "fail" end), (.html_url // "")] | @tsv'
+      gh api "repos/{owner}/{repo}/commits/$1/status" -q '.statuses[]
+        | [.context, (if .state == "pending" then "pending" elif .state == "success" then "pass"
+                      else "fail" end), (.target_url // "")] | @tsv'
+    } ) 2>/dev/null || true
+  return 0
+}
+
+# Wait for every check on the commit to finish. Prints passed | failed | none
+# | timeout; the failing rows go to ${RESULTS}/_ci.failed. Checks register a
+# moment after a push, and not all at once, so "all finished" counts only when
+# two looks in a row agree.
+ci_wait() { # $1=sha
+  local start rows prev="" poll="${FA_CI_POLL:-15}"
+  start="$(now_epoch)"
+  while :; do
+    rows="$(ci_rows "$1" | sort)"
+    if [[ -z "$rows" ]]; then
+      if (( $(now_epoch) - start >= ${FA_CI_APPEAR:-120} )); then echo none; return 0; fi
+    elif ! grep -q $'\tpending\t' <<<"$rows"; then
+      if [[ "$rows" == "$prev" ]]; then
+        grep $'\tfail\t' <<<"$rows" > "${RESULTS}/_ci.failed" || true
+        if [[ -s "${RESULTS}/_ci.failed" ]]; then echo failed; else echo passed; fi
+        return 0
+      fi
+    fi
+    prev="$rows"
+    if (( $(now_epoch) - start >= ${FA_CI_TIMEOUT:-3600} )); then echo timeout; return 0; fi
+    sleep "$poll"
+  done
+}
+
+# One round of fixing what CI reported: the failing checks' logs to a worker,
+# then commit and push what it changed. 0 when a fix was pushed.
+ci_fix() { # $1=round
+  local names logs="" name state link job prompt frc=0 changed=()
+  names="$(cut -f1 "${RESULTS}/_ci.failed" | sort -u | tr '\n' ',' | sed 's/,$//; s/,/, /g')"
+  while IFS=$'\t' read -r name state link; do
+    job="$(grep -oE '/job/[0-9]+' <<<"$link" | grep -oE '[0-9]+$')" || true
+    if [[ -n "$job" ]]; then
+      logs+="--- ${name} ---"$'\n'"$( (cd "$WORK" && gh run view --job "$job" --log-failed 2>/dev/null) \
+                                       | tail -n 80 | cut -c1-300)"$'\n'
+    else
+      logs+="--- ${name} --- no log reachable from here: ${link}"$'\n'
+    fi
+  done < "${RESULTS}/_ci.failed"
+  prompt="CI fails on this branch's pull request, and it has to pass.
+
+Failing: ${names}. What they report:
+
+${logs}
+Find what breaks them and fix it in the code. The tests, CI files and the
+project's other read-only files are part of the check, not the work: any change
+to them is undone."
+  log "CI failed (${names}) - fix round $1/${FA_CI_FIX_ROUNDS:-2}: sending one worker"
+  send_fixer "_ci$1" "$prompt" "$(project_setting verify)" || frc=$?
+  mapfile -t changed < <(printf '%s' "$FIX_CHANGED" | sed '/^$/d')
+  journal ci_fix - "round=$1" "checks=${names}" "rc=${frc}" "files=${changed[*]}"
+  if [[ $frc -ne 0 || ${#changed[@]} -eq 0 ]]; then
+    log "the worker could not fix it${changed[*]:+ (it changed: ${changed[*]})}"
+    return 1
+  fi
+  commit_work "fa: fix CI (${names})" "${changed[@]}" || { log "could not commit the CI fix"; return 1; }
+  push_branch
+}
+
+pr_merge() { # $1=url
+  local m out=""
+  for m in --merge --squash --rebase; do   # whichever the repository allows
+    if out="$(cd / && gh pr merge "$1" "$m" 2>&1)"; then
+      journal merged - "url=$1" "method=${m#--}"
+      log "merged ${1} (${m#--}) - git pull in your project to get it"
+      return 0
+    fi
+  done
+  journal merge_failed - "url=$1" "error=$(printf '%s' "$out" | tail -2 | tr '\n' ' ')"
+  log "automerge FAILED for ${1}: ${out}"
+  return 1
+}
+
+push_finish() { # -> 0 when the work is pushed and nothing reported on it failed
+  if [[ "$(git -C "$WORK" rev-list --count "${PUSH_FROM}..HEAD" 2>/dev/null || echo 0)" -eq 0 ]]; then
+    log "push mode: nothing was committed on ${PUSH_BRANCH} - nothing to push"
+    return 0
+  fi
+  # The same plan run again with nothing new: the branch is as pushed, and CI
+  # has already had its say on that commit.
+  local last_sha last_ci
+  last_sha="$(jq -rs --arg b "$PUSH_BRANCH" '[.[] | select(.event=="pushed" and .branch==$b)] | last | .sha // empty' \
+              "$JOURNAL" 2>/dev/null)" || true
+  if [[ -n "$last_sha" && "$(git -C "$WORK" rev-parse HEAD)" == "$last_sha" ]]; then
+    last_ci="$(jq -rs --arg s "$last_sha" '[.[] | select(.event=="ci" and .sha==$s)] | last | .result // empty' \
+               "$JOURNAL" 2>/dev/null)" || true
+    log "push mode: nothing new on ${PUSH_BRANCH} since ${last_sha:0:7} was pushed${last_ci:+ (CI: ${last_ci})}"
+    [[ "$last_ci" != failed && "$last_ci" != timeout ]]
+    return
+  fi
+  push_branch || return 1
+  local url
+  url="$(jq -rs --arg b "$PUSH_BRANCH" '[.[] | select(.event=="pr" and .branch==$b)] | last | .url // empty' \
+         "$JOURNAL" 2>/dev/null)" || true
+  if [[ -n "$url" ]]; then
+    log "pull request: ${url} (updated)"
+  else
+    url="$(pr_open "$(done_since branch)")" || return 1
+  fi
+  if [[ "$CHECK_RESULT" == "failed" ]]; then
+    log "push mode: the project check fails, so nothing waits on CI and nothing merges"
+    return 1
+  fi
+  local result round=0
+  while :; do
+    log "waiting for the checks on ${PUSHED_SHA:0:7}"
+    result="$(ci_wait "$PUSHED_SHA")"
+    journal ci - "result=${result}" "sha=${PUSHED_SHA}" \
+      "checks=$( [[ "$result" == failed ]] && cut -f1 "${RESULTS}/_ci.failed" | sort -u | tr '\n' ',' | sed 's/,$//' )"
+    [[ "$result" == failed && $round -lt ${FA_CI_FIX_ROUNDS:-2} ]] || break
+    round=$((round + 1))
+    ci_fix "$round" || break
+  done
+  case "$result" in
+    passed)  log "CI passed on ${url}" ;;
+    none)    log "no checks reported on ${url} within ${FA_CI_APPEAR:-120}s - none configured?" ;;
+    timeout) log "CI still running on ${url} after ${FA_CI_TIMEOUT:-3600}s - not waiting longer" ;;
+    failed)  log "CI FAILED on ${url}: $(cut -f1 "${RESULTS}/_ci.failed" | sort -u | tr '\n' ' ')" ;;
+  esac
+  if [[ "$(project_automerge)" == "true" ]]; then
+    # Only work something checked: CI passing, or - with no CI at all - the
+    # project check. Nothing checked means nothing to trust.
+    if [[ "$result" == passed ]] \
+       || [[ "$result" == none && ( "$CHECK_RESULT" == passed || "$CHECK_RESULT" == fixed ) ]]; then
+      pr_merge "$url" || return 1
+    else
+      journal merge_skipped - "url=${url}" "ci=${result}" "check=${CHECK_RESULT:-none}"
+      log "automerge: leaving ${url} open - CI ${result}, project check ${CHECK_RESULT:-not set}"
+    fi
+  fi
+  [[ "$result" == passed || "$result" == none ]]
+}
+
 cmd_run() {
   [[ -f "$TASKS_FILE" ]] || die "no task graph at $TASKS_FILE"
   jq -e '.tasks | type == "array" and length > 0' "$TASKS_FILE" >/dev/null \
@@ -793,6 +1275,7 @@ cmd_run() {
   # that is meant to recover from exactly that.
   exec {RUN_LOCK_FD}>"${ORCH_DIR}/.run.lock"
   flock -n "$RUN_LOCK_FD" || die "a run is already in progress in this project - see: fa jobs, fa status"
+  plan_turnover
   RESERVED_JSON="$(coordinator_buckets_json)"
   [[ "$RESERVED_JSON" != "[]" ]] && log "held back for the coordinator ($(coordinator_agent)), its own wallet: $(jq -r 'join(" ")' <<<"$RESERVED_JSON")"
   local width="${MAX_PARALLEL:-$(healthy_buckets)}"
@@ -829,7 +1312,8 @@ cmd_run() {
   fi
   
   local mode="$(project_mode)"
-  log "project=$PROJECT  parallel=$width  mode=$mode  isolate=$ISOLATE"
+  if [[ "$mode" == "push" && $DRY_RUN -eq 0 ]]; then push_setup; fi
+  log "project=$PROJECT  parallel=$width  mode=$mode  isolate=$ISOLATE${PUSH_BRANCH:+  branch=$PUSH_BRANCH}"
 
   declare -A ATTEMPTS=() PIDS=() RUNNING=() LANEWAIT=()
   # Reconstruct the retry budget from the journal, so a resume after a crash
@@ -1010,6 +1494,13 @@ cmd_run() {
     done < <(halted_tasks)
     log "When it is unblocked: remove the \"blocked\" field from .orch/tasks.json, then fa resume"
   fi
+  # What landed, checked together (project_check), and in push mode taken to a
+  # pull request (push_finish).
+  local check_ok=0 push_ok=0
+  if [[ $DRY_RUN -eq 0 ]]; then
+    project_check || check_ok=1
+    if [[ -n "$PUSH_BRANCH" ]]; then push_finish || push_ok=1; fi
+  fi
   # Surface anything the tool noticed about ITSELF during this run, so a real
   # project can feed a fix back rather than the observation dying with the run.
   # Then run the aggregate analysis — patterns spread across tasks that the
@@ -1022,7 +1513,7 @@ cmd_run() {
     findings_show new 2>/dev/null | sed 's/^/  /' | head -12 >&2
     log "review with: fa findings     file one with: fa findings --issue"
   fi
-  [[ "$nfail" -eq 0 ]]
+  [[ "$nfail" -eq 0 && $check_ok -eq 0 && $push_ok -eq 0 ]]
 }
 
 cmd_status() {
@@ -1047,6 +1538,35 @@ cmd_status() {
   jq -r 'select(.event=="verify_failed")
          | "  VERIFY FAILED  \(.task)  `\(.cmd)` after \(.rounds) fix round(s)"' "$JOURNAL" | sort -u
   jq -r 'select(.event=="skipped") | "  SKIPPED \(.task)  (when clause not satisfied)"' "$JOURNAL" | sort -u
+  # The project check, as it last ran.
+  jq -rs '[.[] | select(.event=="project_check")] | last // empty
+          | if .result == "failed" then "  CHECK FAILED  `\(.cmd)`  output: .orch/results/_check.log"
+            elif .result == "fixed" then "  check   fixed   `\(.cmd)`\(if (.files // "") != "" then "  a worker changed: \(.files)" else "" end)"
+            else "  check   passed  `\(.cmd)`" end' "$JOURNAL" 2>/dev/null || true
+  # Push mode: the latest branch, its pull request, what CI said, the merge.
+  jq -rs '. as $j
+    | ([range(0; $j | length)] | map(select($j[.].event == "branch")) | last) as $i
+    | if $i == null then empty else
+        $j[$i] as $b | $j[$i + 1:] as $a
+        | ($a | map(select(.event == "pushed")) | last) as $push
+        | ($a | map(select(.event == "pr")) | last) as $pr
+        | ($a | map(select(.event == "ci")) | last) as $ci
+        | ($a | map(select(.event == "ci_fix")) | length) as $fixes
+        | ($a | map(select(.event == "pushed" or .event == "push_failed" or .event == "pr"
+                           or .event == "pr_failed" or .event == "merged" or .event == "merge_failed"
+                           or .event == "merge_skipped")) | last) as $last
+        | "  branch  \($b.branch) -> \($b.base)\(if $push then "  pushed \($push.sha[0:7])" else "  not pushed yet" end)",
+          (if $pr then "  PR      \($pr.url)" else empty end),
+          (if $ci == null then empty
+           elif $ci.result == "failed" then "  CI FAILED  \($ci.checks)\(if $fixes > 0 then "  after \($fixes) fix round(s)" else "" end)"
+           elif $ci.result == "passed" then "  CI      passed\(if $fixes > 0 then " after \($fixes) fix round(s)" else "" end)"
+           elif $ci.result == "none" then "  CI      no checks reported"
+           else "  CI      still running when fa stopped waiting" end),
+          (if $last.event == "merged" then "  merged  (\($last.method))"
+           elif $last.event == "merge_skipped" then "  not merged: CI \($last.ci), project check \($last.check)"
+           elif ($last.event // "" | test("_failed$")) then "  PUSH ERROR  \($last.event): \($last.error // "")"
+           else empty end)
+      end' "$JOURNAL" 2>/dev/null || true
   # Validation failures: distinct from build failures — the agent built
   # something that doesn't parse. Show them prominently.
   jq -r 'select(.event=="validation_failed")
@@ -1085,6 +1605,7 @@ cmd_status() {
 #                   served a task is not a property of the project.
 #   results/        NO  - raw agent transcripts.
 #   worktrees/      NO  - git worktrees for isolated task execution.
+#   history/        NO  - earlier plans' journals, put aside by a new plan.
 write_orch_gitignore() {
   mkdir -p "$ORCH_DIR"
   # Never clobber a hand-edited file - but do repair the lines an older version
@@ -1092,7 +1613,7 @@ write_orch_gitignore() {
   # setup.sh) and jobs/ (background jobs, which came later).
   if [[ -f "${ORCH_DIR}/.gitignore" ]]; then
     local line
-    for line in handoffs/ jobs/; do
+    for line in handoffs/ jobs/ history/; do
       grep -qx "$line" "${ORCH_DIR}/.gitignore" \
         || printf '%s\n' "$line" >> "${ORCH_DIR}/.gitignore"
     done
@@ -1107,6 +1628,7 @@ handoffs/
 *.lock
 worktrees/
 jobs/
+history/
 EOF
 }
 
@@ -1117,20 +1639,36 @@ cmd_init() {
   # Create default .orch/config.yaml if not present
   if [[ ! -f "${ORCH_DIR}/config.yaml" ]]; then
     cat > "${ORCH_DIR}/config.yaml" <<'EOF'
-# Project autonomy mode:
-#   strict    - verify after every change (default)
-#   push      - can push and create PRs
-#   local     - no remote operations
+# What fa does with a run's work once its tasks are done:
+#   strict  - leave it in the project for you to review (default)
+#   local   - the same, and never touches a remote
+#   push    - put it on a new branch (in its own worktree - your working
+#             directory is left alone), push it, open a pull request, wait for
+#             CI and send a worker to fix what CI reports. Needs git, an origin
+#             remote and gh logged in. A plan keeps its branch while its pull
+#             request is open; a new plan starts a new one.
 mode: strict
 
-# Allow autonomous merging (only with push mode)
+# push mode: merge the pull request once its checks pass - only work something
+# checked (CI, or the project check where there is no CI)
 automerge: false
+
+# push mode: the branch pull requests go into (default: the one checked out)
+# base: main
 
 # Files no worker may change: globs over paths relative to the project,
 # separated by spaces (* matches across directories). A worker's edits to them
 # are put back before any check runs - so it cannot pass its verify by editing
 # the tests - and a task may still write any file it declares in its "files".
 readonly: tests/* test/* spec/* __tests__/* src/test/* */tests/* */test/* */__tests__/* */src/test/* *.Tests/* *.test.* *.spec.* *_test.* .github/*
+
+# The project's own check, run where a run's work landed once its tasks are
+# done (bash -c, in the project root). Each task's verify proves that task;
+# this proves them together. When it fails, one worker is sent to fix it.
+# For example: npm test | dotnet test | ./gradlew test | pytest
+# In push mode it runs in a fresh checkout, with no node_modules or .venv:
+# install first if the check needs them (npm ci && npm test).
+verify:
 EOF
     log "created ${ORCH_DIR}/config.yaml (mode: strict)"
   fi
@@ -1139,7 +1677,7 @@ EOF
   echo "initialised $ORCH_DIR"
 }
 
-usage() { sed -n '6,32p' "$0" >&2; exit 3; }
+usage() { sed -n '6,/^$/p' "$0" >&2; exit 3; }
 
 CMD="${1:-}"; shift || true
 # Before the option loop: a positional after `run` is copied over tasks.json

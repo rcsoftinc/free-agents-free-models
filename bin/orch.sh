@@ -1132,14 +1132,21 @@ ci_rows() { # $1=sha -> "name<TAB>pending|pass|fail<TAB>link" per check
 # Wait for every check on the commit to finish. Prints passed | failed | none
 # | timeout; the failing rows go to ${RESULTS}/_ci.failed. Checks register a
 # moment after a push, and not all at once, so "all finished" counts only when
-# two looks in a row agree.
+# two looks in a row agree. And "nothing yet" becomes "none" only where nothing
+# would run: a branch with a workflow that runs on pull requests WILL report,
+# however long GitHub takes to start it - a new repository's first run took a
+# minute in the first real trial, half of FA_CI_APPEAR, and "none" with a
+# passing project check is enough to merge.
 ci_wait() { # $1=sha
-  local start rows prev="" poll="${FA_CI_POLL:-15}"
+  local start rows prev="" poll="${FA_CI_POLL:-15}" expect=0
+  if grep -qs 'pull_request' "$WORK"/.github/workflows/*.yml "$WORK"/.github/workflows/*.yaml; then
+    expect=1
+  fi
   start="$(now_epoch)"
   while :; do
     rows="$(ci_rows "$1" | sort)"
     if [[ -z "$rows" ]]; then
-      if (( $(now_epoch) - start >= ${FA_CI_APPEAR:-120} )); then echo none; return 0; fi
+      if (( expect == 0 && $(now_epoch) - start >= ${FA_CI_APPEAR:-120} )); then echo none; return 0; fi
     elif ! grep -q $'\tpending\t' <<<"$rows"; then
       if [[ "$rows" == "$prev" ]]; then
         grep $'\tfail\t' <<<"$rows" > "${RESULTS}/_ci.failed" || true

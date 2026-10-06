@@ -44,11 +44,11 @@ export FAKE_DIR="$FAKE" PATH="$FAKE:$PATH" FA_CI_POLL=0.1
 CI_YML=$'name: ci\non: [pull_request]\n'
 
 # A project on main with a bare origin, pushed. $1 = extra config lines,
-# $2 = tasks (JSON array).
+# $2 = tasks (JSON array), $3 = noci for a project without a CI workflow.
 project() {
   R="$(mktemp -d)"; git init -q --bare -b main "$R/origin.git"
-  P="$(mktemp -d)"; mkdir -p "$P/.orch" "$P/.github/workflows" "$P/src"
-  printf '%s' "$CI_YML" > "$P/.github/workflows/ci.yml"; : > "$P/src/.keep"
+  P="$(mktemp -d)"; mkdir -p "$P/.orch" "$P/.github/workflows" "$P/src"; : > "$P/src/.keep"
+  [[ "${3:-}" == noci ]] || printf '%s' "$CI_YML" > "$P/.github/workflows/ci.yml"
   printf 'mode: push\nreadonly: tests/* .github/*\n%s\n' "$1" > "$P/.orch/config.yaml"
   local one='[{"id":"a","prompt":"DO_A","deps":[],"files":["src/a.txt"],"category":"general"}]'
   jq -n --argjson t "${2:-$one}" '{tasks: $t}' > "$P/.orch/tasks.json"
@@ -143,12 +143,21 @@ project "automerge: true"
 FA_CI_FIX_ROUNDS=0 GH_STUB_CI=fail FAKE_A='echo a > src/a.txt' orch run
 assert_not_contains "a pull request whose CI failed is never merged" "$(ghlog)" "pr merge"
 assert_contains "  ...and fa status says why" "$(status)" "not merged: CI failed"
-project "automerge: true"
+project "automerge: true" "" noci
 FA_CI_APPEAR=0 GH_STUB_CI=none FAKE_A='echo a > src/a.txt' orch run
 assert_not_contains "no CI and no project check: nothing checked it, nothing merges" "$(ghlog)" "pr merge"
-project $'automerge: true\nverify: test -s src/a.txt'
+project $'automerge: true\nverify: test -s src/a.txt' "" noci
 GH_STUB_CI=none FA_CI_APPEAR=0 FAKE_A='echo a > src/a.txt' orch run
 assert_contains "no CI, but the project check passed: merged" "$(ghlog)" "pr merge --merge"
+# GitHub took a minute to start a new repository's first run in the first real
+# trial: a workflow that runs on pull requests is waited for, never taken for
+# "no CI" - which, with a passing project check, would merge unchecked by CI.
+project $'automerge: true\nverify: test -s src/a.txt'
+FA_CI_APPEAR=0 FA_CI_TIMEOUT=2 GH_STUB_CI=none FAKE_A='echo a > src/a.txt' orch run
+assert_contains "a pull-request workflow that has not reported yet is not \"no CI\"" \
+  "$(journal)" '"event":"ci","task":"-","result":"timeout"'
+assert_not_contains "  ...so nothing merges" "$(ghlog)" "pr merge"
+assert_eq "  ...and the run is not called done (exit 1)" "$rc" "1"
 
 # --- 7. the project check fails: a draft, and nothing waits on CI ------------------------------
 project "verify: false"

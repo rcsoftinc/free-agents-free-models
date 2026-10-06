@@ -152,22 +152,29 @@ If `category` is omitted, it defaults to `coding`.
 
 ## Project modes
 
-Projects can set an autonomy mode in `.orch/config.yaml`:
+`.orch/config.yaml` decides what happens to a run's work once its tasks are
+done:
 
 ```yaml
 # .orch/config.yaml
-mode: strict      # verify after every change (default)
-# mode: push      # can push and create PRs
-# mode: local     # no remote operations
-
-automerge: false  # allow autonomous merging (only with push mode)
+mode: strict      # the work lands in the project, for review (default)
+# mode: local     # the same, and nothing ever touches a remote
+# mode: push      # fa pushes the run's branch and opens a pull request
+automerge: false  # push mode: merge it once its checks pass
+verify: npm test  # the project's own check, run once a run's tasks land
 ```
 
-- **strict** (default): Run verification after every change.
-- **push**: You can push and create PRs.
-- **local**: No remote operations. Do not push or create PRs.
+- **strict** (default) and **local**: the work lands in the project; nothing is
+  pushed.
+- **push**: after the run, fa itself pushes the run's branch (built in its own
+  worktree), opens the pull request, waits for CI and sends what fails back to
+  a worker.
+- **verify:** when it fails after a run, one worker gets its output and must
+  make it pass - in the code; the read-only files are part of the check.
 
-In `local` mode, any push or PR creation is a violation of the task.
+A worker never pushes, opens a pull request or merges anything, in any mode:
+fa does that, after the run, in push mode. A task that seems to need it is the
+wrong task.
 
 ## Parallel isolation
 

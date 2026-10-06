@@ -76,7 +76,9 @@ Ready.
 It also created `.orch/`, where this project keeps its plan (`tasks.json`), its
 settings (`config.yaml`) and its run history. The settings already mark the
 usual test folders and CI files **read-only** for workers - you will see why on
-Monday morning.
+Monday morning. One line you fill in yourself once the project has tests:
+`verify: npx vitest run`, the project's own check, which fa runs after every
+run.
 
 > **Decision 1: may this code go to free providers?** Free tiers often log
 > prompts, and some reserve the right to train on them. Linkbox is internal,
@@ -409,8 +411,11 @@ Then it reviews, and you watch:
      note    api: read-only files it changed were put back: tests/api.test.ts
      note    api: changed files it did not declare (dropped, not merged; patch: .orch/results/api.undeclared.patch): src/contract.ts
    ```
-2. The full suite, the way CI will run it: `npx vitest run`. All green - the
-   edited test never landed anywhere.
+2. The full suite already ran: Linkbox's config says `verify: npx vitest run`,
+   so fa ran it once the run's tasks had landed, and `fa status` says
+   `` check   passed  `npx vitest run` ``. All green - the edited test never
+   landed anywhere. (Had it failed, fa would have sent one worker to fix it,
+   with the suite's output, before telling you.)
 3. It reads the patch: an optional `error` field nobody asked for. It leaves it
    out, and says so.
 4. The attempt to edit the test is already on record: fa wrote a
@@ -642,7 +647,7 @@ gh pr checks --watch            # CI: all of the above, on every push
 | Acceptance tests, written first | Does each piece do what you approved? | The contract every worker built against |
 | A task's `verify` command | Is this task done? | Sent cli back for a fix round |
 | Read-only files (`readonly:`) | Can a worker change the check? | Put back the edited 409 test before verify ran |
-| The full suite at review | Does it still work all together? | Confirmed the cheat never landed |
+| The project check (`verify:`) | Does it still work all together? | Ran the full suite once the run landed; the cheat never had |
 | Declared-files-only merges | What a worker may change | Dropped the undeclared contract change, kept as a patch |
 | `tsc` and ESLint | Types and obvious mistakes | Quiet guards on every task |
 | Playwright and screenshots | Does the page work, and look right? | The overflowing table, then a baseline |
@@ -666,5 +671,9 @@ gh pr checks --watch            # CI: all of the above, on every push
   edited to pass, an invented dependency, a missing security check), but these
   particular ones are made up.
 - **Built after the first draft of this story:** read-only files and the
-  report of undeclared changes (Chapters 8 and 9). The first draft's version of
-  that scene had the edited test slip through to the review.
+  report of undeclared changes (Chapters 8 and 9) - the first draft's version
+  of that scene had the edited test slip through to the review; the project
+  check (Chapter 9), which the first draft had you run by hand; and push mode,
+  which Linkbox does not use: its runs land in the working tree, as in the
+  default `mode: strict`. With `mode: push` each run would arrive as a pull
+  request instead, with CI's failures sent back to a worker before you look.

@@ -44,7 +44,9 @@ buckets, nothing else.
   existing codebase, must have changed - and a task's own `verify` command must
   exit 0, run against read-only files (tests, CI) that the worker's edits were
   put back from first. An agent reporting success is not evidence; the outcome
-  recorded for ranking is the verified one.
+  recorded for ranking is the verified one. Once a run lands, the project's own
+  check (`verify:` in `.orch/config.yaml`) proves the tasks together - each
+  task's check proves only that task.
 - **These CLIs exit 0 on hard failures.** Classify on output, never on `rc`.
 - **They ignore `cd`.** Containment is per-agent: `opencode --dir`, `kilo --dir`,
   hermes via `HOME` + `HERMES_HOME`. There is no uniform flag.
@@ -52,6 +54,14 @@ buckets, nothing else.
   registry records `identified` and `examined_agents` for exactly this reason: a
   credential that reached no free model yields no bucket, and would otherwise
   read as "new" on every single run.
+- **Push mode leaves your working directory alone, never forces, and merges
+  only checked work.** The run builds in its own worktree on its own branch;
+  pushes are plain; `automerge` needs CI passing, or - with no CI at all - the
+  project check. Workers never push; fa does, after the run.
+- **A journal belongs to one plan.** Plans name tasks with short slugs, so a
+  new plan's `api` would read as done because an old plan had one: `orch run`
+  on a different plan moves the journal to `.orch/history/` first. `resume`
+  never does.
 - **Workers never dispatch.** Every agent fa launches carries `FA_DEPTH`
   (`adapter_invoke`), and everything that launches agents refuses inside one
   (`refuse_if_worker`, exit 6). Two levels only: coordinator and workers. A

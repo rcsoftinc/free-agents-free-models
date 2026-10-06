@@ -8,7 +8,8 @@
 
 **Complete, working, and proven on a real project.** Published (public) at
 `github.com/rcsoftinc/free-agents-free-models`. Full suite green:
-**782 assertions, 38 suites, offline.**
+**782 assertions, 38 suites, offline** - and CI runs it on every push to master and
+every pull request (GitHub Actions, Ubuntu 24.04 + 26.04).
 
 **It has built real software unattended.** All independently verified against what
 the code does rather than what the agents reported:
@@ -1366,3 +1367,24 @@ signal path, run.sh writes it. Mutation-checked: the old check (churn 3 and
 5), run.sh never signalling, orch never passing the path.
 
 Full suite: 38 suites / 782 assertions, offline, zero real pi sessions.
+
+## CI: the suite on every push and pull request (2026-10-05)
+
+`.github/workflows/tests.yml` runs `test/run_all.sh` on every push to master,
+every pull request, and by hand (`workflow_dispatch`): on ubuntu-24.04, what
+most machines run, and ubuntu-26.04 (a public-preview image), the release fa
+is developed on - side by side, neither cancelling the other. A read-only
+token, kept nowhere (`persist-credentials: false`); the checkout action pinned
+to a commit (v7.0.1); a 30-minute cap. A "Show the toolchain" step prints the
+bash, coreutils, flock, jq, python3 and git versions, for when only one OS
+fails. A newer push to a pull request cancels its older run; on master every
+commit keeps its own result, so a break points at the commit that made it.
+
+Before the first push the suite ran the way a runner sees it - a fresh empty
+HOME and a system-only PATH (the command is in test/README.md) - and two suites
+failed that pass on this machine: test_adapters's presence-broom check needed
+the real `claude` CLI installed, and test_hermes_nous's `hermes_identify`
+section the real `hermes` (the suite never called `sandbox_on`, so
+`command -v hermes` found the installed one). Fixed: a fake `claude` on PATH
+for that doctor run, and `sandbox_on` in test_hermes_nous. Nothing else leaned
+on the machine: no test needed the git identity, and none wrote into HOME.

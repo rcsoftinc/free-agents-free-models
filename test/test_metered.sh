@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Metered wallets (copilot, cursor) spend a depleting monthly allowance, not an
+# Metered wallets (copilot, cursor, agy) spend a depleting allowance, not an
 # unlimited free pool - so every use of one should earn its keep. The default
 # mode (FA_METERED=auto) is: a metered wallet is a lane ONLY when a token was
 # actually detected (credential_fp != "anon") and its recorded credits are not
@@ -80,6 +80,26 @@ n_allowed="$(FA_METERED=1 "$REPO/bin/buckets.sh" lanes)"
 v_allowed="$(FA_METERED=1 "$REPO/bin/buckets.sh" lanes -v | grep -c '^  LANE')"
 assert_eq "lanes -v LANE rows match the count (forced)" "$v_allowed" "$n_allowed"
 assert_true "forcing metered strictly increases the lane count" '[[ $n_allowed -gt $n_default ]]'
+
+# --- the adapter's flag and its wallet must agree ------------------------------
+# Two separate declarations: FA_<agent>_METERED is what `fa doctor` prints, and the
+# identity line's {"metered":true} is what reaches the registry and the scheduler.
+# With only the flag, an adapter reads as metered and is still tried first.
+metered_agents="$(bash -c '. "$1/bin/lib/common.sh"
+  for a in "${FA_AGENTS[@]}"; do [[ "$(adapter_metered "$a")" == "1" ]] && echo "$a"; done' _ "$REPO")"
+assert_eq "the adapters flagged metered" "$(echo $metered_agents)" "copilot cursor agy"
+for a in $metered_agents; do
+  line="$(bash -c '. "$1/bin/lib/common.sh"; "$2_identify"' _ "$REPO" "$a" 2>/dev/null | head -1)"
+  assert_eq "$a's wallet says it is metered" \
+    "$(printf '%s' "${line##*$'\x1f'}" | jq -r '.metered')" "true"
+done
+
+# And through discovery, on a registry of its own: this is the field run.sh sorts on.
+DISC="$(mktemp -d)"
+FREE_AGENTS_STATE="$DISC" "$REPO/bin/buckets.sh" discover >/dev/null 2>&1
+assert_eq "discovery records agy's wallet as metered" \
+  "$(jq -r '[.buckets[] | select(.provider == "antigravity") | .metered] | unique | join(",")' "$DISC/buckets.json")" "true"
+rm -rf "$DISC"
 
 end_suite
 final_report

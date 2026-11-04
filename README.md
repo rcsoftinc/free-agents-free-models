@@ -244,7 +244,6 @@ Using the actual registry state (8 lanes, 163 free models):
 │  REGISTRY: 8 lanes, 163 free models                            │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
-│  antigravity:67da9cad9d70  ── agy        14 free (Gemini/Claude)│
 │  opencode:zen             ── opencode    4 free (hosted)        │
 │  openrouter:845a3f963b8a  ── opencode   27 free (OR key 1)     │
 │  openrouter:131083dc00f2  ── pi         13 free (OR key 2)     │
@@ -252,6 +251,7 @@ Using the actual registry state (8 lanes, 163 free models):
 │  nous:6b7db10dba77        ── hermes      7 free (Nous key)     │
 │  copilot:bbc7cfd0e9b0     ── copilot     1 (metered, last)     │
 │  cursor:eca81fa11190      ── cursor      1 (metered, last)     │
+│  antigravity:67da9cad9d70  ── agy        14 (metered, last)     │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 
@@ -356,18 +356,20 @@ SCENARIO: "Build a React dashboard with tests"
 │  1. Free lanes (unlimited)                                      │
 │     ┌─────────────────────────────────────────────────────┐    │
 │     │  kilo:anon, opencode:zen, openrouter:*, nous:*,     │    │
-│     │  antigravity:*, pi:*                                │    │
+│     │  pi:*                                               │    │
 │     └─────────────────────────────────────────────────────┘    │
 │                                                                 │
 │  2. Metered lanes (depleting)                                   │
 │     ┌─────────────────────────────────────────────────────┐    │
 │     │  copilot:bbc7cfd0e9b0 (200 credits, renews Oct 1)  │    │
 │     │  cursor:eca81fa11190 (metered)                     │    │
+│     │  antigravity:67da9cad9d70 (metered, weekly)         │    │
 │     └─────────────────────────────────────────────────────┘    │
 │                                                                 │
 │  Metered lanes are tried LAST, only when all free lanes are     │
-│  busy, cold, or exhausted. They cannot bill you — they stop     │
-│  when credits run out and renew monthly.                        │
+│  busy, cold, or exhausted. Copilot and cursor cannot bill you:  │
+│  they stop when credits run out and renew monthly. agy has      │
+│  weekly limits, and its pricing page makes no such promise.     │
 │                                                                 │
 │  --no-metered  → skip step 2 entirely                          │
 │  --allow-metered → force step 2 even if free lanes available   │
@@ -479,7 +481,7 @@ The **OpenRouter lane**. Pi backed by OpenRouter lists hundreds of models, and f
 
 ### agy (Antigravity)
 
-The **Google-quality lane** with 14 free models (Gemini, Claude, GPT-OSS). Uses Google OAuth — the adapter fingerprints the refresh token (stable) so token rotation doesn't create duplicate lanes. Uses `--add-dir` for containment. Useful when you want models from Google's ecosystem without managing an API key directly. The `--print` flag makes it non-interactive and script-friendly.
+The **Google-quality lane** with 14 models (Gemini, Claude, GPT-OSS). It is metered: Antigravity's $0 tier has weekly rate limits, so it is tried last, and `agy` publishes no balance to check. Uses Google OAuth — the adapter fingerprints the refresh token (stable) so token rotation doesn't create duplicate lanes. Uses `--add-dir` for containment. Useful when you want models from Google's ecosystem without managing an API key directly. The `--print` flag makes it non-interactive and script-friendly.
 
 ### copilot
 
@@ -634,7 +636,7 @@ fa dispatch         # same check, against a task graph you already wrote
 | hermes | `hermes` on PATH | `~/.hermes/auth.json` | Multi-provider (nous, kilo, etc.) |
 | copilot | `/usr/local/nodejs/bin/copilot` | GitHub OAuth | Metered (200 credits, renews monthly) |
 | cursor | `/usr/local/nodejs/bin/cursor-agent` | cursor status | Metered |
-| agy | `~/.local/bin/agy` | Google OAuth | 14+ free models (Gemini, Claude, GPT) |
+| agy | `~/.local/bin/agy` | Google OAuth | Metered (weekly limits; 14+ models: Gemini, Claude, GPT) |
 | pi | `/usr/local/nodejs/bin/pi` | `~/.pi/agent/auth.json` | OpenRouter-backed |
 
 ## Features
@@ -655,7 +657,7 @@ fa dispatch         # same check, against a task graph you already wrote
 | **Graph visualization** | Render the task graph as an ASCII diagram (`fa graph`, `fa plan --graph`) — verify the split before spending tokens |
 | **`when` conditional edges** | A task can run only if a completed dependency's reported result matches — a real branch in the task graph, not just a wait |
 | **Crash-safe resume** | Append-only journal; resume any run after interruption, without redispatching a task whose child from a killed process is still running |
-| **Metered lanes** | Auto-includes copilot/cursor when detected with credits, tried last |
+| **Metered lanes** | Auto-includes copilot/cursor/agy when detected with credits, tried last |
 | **Validation gate** | Optional post-build syntax check with auto-fix loop (`--validate`) |
 | **Project check & push mode** | The project's own check (`verify:`) after every run, a failure sent to a worker; `mode: push` takes the work to a branch, a pull request and CI, and CI's failures back to a worker |
 | **Handoffs** | Structured decisions + rejected + open block passed to dependents; no extra model call. A dependency that leaves no handoff gets a soft caution injected into its dependent's prompt instead of a silent gap |

@@ -478,7 +478,7 @@ case "$cmd" in
     # shape once during this project, and a wrong call shape is indistinguishable
     # from a dead model - it fails silently as "that model is broken". The rota
     # and the pins come from the adapter list, so a harness added there is
-    # version-checked without another edit. METERED lanes (copilot, cursor) are
+    # version-checked without another edit. METERED lanes (copilot, cursor, agy) are
     # now pinned too - they have real invocation shapes and spend-real allowance.
     echo "harnesses (${FA_AGENTS[*]})"
     found=0

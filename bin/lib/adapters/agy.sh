@@ -1,14 +1,19 @@
 # agy.sh - adapter for the Antigravity (Google) CLI.
 #
+# METERED: Antigravity's $0 tier has weekly rate limits, so this is a depleting
+# allowance, not an unlimited pool, and it is tried last. Its pricing page lists AI
+# credits only on the paid plans, but agy publishes no balance and, unlike copilot,
+# nothing here proves it stops rather than bills.
 # Identity: Antigravity uses Google OAuth. The token lives at
 #   ~/.gemini/antigravity-cli/antigravity-oauth-token
 # and rotates, so we fingerprint the refresh token (stable) or fall back to
 # the JWT subject claim from the id_token.
-# Models:   `agy models` - tab-separated id\tname, all free tier.
+# Models:   `agy models` - tab-separated id\tname. It reports no prices, so this
+#           adapter ASSUMES every model is free.
 # Invoke:   agy --print, contained with --add-dir when a workdir is given.
 
 FA_agy_BINARY="agy"
-FA_agy_METERED=0
+FA_agy_METERED=1
 FA_agy_VERIFIED_VERSION="1.5.0"
 FA_agy_VERSION_BIN="agy"
 
@@ -32,7 +37,7 @@ agy_identify() {
       [[ -n "$rt" ]] && fp_val="$(fp "$rt")"
     fi
   fi
-  printf 'agy\x1fantigravity\x1fantigravity\x1f%s\x1f%s\x1f{}\n' \
+  printf 'agy\x1fantigravity\x1fantigravity\x1f%s\x1f%s\x1f{"metered":true}\n' \
     "$fp_val" "agy:antigravity-cli"
 }
 
@@ -41,8 +46,8 @@ agy_models() { # -> model rows, agent-prefixed (see buckets.sh)
   local line id name
   while IFS=$'\t' read -r id name; do
     [[ -z "$id" || "$id" == "id" ]] && continue
-    # All agy models are free tier; format must match the 7-field TSV
-    # parser in buckets.sh: agent<TAB>provider<TAB>model_arg<TAB>upstream<TAB>free<TAB>context<TAB>max_output
+    # agy reports no prices, so every model is assumed free; format must match the
+    # 7-field TSV parser in buckets.sh: agent<TAB>provider<TAB>model_arg<TAB>upstream<TAB>free<TAB>context<TAB>max_output
     printf 'agy\tantigravity\t%s\t%s\ttrue\t0\t0\n' "$id" "$name"
   done < <(agy models 2>/dev/null | tail -n +1)
 }

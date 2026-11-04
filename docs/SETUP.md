@@ -37,8 +37,8 @@ each `bin/lib/adapters/<agent>.sh` as `FA_<agent>_VERIFIED_VERSION`:
 | hermes | 0.21.3 | | `-z`/`-m` are TOP-LEVEL flags, not `chat` args; needs `--provider` for non-active providers |
 | copilot | 1.0.86 | yes | allowance-based: auto-included once a token is detected, tried last; `FA_METERED=0/1` forces off/on |
 | cursor | 2026.09.18 | yes | allowance-based: auto-included once a token is detected, tried last; `FA_METERED=0/1` forces off/on |
-| agy | 1.2.16 | | `--add-dir` contains it, `--print` makes it non-interactive; it updates itself, so expect `differs` between re-verifications |
-| pi | 0.85.1 | | `--add-dir` contains it, `--print` makes it non-interactive |
+| agy | 1.2.16 | | `--add-dir` contains it, `--print` makes it non-interactive, and a real task needs `--dangerously-skip-permissions`: headless, it otherwise denies any command outside `settings.json`'s allow-list and exits 0; it updates itself, so expect `differs` between re-verifications |
+| pi | 1.4.0 (2026-11-04) | | has no `--add-dir`, so it is started in the workdir; `--print` makes it non-interactive |
 
 `fa doctor` warns if a version differs. These CLIs have already changed invocation
 shape once during this project (`hermes chat -m X -z P` was a usage error), and a
@@ -350,9 +350,67 @@ health is learned and stored globally, and why nothing that cannot be attributed
 | Provider changed its free-model list | `fa discover && fa probe` (daily cron handles this automatically) |
 | Installed an agent CLI in a new directory | `fa schedule` — the daily refresh only sees the `PATH` it was scheduled with |
 | `fa doctor`'s **daily refresh** section reports a problem | Do what that line says — usually `fa schedule` from the shell you run your agents in |
+| `fa doctor` says a wallet **is out** | `fa probe --bucket <id>`, or ask your coordinator to run it |
 
 `fa doctor` reports `current` / `STALE` / `aged:<days>` / `MISSING` — trust it over
 guessing.
+
+### When a wallet drops out
+
+If every model tried on a wallet times out or is dead, its health becomes
+`unresponsive`: it stops counting as a lane and gets no tasks. A single bad model
+never does this, and neither does a rate limit, a provider outage or your own
+network failing.
+
+It has no expiry, because a timer would put a dead wallet back in the lane count.
+One answer restores it, from any of:
+
+- the daily refresh, on its own, at its next run
+- `fa refresh`
+- `fa probe --bucket <id>`, which takes a few minutes at worst (up to 3 models, 90s
+  each)
+
+The catch: if a provider is down for every try during the daily refresh, a healthy
+wallet stays out until the next probe, up to a day. `fa doctor` and `fa lanes -v`
+both name a wallet that is out and give the recheck command, and the coordinator
+tells you when `fa doctor` reports one. You or the coordinator can run the probe;
+workers are refused, on purpose.
+
+### Permissions: running without approving every command
+
+You approve work at the task level: the coordinator offers options and you pick
+one. Below that, nobody has to be asked.
+
+| Who | What happens |
+|---|---|
+| Workers fa starts | Never prompt: kilo `--auto`, copilot `--allow-all`, cursor `-f`, hermes `--yolo`, and agy `--dangerously-skip-permissions` on real tasks (never on a probe). opencode and pi act without a flag. |
+| The coordinator, in its TUI | Follows that agent's own settings, so it may ask, even just to list a folder outside the project. This has nothing to do with root. Each agent has its own flag to stop that, such as `cursor-agent --force` or `hermes --yolo`. These remove that agent's checks completely. |
+| `sudo` inside a worker | Workers have no terminal, so a password prompt fails at once. The task fails instead of waiting. |
+
+**Do not start herdr or the agents as root.** Every process runs as the user that
+started it, so every worker and every command it runs would be root, with no prompt
+in the way. It also breaks this setup: `su` points `HOME` at `/root`, so the agents
+lose their logins and fa its registry, and root-owned files get in the way of later
+runs.
+
+When a task really needs root, allow exactly that command, with no password:
+
+```sh
+sudo visudo -f /etc/sudoers.d/free-agents
+```
+
+```
+youruser ALL=(root) NOPASSWD: /usr/bin/systemctl restart myapp
+```
+
+Keep that list short and exact, because some commands are full root in disguise:
+`apt-get install`, an editor, anything that can run other commands. The `docker`
+and `lxd` groups are too, once those services are installed.
+
+Workers still run as your user, so they can read what you can, including
+`~/.config/gh/hosts.yml` and the agents' keys, and what a worker reads can reach the
+provider behind its model. Keep a project in its own folder rather than in your home
+folder, and give each machine only the credentials its work needs.
 
 ### Is the daily refresh actually running?
 

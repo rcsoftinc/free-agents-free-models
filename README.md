@@ -247,7 +247,7 @@ Using the actual registry state (8 lanes, 163 free models):
 │  antigravity:67da9cad9d70  ── agy        14 free (Gemini/Claude)│
 │  opencode:zen             ── opencode    4 free (hosted)        │
 │  openrouter:845a3f963b8a  ── opencode   27 free (OR key 1)     │
-│  openrouter:131083dc00f2  ── pi         86 free (OR key 2)     │
+│  openrouter:131083dc00f2  ── pi         13 free (OR key 2)     │
 │  kilo:anon                ── kilo       23 free (no key)       │
 │  nous:6b7db10dba77        ── hermes      7 free (Nous key)     │
 │  copilot:bbc7cfd0e9b0     ── copilot     1 (metered, last)     │
@@ -269,7 +269,7 @@ SCENARIO: "Build a React dashboard with tests"
 │  ┌─────────────────────────────────────────────────────────┐   │
 │  │  STEP 2: DISPATCH (parallel where possible)             │   │
 │  │                                                         │   │
-│  │  Task A ──▶ openrouter:131083dc00f2 (pi, 86 models)    │   │
+│  │  Task A ──▶ openrouter:131083dc00f2 (pi, 13 models)    │   │
 │  │  Task B ──▶ opencode:zen (hosted, no credential)       │   │
 │  │  Task C ──▶ kilo:anon (23 models, no key)             │   │
 │  │                                                         │   │
@@ -431,6 +431,20 @@ stores no secrets) and prints your lane count when it's done — you do not
 need to run it separately. Skip this with `--no-bootstrap` if you want to
 review credentials first and bootstrap later by hand.
 
+**A wallet can drop out.** If no model on a wallet answers its probe, it stops
+counting as a lane and gets no tasks until one does. `fa doctor` and `fa lanes -v`
+name it, and the coordinator tells you. The daily refresh rechecks it; to recheck
+sooner, run `fa probe --bucket <id>` or ask your coordinator to. Details:
+[When a wallet drops out](docs/SETUP.md#when-a-wallet-drops-out).
+
+### Permissions
+
+You approve work at the task level, through the coordinator, and workers never
+stop to ask about a command. **Do not start herdr or the agents as root:** every
+worker and every command it runs would be root too. When a task really needs root,
+allow exactly that command in sudoers. Details:
+[Permissions](docs/SETUP.md#permissions-running-without-approving-every-command).
+
 ### First run
 
 If `setup.sh` flagged any accounts as not yet logged in and you want them,
@@ -461,7 +475,7 @@ The **multi-provider generalist**. It reaches Nous, Kilo gateway, OpenRouter, an
 
 ### pi
 
-The **high-volume lane**. Pi backed by OpenRouter gives you 353 models (86 free), making it the largest single bucket. It's a strong general-purpose worker: `--add-dir` containment, straightforward `--model` + `--print` invocation, standard OpenRouter catalog with clear context sizes. The sheer volume means when other lanes are busy or cold, pi almost always has capacity. Watch for: pi doesn't publish `:free` suffixes — the adapter detects `:free` and `:batch` variants.
+The **OpenRouter lane**. Pi backed by OpenRouter lists hundreds of models, and fa uses only the `:free` ones (13 when last checked). It's a strong general-purpose worker: it runs in the task's workdir (it has no `--add-dir`), straightforward `--model` + `--print` invocation, standard OpenRouter catalog with clear context sizes. Watch for: `:batch` models are a discounted paid tier, not free, so the adapter never treats them as free.
 
 ### agy (Antigravity)
 

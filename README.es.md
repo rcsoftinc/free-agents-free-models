@@ -247,7 +247,7 @@ Con el estado real del registro (8 carriles, 163 modelos gratis):
 │  antigravity:67da9cad9d70  ── agy        14 gratis (Gemini/Claude)│
 │  opencode:zen             ── opencode    4 gratis (hospedado)   │
 │  openrouter:845a3f963b8a  ── opencode   27 gratis (clave OR 1)  │
-│  openrouter:131083dc00f2  ── pi         86 gratis (clave OR 2)  │
+│  openrouter:131083dc00f2  ── pi         13 gratis (clave OR 2)  │
 │  kilo:anon                ── kilo       23 gratis (sin clave)   │
 │  nous:6b7db10dba77        ── hermes      7 gratis (clave Nous)  │
 │  copilot:bbc7cfd0e9b0     ── copilot     1 (medido, último)     │
@@ -269,7 +269,7 @@ ESCENARIO: "Construir un dashboard React con tests"
 │  ┌─────────────────────────────────────────────────────────┐   │
 │  │  PASO 2: ENVIAR (paralelo donde sea posible)            │   │
 │  │                                                         │   │
-│  │  Tarea A ──▶ openrouter:131083dc00f2 (pi, 86 modelos)  │   │
+│  │  Tarea A ──▶ openrouter:131083dc00f2 (pi, 13 modelos)  │   │
 │  │  Tarea B ──▶ opencode:zen (hospedado, sin credencial)  │   │
 │  │  Tarea C ──▶ kilo:anon (23 modelos, sin clave)        │   │
 │  │                                                         │   │
@@ -436,6 +436,22 @@ terminar — no necesitas ejecutarlo por separado. Omite esto con
 `--no-bootstrap` si prefieres revisar credenciales primero y arrancar el
 registro más tarde a mano.
 
+**Una billetera puede quedar fuera.** Si ningún modelo de una billetera responde a
+su sondeo, deja de contar como carril y no recibe tareas hasta que alguno responda.
+`fa doctor` y `fa lanes -v` la nombran, y el coordinador te avisa. El refresco diario
+la vuelve a comprobar; para hacerlo antes, ejecuta `fa probe --bucket <id>` o pídeselo
+a tu coordinador. Detalles (en inglés):
+[When a wallet drops out](docs/SETUP.md#when-a-wallet-drops-out).
+
+### Permisos
+
+Apruebas el trabajo a nivel de tarea, a través del coordinador, y los trabajadores
+nunca se detienen a preguntar por un comando. **No inicies herdr ni los agentes como
+root:** cada trabajador y cada comando que ejecute también sería root. Cuando una
+tarea de verdad necesite root, permite exactamente ese comando en sudoers. Detalles
+(en inglés):
+[Permissions](docs/SETUP.md#permissions-running-without-approving-every-command).
+
 ### Primera ejecución
 
 Si `setup.sh` marcó alguna cuenta como sin iniciar sesión y la quieres,
@@ -464,7 +480,7 @@ El **generalista multi-proveedor**. Alcanza Nous, Kilo gateway, OpenRouter, y ot
 
 ### pi
 
-El **carril de alto volumen**. Pi respaldado por OpenRouter te da 353 modelos (86 gratis), haciéndolo el bucket individual más grande. Es un trabajador de propósito general fuerte: contención `--add-dir`, invocación directa `--model` + `--print`, catálogo OpenRouter estándar con tamaños de contexto claros. El volumen puro significa que cuando otros carriles están ocupados o fríos, pi casi siempre tiene capacidad. Cuidado: pi no publica sufijos `:free` — el adaptador detecta variantes `:free` y `:batch`.
+El **carril de OpenRouter**. Pi respaldado por OpenRouter lista cientos de modelos, y fa usa solo los `:free` (13 en la última revisión). Es un trabajador de propósito general fuerte: corre en el directorio de la tarea (no tiene `--add-dir`), invocación directa `--model` + `--print`, catálogo OpenRouter estándar con tamaños de contexto claros. Cuidado: los modelos `:batch` son un nivel de pago con descuento, no gratuito, así que el adaptador nunca los trata como gratis.
 
 ### agy (Antigravity)
 

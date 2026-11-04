@@ -1600,9 +1600,10 @@ rather than by its reply:
 **agy gets `--dangerously-skip-permissions` on real tasks only**, on the user's
 decision, over an allow-list in `settings.json` that would also apply to its TUI. A
 probe has no workdir and only asks for text, so it gets no grant, and neither does
-the daily refresh. **Not yet proven on a real task:** Claude Code's permission check
-refused to launch agy with this flag, so that run is the user's to do. Its pin stays
-at 1.2.16 until then.
+the daily refresh. Proven on 1.4.12 by a real task the user ran, because Claude Code's permission
+check refuses to launch agy with this flag. Its pin moved with that run. That same run
+started agy's updater, so the machine was on 1.5.0 six seconds later and `fa doctor` reads
+`differs`, as it should: no real task has run on 1.5.0 yet.
 
 **A wallet that is out now gets reported.** `unresponsive` has no expiry, so `fa
 doctor` names the wallet and the recheck command, and `prompts/coordinator.md` tells

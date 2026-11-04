@@ -25,6 +25,15 @@ export STUB_CONC_DIR="$CONC" STUB_HOLD=2
 detach() { ( cd "$PROJ" && "$@" </dev/null 2>&1 ); }
 in_herdr() { HERDR_ENV=1 HERDR_PANE_ID=wT:p1 "$@"; }
 wait_rc() { local i; for ((i = 0; i < 150; i++)); do [[ -f "$PROJ/.orch/jobs/$1/rc" ]] && return 0; sleep 0.2; done; return 1; }
+# A job writes its rc BEFORE its last herdr calls, so an rc does not mean they are
+# over. Waiting on the rc alone let a slow CI runner log them after the next section
+# had cleared the log, and a job with herdr switched off appeared to have called it.
+wait_gone() {
+  local i pid
+  pid="$(cat "$PROJ/.orch/jobs/$1/pid" 2>/dev/null)"
+  for ((i = 0; i < 150; i++)); do kill -0 "$pid" 2>/dev/null || return 0; sleep 0.2; done
+  return 1
+}
 calls() { cat "$HERDR_STUB_LOG" 2>/dev/null; }
 
 # --- 1. outside herdr nothing changes -----------------------------------------
@@ -43,8 +52,7 @@ assert_contains "the pane splits from the caller's, keeping the user's focus" \
 assert_contains "the pane is named after the job" "$(calls)" "pane rename wT:p9 fa j2"
 assert_contains "the pane follows the job" "$(calls)" "pane run wT:p9 .*/bin/fa jobs --follow j2"
 assert_eq "the job knows its pane" "$(cat "$PROJ/.orch/jobs/j2/herdr_pane" 2>/dev/null)" "wT:p9"
-wait_rc j2
-sleep 0.3
+wait_rc j2; wait_gone j2
 assert_contains "the sidebar shows it working while it runs" \
   "$(calls)" "pane report-agent --source fa --agent fa --state working --message j2: fa run -b b0:fp0 inside --seq 1 wT:p9"
 assert_contains "and idle once it is done" \
@@ -61,7 +69,7 @@ assert_contains "a narrow or tall caller pane is split downward" "$(calls)" "pan
 # A failure is said as loudly as a success.
 : > "$HERDR_STUB_LOG"
 in_herdr detach "$FA" run --detach -b no-such:bucket "will fail" >/dev/null
-wait_rc j4; sleep 0.3
+wait_rc j4; wait_gone j4
 assert_ne "(that job did fail)" "$(cat "$PROJ/.orch/jobs/j4/rc" 2>/dev/null)" "0"
 assert_contains "a failed job's notification says so, and asks for attention" \
   "$(calls)" "notification show fa j4 FAILED rc=.* --sound request"
@@ -72,6 +80,7 @@ HERDR_STUB_FAIL=1 in_herdr detach "$FA" run --detach -b b0:fp0 "herdr down" >/de
 wait_rc j5
 assert_eq "with herdr failing, the job still completes" "$(cat "$PROJ/.orch/jobs/j5/rc" 2>/dev/null)" "0"
 assert_true "  ...just without a pane" '[[ ! -e "$PROJ/.orch/jobs/j5/herdr_pane" ]]'
+wait_gone j5
 : > "$HERDR_STUB_LOG"
 FA_HERDR=0 in_herdr detach "$FA" run --detach -b b0:fp0 "switched off" >/dev/null
 wait_rc j6

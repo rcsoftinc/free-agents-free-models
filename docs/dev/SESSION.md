@@ -1,6 +1,6 @@
 # SESSION STATE — read this first on resume
 
-**Last updated:** 2026-10-04
+**Last updated:** 2026-11-04
 
 ---
 
@@ -8,7 +8,7 @@
 
 **Complete, working, and proven on a real project.** Published (public) at
 `github.com/rcsoftinc/free-agents-free-models`. Full suite green:
-**882 assertions, 41 suites, offline** - and CI runs it on every push to master and
+**939 assertions, 45 suites, offline** - and CI runs it on every push to master and
 every pull request (GitHub Actions, Ubuntu 24.04 + 26.04).
 
 **It has built real software unattended.** All independently verified against what
@@ -113,7 +113,7 @@ data/model-seed.json      OPTIONAL cold-start opinion per model/category - hand-
 data/provider-notes.json  OPTIONAL ToS/evidence note per provider - same rules as model-seed.json
 prompts/          coordinator.md - the single pasted prompt
 skills/           skill cards, linked into the project by bootstrap
-test/             41 suites, a stub for every agent (and herdr), fixture registry - fully offline
+test/             45 suites, a stub for every agent (and herdr), fixture registry - fully offline
 ```
 
 ## Lanes on this machine
@@ -1537,3 +1537,86 @@ waited for until FA_CI_TIMEOUT, and a timeout never merges; "none" is left for
 repositories with no such workflow. test_push_mode (59) has the case: a PR
 workflow whose checks never show up - timeout, no merge, exit 1; without the
 fix it merged.
+
+## Fix: a frozen probe, paid models counted as free, a dead wallet counted as a lane (2026-11-03)
+
+All three surfaced on one fresh VPS install (Ubuntu 26.04), in one `setup.sh` run.
+
+**Agents froze with their timeout.** `setup.sh` sat on "probing wallets" for 25
+minutes with `timeout 90 agy` and `agy` both in state `T`. `timeout` puts its
+command in a background process group, so a command touching the terminal gets
+the group stopped - and this machine's `timeout` is uutils coreutils 0.8.0, which
+does not ignore those signals as GNU's does, so the limit freezes too. Reproduced
+with a stub (`stty sane </dev/tty`): a 4s limit still frozen at 9s. Fixed with
+`timeout_no_tty` (common.sh), which runs agents and verify commands under
+`setsid -w`, so opening `/dev/tty` just fails. `test_no_tty.sh` drives all seven
+adapters inside a real pty and fails on any bare `timeout` at those call sites.
+
+Not known: what real `agy` did to trigger it. It always opens `/dev/tty`, but
+strace of a healthy run under a pty showed no terminal ioctl and no stop, so the
+trigger is intermittent. The fix does not depend on it. Also ruled out: its log's
+`You are not logged into Antigravity` lines are startup noise, present in runs
+that answer `ok`. `hcall` (herdr) keeps its plain 5s timeout.
+
+**`:batch` counted as free.** Resolves the question left open in the 2026-10-03
+entry: OpenRouter's public `/api/v1/models` prices `:batch` at half rate, not zero
+(`claude-opus-5.5:batch`: $2/$10 per Mtok). `pi_models` counted all 40 as free and
+they came first in the wallet's chain; only their `dead` answers kept real tasks
+off them. Now `:free` only. That wallet went from `unknown` to `ok`, 53 listed
+free models to 13. `test_pi_free.sh`.
+
+**New health state: `unresponsive`.** A timeout or dead model blames only that
+model, so a wallet with nothing else stayed `unknown` and counted as a lane.
+`opencode:zen` did, after its free tier ended here. `cmd_probe` now sets the state
+when every model tried was `timeout` or `dead`. `rate_limited`, `provider_error`
+and `local_network` never set it: they mean the provider answered, or the fault
+was ours. `wallet_answered_pred` (common.sh) is the one definition, used by `fa
+lanes` and dispatch alike. `test_probe_unresponsive.sh`.
+
+Deliberate trade-off: it has no expiry, because a cooldown would put it back in the
+lane count. An answer from `fa probe --bucket ID`, `fa refresh` or the daily run
+restores it, so a provider outage across all tries at 03:00 can bench a healthy
+wallet for up to a day. `fa lanes -v` shows the state and the recheck command.
+
+**Seen, deliberately not acted on:** `setup.sh` runs `chmod +x` over `bin/lib/*.sh`,
+so `jobs.sh`, `keys.sh` and `quota.sh` show as mode changes after every install.
+
+## Fix: lanes that answered probes but could not work (2026-11-04)
+
+A probe only asks for text and sets no `FA_WORKDIR`. A real task sets it and runs
+commands, so a lane can pass every probe and fail every task. One harmless shell
+task through each free adapter's own invoke, checked by the file it had to create
+rather than by its reply:
+
+| Agent | Result |
+|---|---|
+| opencode 1.19.5, kilo, hermes | acted |
+| pi 1.4.0 | `Unknown option: --add-dir`, so **every real task failed**. Now started in the workdir, re-tested for real, pin moved to 1.4.0, and the stub refuses the flag as the real one does |
+| agy 1.4.12 | `no output produced ... headless mode cannot prompt ... auto-denied`, exit 0, and classify scored it **`ok`**. Now scored `dead` |
+| copilot, cursor | not run: a test spends their metered allowance. Their flags still appear in `--help` |
+
+`test_worker_unattended.sh` covers the launch shape of all seven.
+
+**agy gets `--dangerously-skip-permissions` on real tasks only**, on the user's
+decision, over an allow-list in `settings.json` that would also apply to its TUI. A
+probe has no workdir and only asks for text, so it gets no grant, and neither does
+the daily refresh. **Not yet proven on a real task:** Claude Code's permission check
+refused to launch agy with this flag, so that run is the user's to do. Its pin stays
+at 1.2.16 until then.
+
+**A wallet that is out now gets reported.** `unresponsive` has no expiry, so `fa
+doctor` names the wallet and the recheck command, and `prompts/coordinator.md` tells
+the coordinator to pass that on and offer the recheck. Documented in `docs/SETUP.md`
+and both READMEs, along with a new Permissions section: do not run as root, and allow
+exact commands in sudoers instead.
+
+**Free-only audit.** Every model marked free was priced against OpenRouter's public
+list: none of those it lists is paid, and pi's 13 are all there at zero. The rest are
+not on that list and rest on each CLI's own data: `cost` zero for opencode and kilo,
+`isFree` or zero pricing for hermes, and agy's are assumed free by its adapter.
+Copilot and cursor are monthly allowances, not free. Each `fa refresh` spends about
+one copilot credit (200 to 198 over two), so the daily run costs about 30 a month.
+
+**Next, if resuming:** a probe that makes one real tool call would have caught both
+of these lanes on day one. Not built, because it costs more than a text probe on
+every wallet.

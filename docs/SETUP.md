@@ -37,7 +37,7 @@ each `bin/lib/adapters/<agent>.sh` as `FA_<agent>_VERIFIED_VERSION`:
 | hermes | 0.21.3 | | `-z`/`-m` are TOP-LEVEL flags, not `chat` args; needs `--provider` for non-active providers |
 | copilot | 1.0.86 | yes | allowance-based: auto-included once a token is detected, tried last; `FA_METERED=0/1` forces off/on |
 | cursor | 2026.09.18 | yes | allowance-based: auto-included once a token is detected, tried last; `FA_METERED=0/1` forces off/on |
-| agy | 1.2.16 | | `--add-dir` contains it, `--print` makes it non-interactive, and a real task needs `--dangerously-skip-permissions`: headless, it otherwise denies any command outside `settings.json`'s allow-list and exits 0; it updates itself, so expect `differs` between re-verifications |
+| agy | 1.4.12 (2026-11-04) | | `--add-dir` contains it, `--print` makes it non-interactive, and a real task needs `--dangerously-skip-permissions`: headless, it otherwise denies any command outside `settings.json`'s allow-list and exits 0; it updates itself, so expect `differs` between re-verifications |
 | pi | 1.4.0 (2026-11-04) | | has no `--add-dir`, so it is started in the workdir; `--print` makes it non-interactive |
 
 `fa doctor` warns if a version differs. These CLIs have already changed invocation

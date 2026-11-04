@@ -42,6 +42,12 @@ classify_ex() { # $1=rc $2=output -> state<TAB>matched
     printf 'local_network\tyes\n'; return
   fi
 
+  # A worker its own agent refused did nothing, whatever it exits with: agy prints
+  # this and exits 0 when headless mode meets a tool it may not approve.
+  if printf '%s' "$t" | grep -qE 'headless mode cannot prompt'; then
+    printf 'dead\tyes\n'; return
+  fi
+
   # MODEL-SCOPE FIRST. These messages arrive carrying an HTTP status that belongs
   # to a different category - "HTTP 401: Model x-preview-f-free is not supported"
   # is a statement about one MODEL, not about the credential. Matching 401 first
@@ -196,6 +202,7 @@ classify_self_test() {
   _ct 0 "HTTP 404: This model's free period has ended. Please select a different model to continue!" dead || fails=1
   # (D2) a malformed invocation must not be mistaken for a dead model's fault
   _ct 2 "hermes: error: unrecognized arguments: list"          dead             || fails=1
+  _ct 0 "jetski: no output produced - a tool required the \"command\" permission that headless mode cannot prompt for" dead || fails=1
   _ct 124 ""                                                   timeout          || fails=1
   _ct 143 ""                                                   timeout          || fails=1
   # the store-protecting cases: ours, not theirs

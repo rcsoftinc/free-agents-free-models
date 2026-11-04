@@ -92,10 +92,10 @@ kilo_invoke() { # $1=model $2=provider $3=prompt ; echoes output, returns rc
   local model="$1" prompt="$3" rc=0 out=""
   local t="${INVOKE_TIMEOUT:-${ATTEMPT_TIMEOUT:-${PROBE_TIMEOUT:-300}}}"
   if [[ -n "${FA_WORKDIR:-}" ]]; then
-    out="$(timeout "$t" kilo run --dir "$FA_WORKDIR" -m "$model" --auto "$prompt" \
+    out="$(timeout_no_tty "$t" kilo run --dir "$FA_WORKDIR" -m "$model" --auto "$prompt" \
       </dev/null 2>&1)" || rc=$?
   else
-    out="$(timeout "$t" kilo run -m "$model" --auto "$prompt" </dev/null 2>&1)" || rc=$?
+    out="$(timeout_no_tty "$t" kilo run -m "$model" --auto "$prompt" </dev/null 2>&1)" || rc=$?
   fi
   printf '%s' "$out"
   return $rc

@@ -14,7 +14,7 @@ FA_cursor_VERSION_BIN="cursor-agent"
 cursor_identify() {
   command -v cursor-agent >/dev/null 2>&1 || return 0
   local ident="anon" who
-  who="$(timeout 20 cursor-agent status 2>/dev/null \
+  who="$(timeout_no_tty 20 cursor-agent status 2>/dev/null \
     | grep -oE '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+' | head -1 || true)"
   [[ -n "$who" ]] && ident="$(fp "$who")"
   printf 'cursor\x1fcursor\x1fcursor\x1f%s\x1f%s\x1f{"metered":true}\n' \
@@ -52,10 +52,10 @@ cursor_invoke() { # $1=model $2=provider $3=prompt ; echoes output, returns rc
   local t="${INVOKE_TIMEOUT:-${ATTEMPT_TIMEOUT:-${PROBE_TIMEOUT:-300}}}"
   # -f trusts the directory (it refuses to run headless otherwise).
   if [[ -n "${FA_WORKDIR:-}" ]]; then
-    out="$(cd "$FA_WORKDIR" && timeout "$t" cursor-agent -p "$prompt" \
+    out="$(cd "$FA_WORKDIR" && timeout_no_tty "$t" cursor-agent -p "$prompt" \
       --output-format text -f </dev/null 2>&1)" || rc=$?
   else
-    out="$(timeout "$t" cursor-agent -p "$prompt" --output-format text -f \
+    out="$(timeout_no_tty "$t" cursor-agent -p "$prompt" --output-format text -f \
       </dev/null 2>&1)" || rc=$?
   fi
   printf '%s' "$out"

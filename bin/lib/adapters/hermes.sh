@@ -157,18 +157,18 @@ hermes_invoke() { # $1=model $2=provider $3=prompt ; echoes output, returns rc
     # it - and HERMES_HOME keeps its config and credentials where they live.
     local henv=(env "HOME=$FA_WORKDIR" "HERMES_HOME=${HERMES_HOME:-$HOME/.hermes}")
     if [[ -n "$provider" ]]; then
-      out="$(timeout "$t" "${henv[@]}" hermes --provider "$provider" \
+      out="$(timeout_no_tty "$t" "${henv[@]}" hermes --provider "$provider" \
         -m "$model" --in "$FA_WORKDIR" --yolo -z "$prompt" </dev/null 2>&1)" || rc=$?
     else
-      out="$(timeout "$t" "${henv[@]}" hermes -m "$model" \
+      out="$(timeout_no_tty "$t" "${henv[@]}" hermes -m "$model" \
         --in "$FA_WORKDIR" --yolo -z "$prompt" </dev/null 2>&1)" || rc=$?
     fi
   else
     if [[ -n "$provider" ]]; then
-      out="$(timeout "$t" hermes --provider "$provider" -m "$model" -z "$prompt" \
+      out="$(timeout_no_tty "$t" hermes --provider "$provider" -m "$model" -z "$prompt" \
         </dev/null 2>&1)" || rc=$?
     else
-      out="$(timeout "$t" hermes -m "$model" -z "$prompt" </dev/null 2>&1)" || rc=$?
+      out="$(timeout_no_tty "$t" hermes -m "$model" -z "$prompt" </dev/null 2>&1)" || rc=$?
     fi
   fi
   printf '%s' "$out"

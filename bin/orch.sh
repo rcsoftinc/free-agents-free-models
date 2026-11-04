@@ -932,7 +932,7 @@ project_check() { # -> 1 only when the check fails and a worker could not fix it
   mkdir -p "$RESULTS"
   landed="$(done_since project_check | describe_tasks)"
   log "project check: \`${cmd}\`"
-  ( cd "$WORK" && timeout "$t" bash -c "$cmd" ) >"$logf" 2>&1 || rc=$?
+  ( cd "$WORK" && timeout_no_tty "$t" bash -c "$cmd" ) >"$logf" 2>&1 || rc=$?
   if [[ $rc -eq 0 ]]; then
     CHECK_RESULT=passed
     journal project_check - "result=passed" "cmd=${cmd}"

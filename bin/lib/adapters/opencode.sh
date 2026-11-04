@@ -64,10 +64,10 @@ opencode_invoke() { # $1=model $2=provider $3=prompt ; echoes output, returns rc
   local model="$1" prompt="$3" rc=0 out=""
   local t="${INVOKE_TIMEOUT:-${ATTEMPT_TIMEOUT:-${PROBE_TIMEOUT:-300}}}"
   if [[ -n "${FA_WORKDIR:-}" ]]; then
-    out="$(timeout "$t" opencode run --dir "$FA_WORKDIR" -m "$model" "$prompt" \
+    out="$(timeout_no_tty "$t" opencode run --dir "$FA_WORKDIR" -m "$model" "$prompt" \
       </dev/null 2>&1)" || rc=$?
   else
-    out="$(timeout "$t" opencode run -m "$model" "$prompt" </dev/null 2>&1)" || rc=$?
+    out="$(timeout_no_tty "$t" opencode run -m "$model" "$prompt" </dev/null 2>&1)" || rc=$?
   fi
   printf '%s' "$out"
   return $rc

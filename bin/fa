@@ -531,6 +531,11 @@ case "$cmd" in
         [[ "$n" -lt 1 ]] && { echo "  ERROR: no usable lane - check keys, then: fa refresh"; rc=1; }
         [[ "$n" -eq 1 ]] && echo "  note    only ONE lane: parallel work will not help; direct mode is correct" ;;
     esac
+    # An unresponsive wallet stays out until a probe answers, with no expiry, so
+    # someone has to hear about it. The coordinator passes this line on to the user.
+    while IFS= read -r id; do
+      printf '  note    %s is out: no model answered its last probe. Recheck: fa probe --bucket %s\n' "$id" "$id"
+    done < <(registry_read '.buckets[] | select(.health.state == "unresponsive") | .id' 2>/dev/null)
     held="$(coordinator_buckets | tr '\n' ' ')"
     [[ -n "$held" ]] && printf '  note    you are talking to %s: workers leave its wallet alone (%s)\n' \
       "$(coordinator_agent)" "${held% }"

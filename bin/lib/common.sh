@@ -24,6 +24,24 @@ log()  { printf '[%s] %s\n' "${LOG_TAG:-free-agents}" "$*" >&2; }
 die()  { printf '[%s] ERROR: %s\n' "${LOG_TAG:-free-agents}" "$*" >&2; exit 3; }
 have() { command -v "$1" >/dev/null 2>&1; }
 
+# timeout, with no controlling terminal. timeout runs its command in a background
+# process group, so a command touching the terminal gets the group stopped - and
+# uutils timeout (Ubuntu 26.04) is stopped with it, so its limit never fires. A
+# real agy probe froze setup.sh that way for 25 minutes. With no terminal, opening
+# /dev/tty just fails. -w because a session leader makes setsid fork, and without
+# it the caller would lose both the output and the exit code.
+timeout_no_tty() { # $1=seconds; then the command
+  if have setsid && setsid -w true 2>/dev/null; then
+    setsid -w timeout "$@"
+  else
+    timeout "$@"
+  fi
+}
+
+# jq: is the current bucket `.` allowed to count and be scheduled, given its last
+# liveness probe? One definition, because `fa lanes` and dispatch must agree.
+wallet_answered_pred() { printf '(.health.state != "unresponsive")'; }
+
 # Workers never dispatch. Every agent fa launches is a WORKER: adapter_invoke
 # hands it FA_DEPTH=1, which its shell commands inherit whichever of the seven
 # CLIs it is. Anything that would launch agents in turn refuses inside one.

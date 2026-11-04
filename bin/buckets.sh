@@ -111,7 +111,7 @@ blocked() {
 models_from_verbose() { # $1=cli  -> provider<TAB>model_arg<TAB>upstream<TAB>free
   local cli="$1" raw
   raw="${TEMP_DIR}/${cli}.verbose"
-  timeout 120 "$cli" models --verbose >"$raw" 2>/dev/null || return 0
+  timeout_no_tty 120 "$cli" models --verbose >"$raw" 2>/dev/null || return 0
   awk '/^[^ {}]/ {if (id!="") {print id "\x1f" buf; buf=""} id=$0; next} {buf=buf $0}
        END {if (id!="") print id "\x1f" buf}' "$raw" \
   | while IFS=$'\x1f' read -r id json; do
@@ -432,6 +432,15 @@ record_probe() { # $1=bucket $2=model_arg $3=state $4=ms
   ' "$REGISTRY" > "${REGISTRY}.tmp" && mv "${REGISTRY}.tmp" "$REGISTRY"
 }
 
+# Every model tried timed out or was dead, so nothing shows this wallet works.
+# One such model blames only itself (record_probe); all of them is a fact about
+# the wallet, which must not keep counting as a lane or get tasks. The next probe
+# that answers restores it: `fa probe --bucket ID`, `fa refresh`, or the daily run.
+mark_unresponsive() { # $1=bucket
+  log "$1: no model answered - not a lane until a probe does"
+  registry_txn '.buckets[$b].health.state = "unresponsive"' --arg b "$1"
+}
+
 # Free models of a bucket, reachable through its preferred agent, best-known first.
 candidates() { # $1=bucket_id
   jq -r --arg b "$1" '.buckets[$b] as $bk
@@ -456,13 +465,13 @@ cmd_probe() {
   done
   [[ -f "$REGISTRY" ]] || die "no registry; run: $0 discover"
 
-  local bids bid agent state ms live=0 tried model
+  local bids bid agent state ms live=0 tried silent model
   bids="$(jq -r --arg o "$only" '.buckets | keys[] | select($o == "" or . == $o)' "$REGISTRY")"
   [[ -n "$bids" ]] || die "no such bucket: $only"
 
   for bid in $bids; do
     agent="$(jq -r --arg b "$bid" '.buckets[$b].preferred_agent' "$REGISTRY")"
-    tried=0
+    tried=0; silent=0
     while IFS=$'\t' read -r model provider; do
       [[ -z "$model" ]] && continue
       if [[ $all -eq 0 && $tried -ge $LIVENESS_TRIES ]]; then break; fi
@@ -470,6 +479,7 @@ cmd_probe() {
       IFS=$'\t' read -r state ms < <(probe_one "$agent" "$model" "$provider")
       log "$(printf '%-26s %-8s %-46s %-14s %sms' "$bid" "$agent" "$model" "$state" "$ms")"
       record_probe "$bid" "$model" "$state" "$ms"
+      [[ "$state" == "timeout" || "$state" == "dead" ]] && silent=$((silent+1))
       if [[ "$state" == "ok" ]]; then
         live=1
         [[ $all -eq 0 ]] && break   # wallet proven; stop spending quota on it
@@ -481,6 +491,7 @@ cmd_probe() {
         break
       fi
     done < <(candidates "$bid")
+    if [[ $tried -gt 0 && $silent -eq $tried ]]; then mark_unresponsive "$bid"; fi
   done
 
   [[ $live -eq 1 ]] || { log "no bucket answered"; return 2; }
@@ -499,9 +510,10 @@ cmd_lanes() {
   for a in "$@"; do
     case "$a" in -v) verbose=1 ;; --workers) workers=1 ;; esac
   done
-  local now metered_include live res
+  local now metered_include answered live res
   now="$(now_epoch)"
   metered_include="$(metered_include_pred)"
+  answered="$(wallet_answered_pred)"
   res="$(coordinator_buckets_json)"
   # Single-quoted jq with the metered predicate injected as text and the
   # timestamp passed properly via --arg + ($now|tonumber), the same pattern
@@ -511,7 +523,7 @@ cmd_lanes() {
   # every string, so `.cooldown_until <= "<string>"` was true unconditionally,
   # regardless of how far in the future the cooldown actually was.
   live='. as $b |
-      ( ( '"$metered_include"' )
+      ( ( '"$metered_include"' ) and '"$answered"'
         and (($b.health.cooldown_until // 0) <= ($now|tonumber))
         and $b.health.state != "no_credits" and $b.health.state != "auth_error"
         and ([$b.models[] | select(.free)
@@ -526,14 +538,14 @@ cmd_lanes() {
       | . as $b
       | ([$b.models[] | select(.free)
           | select((.cooldown_until // 0) <= ($now|tonumber))] | length) as $usable
-      | ( ( '"$metered_include"' )
+      | ( ( '"$metered_include"' ) and '"$answered"'
          and (($b.health.cooldown_until // 0) <= ($now|tonumber))
          and $b.health.state != "no_credits" and $b.health.state != "auth_error"
          and $usable > 0) as $live
       | ([$b.models[] | select(.free and .suitable == false)] | group_by(.unsuitable_reason)
          | map("\(length) \(.[0].unsuitable_reason)") | join(" · ")) as $cut
       | ([$b.models[] | select(.free and .suitable != false)] | length) as $ok
-      | "  \(if $live then "LANE    " elif ($b.metered // false) then "metered " else "unusable" end) \($b.id)  \($b.preferred_agent)  \($ok) usable\(if $cut != "" then " (\($cut) filtered)" else "" end)  health=\($b.health.state)\(if ($b.tos == "caution" or $b.tos == "avoid") then "  [TOS:\($b.tos)]" else "" end)\(if ($b.id | IN($res[])) then "  [held for the coordinator]" else "" end)"' \
+      | "  \(if $live then "LANE    " elif ($b.metered // false) then "metered " else "unusable" end) \($b.id)  \($b.preferred_agent)  \($ok) usable\(if $cut != "" then " (\($cut) filtered)" else "" end)  health=\($b.health.state)\(if $b.health.state == "unresponsive" then "  (no model answered - recheck: fa probe --bucket \($b.id))" else "" end)\(if ($b.tos == "caution" or $b.tos == "avoid") then "  [TOS:\($b.tos)]" else "" end)\(if ($b.id | IN($res[])) then "  [held for the coordinator]" else "" end)"' \
       --arg now "$now" --argjson res "$res"
   else
     printf '%s\n' "$n"

@@ -70,10 +70,13 @@ agy_install() { # -> 0 if install was run (or already installed)
 agy_invoke() { # $1=model $2=provider $3=prompt ; echoes output, returns rc
   local model="$1" prompt="$3" rc=0 out=""
   local t="${INVOKE_TIMEOUT:-${ATTEMPT_TIMEOUT:-${PROBE_TIMEOUT:-300}}}"
+  # Nobody can approve anything on a real task, and headless agy denies any command
+  # outside settings.json's allow-list, does nothing and exits 0. A liveness probe has
+  # no workdir and only asks for text, so the daily refresh never gets this grant.
   if [[ -n "${FA_WORKDIR:-}" ]]; then
-    out="$(timeout "$t" agy --add-dir "$FA_WORKDIR" --model "$model" --print "$prompt" </dev/null 2>&1)" || rc=$?
+    out="$(timeout_no_tty "$t" agy --dangerously-skip-permissions --add-dir "$FA_WORKDIR" --model "$model" --print "$prompt" </dev/null 2>&1)" || rc=$?
   else
-    out="$(timeout "$t" agy --model "$model" --print "$prompt" </dev/null 2>&1)" || rc=$?
+    out="$(timeout_no_tty "$t" agy --model "$model" --print "$prompt" </dev/null 2>&1)" || rc=$?
   fi
   printf '%s' "$out"
   return $rc

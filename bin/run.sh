@@ -209,6 +209,7 @@ candidates() {
     | [ .buckets[]
       | select(($pin == "") or (.id == $pin))
       | select((.health.cooldown_until // 0) <= ($now|tonumber))
+      | select( '"$(wallet_answered_pred)"' )
       | select((.id | IN($ex[])) | not)
       # A metered wallet spends a small monthly allowance rather than an
       # unlimited free pool. In auto mode it appears only when a token was
@@ -353,6 +354,7 @@ explain_exclusions() {
           elif ($b.id | IN($ex[])) then "excluded via -x"
           elif ($b.health.state == "no_credits") then "bucket out of credits"
           elif ($b.health.state == "auth_error") then "bucket auth failing"
+          elif ($b.health.state == "unresponsive") then "bucket did not answer its probe"
           elif (($b.health.cooldown_until // 0) > ($now|tonumber)) then "bucket cooling down"
           elif (('"$metered_include"') | not) then "metered wallet excluded"
           elif ([$b.models[] | select(.free)] | length == 0) then "bucket has no free models"
@@ -570,7 +572,7 @@ validate_build() {
 # and with free models it is often not true.
 run_verify() { # -> 0 passed; otherwise prints how it failed: exit code + tail
   local o rc=0
-  o="$( cd "$WORKDIR" && timeout "$VERIFY_TIMEOUT" bash -c "$VERIFY_CMD" </dev/null 2>&1 )" || rc=$?
+  o="$( cd "$WORKDIR" && timeout_no_tty "$VERIFY_TIMEOUT" bash -c "$VERIFY_CMD" </dev/null 2>&1 )" || rc=$?
   [[ $rc -eq 0 ]] && return 0
   [[ $rc -eq 124 ]] && o+=$'\n'"(timed out after ${VERIFY_TIMEOUT}s)"
   printf 'exit %s\n%s\n' "$rc" "$(printf '%s\n' "$o" | tail -n "${FA_VERIFY_TAIL:-60}")"

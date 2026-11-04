@@ -2,13 +2,14 @@
 #
 # Identity: ~/.pi/agent/auth.json (api-key entries, e.g. openrouter, google).
 # Models:   `pi --list-models` - space-aligned columns with human-readable sizes.
-# Invoke:   pi --print, contained with --add-dir when a workdir is given.
+# Invoke:   pi --print, started in the workdir when one is given. pi 1.4.0 has no
+#           --add-dir and rejects it, which failed every real task.
 
 PI_AUTH="${PI_AUTH:-$HOME/.pi/agent/auth.json}"
 
 FA_pi_BINARY="pi"
 FA_pi_METERED=0
-FA_pi_VERIFIED_VERSION="0.85.1"
+FA_pi_VERIFIED_VERSION="1.4.0"
 FA_pi_VERSION_BIN="pi"
 
 # Convert human-readable sizes (1M, 128K) to numeric values
@@ -46,7 +47,10 @@ pi_models() { # -> model rows, agent-prefixed (see buckets.sh)
     [[ -z "$provider" || -z "$model" ]] && continue
     [[ "$model" =~ ^~ ]] && continue
     local free="false"
-    [[ "$model" =~ :free$ || "$model" =~ :batch$ ]] && free="true"
+    # :free only. OpenRouter's :batch is a half-price PAID tier (its public
+    # /api/v1/models lists claude-opus-5.5:batch at $2/$10 per Mtok), so counting
+    # it as free would let a task spend real money on the key.
+    [[ "$model" =~ :free$ ]] && free="true"
     ctx="$(parse_size "$ctx")"
     maxout="$(parse_size "$maxout")"
     printf 'pi\t%s\t%s\t%s\t%s\t%s\t%s\n' \
@@ -81,9 +85,9 @@ pi_invoke() { # $1=model $2=provider $3=prompt ; echoes output, returns rc
   local model="$1" prompt="$3" rc=0 out=""
   local t="${INVOKE_TIMEOUT:-${ATTEMPT_TIMEOUT:-${PROBE_TIMEOUT:-300}}}"
   if [[ -n "${FA_WORKDIR:-}" ]]; then
-    out="$(timeout "$t" pi --add-dir "$FA_WORKDIR" --model "$model" --print "$prompt" </dev/null 2>&1)" || rc=$?
+    out="$(cd "$FA_WORKDIR" && timeout_no_tty "$t" pi --model "$model" --print "$prompt" </dev/null 2>&1)" || rc=$?
   else
-    out="$(timeout "$t" pi --model "$model" --print "$prompt" </dev/null 2>&1)" || rc=$?
+    out="$(timeout_no_tty "$t" pi --model "$model" --print "$prompt" </dev/null 2>&1)" || rc=$?
   fi
   printf '%s' "$out"
   return $rc

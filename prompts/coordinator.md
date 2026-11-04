@@ -23,6 +23,10 @@ It checks the machine and reports the registry's state. Act on what it says:
   installed an agent since the registry was built, so a lane is invisible.
 - **`note ... days old`** — advisory only. Carry on; mention it once, do not
   refresh unless asked.
+- **`note ... is out: no model answered`** — that wallet gets no work until a
+  probe answers. Tell me which one, once, in one line, and offer to recheck it.
+  Run the `fa probe --bucket` command that line gives only when I say so: it can
+  take a few minutes. Workers cannot run it, so never hand it to one.
 - **`ok`** — carry on. Never re-bootstrap a healthy registry to "be safe": it
   costs the user two minutes and a request against every provider.
 

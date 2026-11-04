@@ -65,10 +65,10 @@ copilot_invoke() { # $1=model $2=provider $3=prompt ; echoes output, returns rc
   local t="${INVOKE_TIMEOUT:-${ATTEMPT_TIMEOUT:-${PROBE_TIMEOUT:-300}}}"
   # --allow-all is required for unattended use; --add-dir is what contains it.
   if [[ -n "${FA_WORKDIR:-}" ]]; then
-    out="$(timeout "$t" copilot -p "$prompt" --allow-all --add-dir "$FA_WORKDIR" \
+    out="$(timeout_no_tty "$t" copilot -p "$prompt" --allow-all --add-dir "$FA_WORKDIR" \
       </dev/null 2>&1)" || rc=$?
   else
-    out="$(timeout "$t" copilot -p "$prompt" --allow-all </dev/null 2>&1)" || rc=$?
+    out="$(timeout_no_tty "$t" copilot -p "$prompt" --allow-all </dev/null 2>&1)" || rc=$?
   fi
   printf '%s' "$out"
   return $rc

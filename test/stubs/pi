@@ -21,23 +21,34 @@ for a in "$@"; do
   prev="$a"
 done
 
+# Real pi 1.4.0 has no --add-dir and refuses it, so this must too: the old stub
+# accepted anything, which hid an adapter that failed every real task.
+for a in "$@"; do
+  if [[ "$a" == "--add-dir" ]]; then
+    printf 'Error: Unknown option: --add-dir\n'
+    exit 1
+  fi
+done
+
 # pi --version
 for a in "$@"; do
   if [[ "$a" == "--version" ]]; then
-    printf '0.85.1\n'
+    printf '1.4.0\n'
     exit 0
   fi
 done
 
 # `pi --list-models` - the adapter skips the header line and parses
 # space-aligned columns with human-readable sizes. Two free models (":free")
-# and one paid, to prove the free filter actually filters.
+# and two paid, one of them a discounted ":batch", to prove the free filter
+# actually filters.
 for a in "$@"; do
   if [[ "$a" == "--list-models" ]]; then
     printf 'provider    model                         context  max-out  thinking  images\n'
     printf 'openrouter  qwen/qwen3-coder:free         262K     65K      no        no\n'
     printf 'openrouter  deepseek/deepseek-r1:free     164K     65K      yes       no\n'
     printf 'openrouter  anthropic/claude-opus-paid    1M       128K     yes       yes\n'
+    printf 'openrouter  anthropic/claude-opus-5.5:batch  1M    128K     yes       yes\n'
     exit 0
   fi
 done

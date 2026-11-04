@@ -1620,3 +1620,10 @@ one copilot credit (200 to 198 over two), so the daily run costs about 30 a mont
 **Next, if resuming:** a probe that makes one real tool call would have caught both
 of these lanes on day one. Not built, because it costs more than a text probe on
 every wallet.
+
+**CI race, not a regression.** The first push of this work failed `test_herdr.sh` on
+26.04 ("FA_HERDR=0 keeps herdr out of it entirely"). A job writes its rc before its
+last herdr calls, so the suite could clear the log and then catch those late calls.
+Forcing that delay fails the same way on `d75dff5`, from before this work. The suite
+now waits for the job to exit (`wait_gone`) instead of sleeping and hoping. The rc
+order stays, so a hung herdr still cannot hold up a job's result.

@@ -1602,8 +1602,9 @@ decision, over an allow-list in `settings.json` that would also apply to its TUI
 probe has no workdir and only asks for text, so it gets no grant, and neither does
 the daily refresh. Proven on 1.4.12 by a real task the user ran, because Claude Code's permission
 check refuses to launch agy with this flag. Its pin moved with that run. That same run
-started agy's updater, so the machine was on 1.5.0 six seconds later and `fa doctor` reads
-`differs`, as it should: no real task has run on 1.5.0 yet.
+started agy's updater, so the machine was on 1.5.0 six seconds later and `fa doctor` read
+`differs`, as it should. The user then ran a real task on 1.5.0 the same day (first attempt,
+`--verify` passed, still 1.5.0 afterwards), and the pin moved to 1.5.0.
 
 **A wallet that is out now gets reported.** `unresponsive` has no expiry, so `fa
 doctor` names the wallet and the recheck command, and `prompts/coordinator.md` tells

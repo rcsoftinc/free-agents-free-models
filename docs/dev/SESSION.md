@@ -8,7 +8,7 @@
 
 **Complete, working, and proven on a real project.** Published (public) at
 `github.com/rcsoftinc/free-agents-free-models`. Full suite green:
-**939 assertions, 45 suites, offline** - and CI runs it on every push to master and
+**944 assertions, 45 suites, offline** - and CI runs it on every push to master and
 every pull request (GitHub Actions, Ubuntu 24.04 + 26.04).
 
 **It has built real software unattended.** All independently verified against what
@@ -1605,6 +1605,17 @@ check refuses to launch agy with this flag. Its pin moved with that run. That sa
 started agy's updater, so the machine was on 1.5.0 six seconds later and `fa doctor` read
 `differs`, as it should. The user then ran a real task on 1.5.0 the same day (first attempt,
 `--verify` passed, still 1.5.0 afterwards), and the pin moved to 1.5.0.
+
+**agy is metered now**, on the user's decision. Antigravity's pricing page (checked
+2026-11-04) lists a $0 tier with weekly rate limits and AI credits only on paid plans, so
+it is an allowance like copilot and cursor rather than an unlimited pool. Two declarations
+had to change: `FA_agy_METERED` for `fa doctor`, and `{"metered":true}` on the identity line
+for the registry and the scheduler. `test_metered.sh` now fails if they disagree. Still open:
+`agy models` reports no prices, so "free" remains an assumption; the page does not promise
+that the free tier stops rather than bills, as GitHub does for copilot. The account on this
+machine is a regular free Google account (the user's word, 2026-11-04), and a real task reached
+`claude-opus-4-6-thinking` on it, so Opus is available on that tier even though the page does
+not say so.
 
 **A wallet that is out now gets reported.** `unresponsive` has no expiry, so `fa
 doctor` names the wallet and the recheck command, and `prompts/coordinator.md` tells

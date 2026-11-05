@@ -449,9 +449,10 @@ a tu coordinador. Detalles (en inglés):
 
 Apruebas el trabajo a nivel de tarea, a través del coordinador, y los trabajadores
 nunca se detienen a preguntar por un comando. **No inicies herdr ni los agentes como
-root:** cada trabajador y cada comando que ejecute también sería root. Cuando una
-tarea de verdad necesite root, permite exactamente ese comando en sudoers. Detalles
-(en inglés):
+root:** cada trabajador y cada comando que ejecute también sería root. Los
+trabajadores no pueden usar `sudo`, así que cuando un trabajo de verdad necesite root,
+lo ejecutas tú, o el coordinador a partir de comandos exactos que permitas en sudoers.
+Detalles (en inglés):
 [Permissions](docs/SETUP.md#permissions-running-without-approving-every-command).
 
 ### Primera ejecución

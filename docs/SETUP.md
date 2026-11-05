@@ -385,7 +385,7 @@ one. Below that, nobody has to be asked.
 |---|---|
 | Workers fa starts | Never prompt: kilo `--auto`, copilot `--allow-all`, cursor `-f`, hermes `--yolo`, and agy `--dangerously-skip-permissions` on real tasks (never on a probe). opencode and pi act without a flag. |
 | The coordinator, in its TUI | Follows that agent's own settings, so it may ask, even just to list a folder outside the project. This has nothing to do with root. Each agent has its own flag to stop that, such as `cursor-agent --force` or `hermes --yolo`. These remove that agent's checks completely. |
-| `sudo` inside a worker | Workers have no terminal, so a password prompt fails at once. The task fails instead of waiting. |
+| `sudo` inside a worker | Refused, even by a rule that needs no password. fa starts workers, and the checks that run their code, with the kernel's `no_new_privs` flag, so the command fails at once instead of waiting. |
 
 **Do not start herdr or the agents as root.** Every process runs as the user that
 started it, so every worker and every command it runs would be root, with no prompt
@@ -393,7 +393,9 @@ in the way. It also breaks this setup: `su` points `HOME` at `/root`, so the age
 lose their logins and fa its registry, and root-owned files get in the way of later
 runs.
 
-When a task really needs root, allow exactly that command, with no password:
+When work really needs root, the coordinator runs it or you do. A worker can't, and
+a `verify` command or test that calls `sudo` fails for the same reason. For the
+coordinator, allow exactly that command, with no password:
 
 ```sh
 sudo visudo -f /etc/sudoers.d/free-agents
@@ -406,6 +408,29 @@ youruser ALL=(root) NOPASSWD: /usr/bin/systemctl restart myapp
 Keep that list short and exact, because some commands are full root in disguise:
 `apt-get install`, an editor, anything that can run other commands. The `docker`
 and `lxd` groups are too, once those services are installed.
+
+The flag keeps a worker from running `sudo` or any other setuid program, but it is
+not a security boundary. A worker runs as your user, so one that set out to get
+around it could have your user's systemd start a command for it (`systemd-run
+--user`) or edit a file you will run later, such as `~/.bashrc`. Only a separate
+Linux user would stop that. The flag also needs `setpriv`, from util-linux, so
+macOS and any Linux without it have no such block on `sudo`.
+
+**If you run `hermes-gateway.service`, give it the flag too.** `hermes -z` hands its
+work to the gateway for that home, so a hermes worker's commands run inside that
+service, not under the process fa started. A real task there reported `NoNewPrivs: 0`.
+This also takes `sudo` from everything else the gateway runs, such as requests from
+Telegram:
+
+```sh
+mkdir -p ~/.config/systemd/user/hermes-gateway.service.d
+printf '[Service]\nNoNewPrivileges=yes\n' \
+  > ~/.config/systemd/user/hermes-gateway.service.d/no-new-privs.conf
+systemctl --user daemon-reload && systemctl --user restart hermes-gateway
+```
+
+To check any lane, give it a real task that runs `grep NoNewPrivs /proc/self/status`
+and look for `1`. The test suite can't show this, because its stubs have no gateway.
 
 Workers still run as your user, so they can read what you can, including
 `~/.config/gh/hosts.yml` and the agents' keys, and what a worker reads can reach the

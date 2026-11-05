@@ -70,12 +70,14 @@ job_start() { # $1=tool root; rest = fa arguments to run detached -> prints the 
   now_epoch > "$dir/started_at"
   local coord; coord="$(coordinator_agent)"; coord="${coord:-none}"
   printf '%s\n' "$coord" > "$dir/coordinator"
-  # Inside herdr, a pane to watch it from - opened BEFORE the job starts, so
-  # the job already knows where to report its state (the herdr section below).
-  herdr_on && herdr_open_pane "$dir"
+  # Inside herdr, a tab to watch it from - opened BEFORE the job starts, so the
+  # job already knows where to report its state (herdr.sh).
+  herdr_on && herdr_open_job "$dir"
   local launch=(nohup); have setsid && launch=(setsid nohup)
+  # >>: agents' lines are appended to this log as well (FA_LIVE_LOG), and a plain >
+  # would write over them.
   ( FA_COORDINATOR="$coord" "${launch[@]}" "${root}/bin/fa" __job "$dir" "$@" \
-      </dev/null >"$dir/log" 2>&1 & )
+      </dev/null >>"$dir/log" 2>&1 & )
   printf '%s' "$id"
 }
 
@@ -85,6 +87,13 @@ job_run() { # $1=job dir; rest = fa arguments. The detached half of job_start.
   # Lets a command tell it is running as a background job: `fa dispatch` then
   # runs the plan whatever the split, since nobody is there to "work directly".
   export FA_JOB; FA_JOB="$(basename "$dir")"
+  # What agents print goes to the log, and so to the job's pane, as they print it.
+  # `fa run` writes its result to this same log, which would show it all twice; a
+  # dispatch keeps each result in its own file, and plans read theirs, so only
+  # `fa run` drops it.
+  export FA_LIVE_LOG="${dir}/log"
+  if [[ "${1:-}" == run ]]; then export FA_LIVE_SKIP_RESULT=1; fi
+  export FA_HERDR_VIEW="$dir"
   herdr_report "$dir" working
   local rc=0
   "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/fa" "$@" || rc=$?
@@ -156,7 +165,7 @@ job_show() { # $1=job id
   printf '  state:  %s (%s)\n' "$(job_state "$dir")" "$(job_elapsed "$dir")"
   [[ -f "$dir/rc" ]] && printf '  exit:   %s\n' "$(cat "$dir/rc")"
   printf '  log:    %s\n' "$dir/log"
-  [[ -s "$dir/herdr_pane" ]] && printf '  pane:   %s (herdr)\n' "$(cat "$dir/herdr_pane")"
+  [[ -s "$dir/herdr_tab" ]] && printf '  tab:    %s (herdr)\n' "$(cat "$dir/herdr_tab")"
   local c; c="$(cat "$dir/coordinator" 2>/dev/null || echo none)"
   [[ "$c" != none ]] && printf '  lanes:  started from %s, so its wallet is held back from this job\n' "$c"
   grep -q '^fa dispatch' "$dir/cmd" 2>/dev/null && echo "  tasks:  fa status"
@@ -165,13 +174,16 @@ job_show() { # $1=job id
 }
 
 jobs_clean() { # drop finished and dead jobs; a running one is never touched
-  local d n=0
+  local d p n=0
   while IFS= read -r d; do
     [[ -z "$d" ]] && continue
     case "$(job_state "$d")" in
       done|failed|died)
-        # Its herdr pane too - fa opened it, so fa may close it. Never any other.
-        [[ -s "$d/herdr_pane" ]] && herdr_on && hcall pane close "$(cat "$d/herdr_pane")" >/dev/null
+        # Its herdr tabs too - fa opened them, so fa may close them. Never any other.
+        # Closing a tab's only pane closes the tab.
+        for p in "$d/herdr_pane" "$d"/tasks/*/herdr_pane; do
+          [[ -s "$p" ]] && herdr_on && hcall pane close "$(cat "$p")" >/dev/null
+        done
         rm -rf "$d"; n=$((n+1)) ;;
     esac
   done <<<"$(jobs_all)"
@@ -223,15 +235,28 @@ job_started_msg() { # $1=job id
   local dir; dir="$(jobs_dir)/$1"
   echo "[fa] job $1 started in the background: $(cat "$dir/cmd")"
   echo "[fa]   follow it:  fa jobs $1        log: $dir/log"
-  [[ -s "$dir/herdr_pane" ]] && echo "[fa]   watching it in herdr pane $(cat "$dir/herdr_pane") - it says in the sidebar when it ends"
+  [[ -s "$dir/herdr_tab" ]] && echo "[fa]   watching it in herdr tab $(cat "$dir/herdr_tab") - it says in the sidebar when it ends"
   return 0
 }
 
-job_follow() { # $1=job id: stream its log until it ends, then say how it ended
+# One task's lines from a dispatch's log, without the prefix that names the task
+# (live_line, common.sh). What a task's herdr tab shows.
+job_task_lines() { # $1=task id; stdin = the log
+  local prefix="  [$1] " line
+  while IFS= read -r line; do
+    [[ "$line" == "$prefix"* ]] && printf '  %s\n' "${line#"$prefix"}"
+  done
+  return 0
+}
+
+# $1=job id [$2=task id, for only its lines]: stream the log until the job ends, then
+# say how it ended
+job_follow() {
   local dir; dir="$(jobs_dir)/$1"
   [[ -d "$dir" ]] || { echo "fa jobs: no job '$1' here - see: fa jobs" >&2; return 3; }
-  printf '[fa] job %s: %s\n\n' "$1" "$(cat "$dir/cmd" 2>/dev/null)"
-  local pid="" i
+  printf '[fa] job %s%s: %s\n\n' "$1" "${2:+, task $2}" "$(cat "$dir/cmd" 2>/dev/null)"
+  local pid="" i view=(cat)
+  [[ -z "${2:-}" ]] || view=(job_task_lines "$2")
   # The runner records its pid on its first line; a viewer can start first.
   for ((i = 0; i < 50; i++)); do
     pid="$(cat "$dir/pid" 2>/dev/null || true)"
@@ -239,62 +264,11 @@ job_follow() { # $1=job id: stream its log until it ends, then say how it ended
     sleep 0.1
   done
   if [[ -n "$pid" && ! -f "$dir/rc" ]]; then
-    tail -n +1 -f --pid="$pid" "$dir/log" 2>/dev/null || cat "$dir/log"
+    { tail -n +1 -f --pid="$pid" "$dir/log" 2>/dev/null || cat "$dir/log"; } | "${view[@]}"
   else
-    cat "$dir/log" 2>/dev/null
+    "${view[@]}" < "$dir/log" 2>/dev/null
   fi
   # rc is written just before the runner exits; give the file a moment.
   for ((i = 0; i < 20; i++)); do [[ -f "$dir/rc" ]] && break; sleep 0.1; done
   printf '\n[fa] job %s: %s after %s\n' "$1" "$(job_label "$dir")" "$(job_elapsed "$dir")"
-}
-
-# -------------------------------------------------------------------- herdr --
-# Inside herdr (HERDR_ENV=1, the herdr CLI on PATH), a background job also gets
-# a pane of its own beside the coordinator's: it streams the job's log (fa jobs
-# --follow), shows in herdr's sidebar as working and then idle, and a
-# notification says how it ended. A view and nothing more - the job runs exactly
-# as it does anywhere else, so closing its pane stops nothing - and every herdr
-# call is best-effort and time-boxed: herdr failing must never fail, or stall, a
-# job or the coordinator that started it. FA_HERDR=0 turns it all off.
-herdr_on() { [[ "${HERDR_ENV:-}" == 1 && "${FA_HERDR:-1}" != 0 ]] && have herdr; }
-
-# Its JSON on stdout, or nothing - within FA_HERDR_TIMEOUT seconds per call, so
-# a hung herdr server costs a detach a few seconds, never the coordinator.
-hcall() { timeout "${FA_HERDR_TIMEOUT:-5}" herdr "$@" 2>/dev/null; }
-
-herdr_open_pane() { # $1=job dir -> records the new pane in it, or nothing at all
-  local dir="$1" id w h dirn out pane
-  id="$(basename "$dir")"
-  # herdr's own layout rule: split a wide pane to the right, a narrow or tall
-  # one down - a terminal cell is about twice as tall as it is wide.
-  read -r w h < <(hcall pane layout --current \
-    | jq -r --arg p "${HERDR_PANE_ID:-}" '.result.layout.panes[]? | select(.pane_id == $p)
-                                           | "\(.rect.width) \(.rect.height)"' 2>/dev/null) || true
-  dirn=down
-  [[ "${w:-}" =~ ^[0-9]+$ && "${h:-}" =~ ^[0-9]+$ && "$w" -gt $(( h * 2 )) ]] && dirn=right
-  out="$(hcall pane split --current --direction "$dirn" --cwd "$PWD" --no-focus)" || return 0
-  pane="$(jq -r '.result.pane.pane_id // empty' <<<"$out" 2>/dev/null)"
-  [[ -n "$pane" ]] || return 0
-  printf '%s\n' "$pane" > "$dir/herdr_pane"
-  hcall pane rename "$pane" "fa $id" >/dev/null
-  hcall pane run "$pane" "$(printf '%q' "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/fa") jobs --follow $id" >/dev/null
-  return 0
-}
-
-herdr_report() { # $1=job dir $2=working|ended [$3=rc]: the sidebar, and the end
-  local dir="$1" pane id cmd verdict sound
-  herdr_on || return 0
-  pane="$(cat "$dir/herdr_pane" 2>/dev/null || true)"
-  id="$(basename "$dir")"; cmd="$(cat "$dir/cmd" 2>/dev/null)"
-  if [[ "$2" == working ]]; then
-    [[ -n "$pane" ]] && hcall pane report-agent --source fa --agent fa --state working \
-      --message "$id: $cmd" --seq 1 "$pane" >/dev/null
-    return 0
-  fi
-  verdict="done"; sound="done"
-  [[ "${3:-}" == 0 ]] || { verdict="FAILED rc=${3:-?}"; sound="request"; }
-  [[ -n "$pane" ]] && hcall pane report-agent --source fa --agent fa --state idle \
-    --message "$id $verdict" --seq 2 "$pane" >/dev/null
-  hcall notification show "fa $id $verdict" --body "$cmd" --sound "$sound" >/dev/null
-  return 0
 }

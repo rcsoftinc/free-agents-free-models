@@ -58,14 +58,16 @@ set -euo pipefail
 #   fa graph           render the current .orch/tasks.json as a diagram
 #   fa status          progress of the current project, background jobs included
 #   fa jobs [id]       this project's background jobs, or one in detail
-#                       --follow ID stream one job's log until it ends
+#                       --follow ID [TASK]  stream one job's log until it ends,
+#                                   or only that task's lines
 #                       --news      what ended since the last --news (each job
 #                                   once), then what still runs; silent when
 #                                   nothing did - the coordinator's per-turn check
-#                       --clean     drop the finished ones (and their herdr panes)
-#                      Inside herdr, each job also opens a pane of its own that
-#                      follows it, with its state in the sidebar and a
-#                      notification when it ends (FA_HERDR=0 turns that off)
+#                       --clean     drop the finished ones (and their herdr tabs)
+#                      Inside herdr, each job and each dispatched task also opens
+#                      a tab of its own that follows it, with the agent's name and
+#                      state in the sidebar and a notification when a job ends
+#                      (FA_HERDR=0 turns that off)
 #   fa resume          continue after any interruption
 #   fa update          git pull the tool
 #   fa analyze         read the journal, detect cross-task patterns
@@ -382,7 +384,7 @@ case "$cmd" in
     case "${1:-}" in
       "")       jobs_list ;;
       --clean)  jobs_clean ;;
-      --follow) job_follow "${2:-}" || exit $? ;;
+      --follow) job_follow "${2:-}" "${3:-}" || exit $? ;;
       --news)   jobs_news ;;
       *)       job_show "$1" || exit $? ;;
     esac

@@ -70,7 +70,9 @@ straight back to me - I can keep asking you things while it runs.
 5. **Looking in while it runs:** `.free-agents/bin/fa jobs <id>` shows its latest
    log lines, `.free-agents/bin/fa status` a dispatch's tasks. Never
    `fa jobs --follow` - that one waits until the job ends. (Inside herdr I can
-   watch each job in its own pane; you do not need to.)
+   watch each job, and each task of a dispatch, in its own tab; you do not need
+   to.) Those log lines include what the agent is printing and which files it has
+   changed, so use them when I ask what it is doing.
 
 fa keeps workers off the wallet you are running on, so our conversation never
 races a build into one rate limit. If I tell you to work in the foreground,

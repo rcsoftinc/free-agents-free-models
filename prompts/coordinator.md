@@ -126,6 +126,19 @@ it, the `blocked` field comes out and `fa resume` picks it up.
 **Ask me before you assume something is blocked** — and when I describe the
 project, ask me directly which parts depend on something I have not got yet.
 
+## When something needs root
+
+Workers cannot use `sudo`: fa starts them so that it refuses, even where no
+password is needed. Root work is yours or mine, so keep it out of a worker's task
+and out of its `verify`.
+
+- **What you may run:** check with `sudo -n -l`. Only lines marked `NOPASSWD`
+  count, each with exactly the arguments it lists. Run one as `sudo -n <command>`
+  when the work I gave you calls for it, and tell me what it reported.
+- **Anything else is mine to run:** put the work in a script in the project and
+  give me the one command to paste. Never ask for my password, and never look for
+  a way around a refusal.
+
 ## Working in an existing codebase
 
 A worker receives a string, not a repository. It cannot read the rest of the

@@ -30,11 +30,22 @@ have() { command -v "$1" >/dev/null 2>&1; }
 # real agy probe froze setup.sh that way for 25 minutes. With no terminal, opening
 # /dev/tty just fails. -w because a session leader makes setsid fork, and without
 # it the caller would lose both the output and the exit code.
+#
+# Every agent and every check runs through here, so this is also where they lose
+# sudo. no_new_privs is inherited by all they start and cannot be cleared, so a
+# NOPASSWD rule meant for the coordinator does nothing for a worker with its
+# approvals off. Checks get it too: they run code a worker just edited. Not a
+# security boundary (docs/SETUP.md says what gets around it), and absent where
+# setpriv is, such as macOS, because there is nothing to fall back on.
 timeout_no_tty() { # $1=seconds; then the command
+  local run=(timeout)
+  if have setpriv && setpriv --no-new-privs true 2>/dev/null; then
+    run=(setpriv --no-new-privs timeout)
+  fi
   if have setsid && setsid -w true 2>/dev/null; then
-    setsid -w timeout "$@"
+    setsid -w "${run[@]}" "$@"
   else
-    timeout "$@"
+    "${run[@]}" "$@"
   fi
 }
 

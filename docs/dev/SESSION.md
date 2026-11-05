@@ -1,6 +1,6 @@
 # SESSION STATE — read this first on resume
 
-**Last updated:** 2026-11-04
+**Last updated:** 2026-11-05
 
 ---
 
@@ -8,7 +8,7 @@
 
 **Complete, working, and proven on a real project.** Published (public) at
 `github.com/rcsoftinc/free-agents-free-models`. Full suite green:
-**944 assertions, 45 suites, offline** - and CI runs it on every push to master and
+**967 assertions, 46 suites, offline** - and CI runs it on every push to master and
 every pull request (GitHub Actions, Ubuntu 24.04 + 26.04).
 
 **It has built real software unattended.** All independently verified against what
@@ -113,7 +113,7 @@ data/model-seed.json      OPTIONAL cold-start opinion per model/category - hand-
 data/provider-notes.json  OPTIONAL ToS/evidence note per provider - same rules as model-seed.json
 prompts/          coordinator.md - the single pasted prompt
 skills/           skill cards, linked into the project by bootstrap
-test/             45 suites, a stub for every agent (and herdr), fixture registry - fully offline
+test/             46 suites, a stub for every agent (and herdr), fixture registry - fully offline
 ```
 
 ## Lanes on this machine
@@ -1640,3 +1640,37 @@ last herdr calls, so the suite could clear the log and then catch those late cal
 Forcing that delay fails the same way on `d75dff5`, from before this work. The suite
 now waits for the job to exit (`wait_gone`) instead of sleeping and hoping. The rc
 order stays, so a hung herdr still cannot hold up a job's result.
+
+## Feature: workers cannot use `sudo` (2026-11-05)
+
+A user gave their coordinator a short sudoers list with no password. Workers run as
+the same user with approvals off, so every worker got that list too. `timeout_no_tty`
+now starts its command with `setpriv --no-new-privs`. All agents and both kinds of
+check already go through it, and `test_no_tty.sh` fails on anything that goes around
+it. Checks get the flag because they run code a worker just edited. Where `setpriv` is
+missing or fails, the work still runs without the flag. The coordinator prompt says to
+read `sudo -n -l` and to hand anything else to the user as a script.
+
+**Real tasks found what the stubs could not.** One task per free agent wrote
+`grep NoNewPrivs /proc/self/status` to a file:
+
+| Agent | Flag | |
+|---|---|---|
+| kilo, opencode, pi | 1 | |
+| hermes | **0** | its commands ran in `hermes-gateway.service`, with the gateway as parent |
+| copilot, cursor | not run | a test spends their metered allowance |
+| agy | not run | Claude Code's permission check refuses to launch it with this flag |
+
+`hermes -z` always goes through the gateway for its home (`gateway_chat.py`), and
+there is no switch to run it in-process. A service that is already running is outside
+the worker's process tree, so nothing fa sets on the worker reaches those commands.
+fa can't fix that, so `docs/SETUP.md` gives the service a `NoNewPrivileges=yes`
+drop-in. On this machine that drop-in is written but only applies at the next restart,
+so the fix itself is **not yet confirmed**: rerun the real hermes task after it.
+
+**Not checked:** a gateway hermes starts for itself when no service is running; and
+whether fa's timeout stops a hermes command, or `HOME` contains it, since both also
+rest on the process tree. Recorded with `fa findings --note`.
+
+**Not a boundary.** `systemd-run --user` starts a process without the flag (tested),
+and a worker can edit `~/.bashrc`. Only a separate Linux user would stop those.

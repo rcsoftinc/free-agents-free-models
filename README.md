@@ -443,8 +443,9 @@ sooner, run `fa probe --bucket <id>` or ask your coordinator to. Details:
 
 You approve work at the task level, through the coordinator, and workers never
 stop to ask about a command. **Do not start herdr or the agents as root:** every
-worker and every command it runs would be root too. When a task really needs root,
-allow exactly that command in sudoers. Details:
+worker and every command it runs would be root too. Workers cannot use `sudo`, so
+when work really needs root, you run it, or the coordinator does from exact commands
+you allow in sudoers. Details:
 [Permissions](docs/SETUP.md#permissions-running-without-approving-every-command).
 
 ### First run

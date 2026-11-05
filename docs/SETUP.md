@@ -317,6 +317,47 @@ served which task on one machine; that is a property of that machine at that
 moment, not of the project, and committing it would conflict on every run while
 reproducing nothing.
 
+## 4b. What the machine and the project must provide
+
+Found while setting up a real project. Each of these fails without a clear error.
+
+**Workers and checks get the coordinator's `PATH`.** fa passes on the environment of
+the session that started it, so every tool a task or its `verify` needs has to be
+found there, without the setup an interactive shell does. Version managers are the
+usual trap: nvm puts its Node on the `PATH` only in shells that load `nvm.sh`, and a
+`node` symlinked into `~/.local/bin` for the agents comes before whatever `nvm use`
+picks. Check from the coordinator's own shell (`command -v pnpm`, `node --version`)
+before handing out work. When the project needs a different version from the agents,
+a small script on the `PATH` that puts the right one first works, and leaves the
+agents alone:
+
+```sh
+#!/bin/sh
+# ~/.local/bin/pnpm: pnpm, and everything it runs, on the project's Node.
+export PATH="$HOME/.nvm/versions/node/v24.22.2/bin:$PATH"
+exec pnpm "$@"
+```
+
+**Parallel tasks start without your untracked files.** When two or more tasks with
+separate files run at once in a git repo, each gets its own worktree, which holds
+only tracked files. Installed dependencies (`node_modules`, `.venv`), build output and
+`.env` are not there, so a task's `verify` has to install what it needs first, for
+example `pnpm install --frozen-lockfile && pnpm test -- parser`. Worktrees are reused,
+so the next task in the same slot finds them installed. A check that reads `.env`
+will not find one.
+
+**Push mode needs git itself to reach the remote.** fa pushes with plain `git push`,
+with prompts turned off, and `gh auth login` alone does not let git push over HTTPS.
+Run `gh auth setup-git` once per machine, or use an SSH remote. If a run may change
+anything under `.github/workflows/`, the token also needs the `workflow` scope
+(`gh auth refresh -h github.com -s workflow`): GitHub refuses the push without it.
+
+**Tabs need a coordinator started inside herdr.** fa opens a tab for each job only
+when its session runs in a herdr pane (`HERDR_ENV=1`, with the `herdr` CLI on the
+`PATH`). herdr is not a system service, so after a reboot, start herdr first and then
+the coordinator inside it. If `echo $HERDR_ENV` prints nothing in the coordinator's
+shell, jobs still run, just without tabs.
+
 ## 5. What "reproducible" does and does not mean here
 
 **Reproducible:** the tool, the install, the routing rules, the error taxonomy

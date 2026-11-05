@@ -1764,3 +1764,23 @@ lines and ended on `done`. A real `fa run --detach` opened `j1 kilo`, `working` 
 tab, task end not reported, task falling back on the job's view, fixed report numbers, tab
 taking focus, task view showing everything, `--clean` leaving task tabs, and a task marking
 the job's view ended.
+
+## Docs: what the machine and the project must provide (2026-11-05)
+
+Setting up a real project (a pnpm monorepo on a fresh Ubuntu VPS, with Claude Code as
+coordinator) turned up four requirements that no doc named. All four are now in
+`docs/SETUP.md` section 4b:
+
+- **`PATH`:** workers and checks inherit the coordinator's. Here `~/.local/bin/node`
+  pointed at the agents' Node 22, so `nvm use 24` had no effect, and the project's
+  Node 24 had to come in through a `pnpm` wrapper script.
+- **Worktrees:** a parallel task's copy holds tracked files only, so `verify` must
+  install dependencies. Read from `wt_pool_acquire` and `git worktree add` in orch.sh;
+  not yet seen in a real parallel run on this project.
+- **Push mode:** `GIT_TERMINAL_PROMPT=0 git push` fails with "could not read
+  Username" when git has no credential helper, even with `gh` logged in. GitHub also
+  refused a branch that added `.github/workflows/ci.yml` until the token had the
+  `workflow` scope. The 2026-10-06 trial passed because that machine already used gh's
+  credential helper.
+- **herdr:** not a service, so after a reboot the coordinator has to be started inside
+  it again, or jobs run without tabs.

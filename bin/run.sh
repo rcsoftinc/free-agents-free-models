@@ -572,7 +572,7 @@ validate_build() {
 # Exit 0 is the only thing that counts - an agent saying "done" is not evidence,
 # and with free models it is often not true.
 run_verify() { # -> 0 passed; otherwise prints how it failed: exit code + tail
-  local o rc=0
+  local o rc=0 _FA_LIVE_TAG=check
   o="$( cd "$WORKDIR" && timeout_no_tty "$VERIFY_TIMEOUT" bash -c "$VERIFY_CMD" </dev/null 2>&1 )" || rc=$?
   [[ $rc -eq 0 ]] && return 0
   [[ $rc -eq 124 ]] && o+=$'\n'"(timed out after ${VERIFY_TIMEOUT}s)"
@@ -819,7 +819,7 @@ for row in "${CHAIN[@]}"; do
     fi
     record "$bucket" "$model" "$agent" "$final" "$ms" "$out"
     lease_release
-    printf '%s\n' "$out"
+    [[ "${FA_LIVE_SKIP_RESULT:-}" == 1 ]] || printf '%s\n' "$out"
     printf '%s %s\n' '---RUN-META---' \
       "$(jq -cn --arg b "$bucket" --arg m "$model" --arg a "$agent" \
               --arg p "$provider" --argjson n "$attempt" --argjson ms "$ms" \

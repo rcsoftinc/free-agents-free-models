@@ -244,5 +244,10 @@ adapter_invoke() { # $1=agent; then (model provider prompt)
   # children see it, the caller's own value is back the moment this returns.
   local _d="${FA_DEPTH:-0}"; [[ "$_d" =~ ^[0-9]+$ ]] || _d=0
   local FA_DEPTH=$(( _d + 1 )); export FA_DEPTH
+  # Who is working, for a background job's log and tab (common.sh, herdr.sh). This
+  # all runs inside the caller's capture, so nothing here may print to stdout.
+  local _FA_LIVE_TAG="$agent"
+  [[ -z "${FA_LIVE_LOG:-}" ]] || live_line "(fa: starting, model ${1:-?})"
+  herdr_agent_working "$agent"
   "$fn" "$@"
 }

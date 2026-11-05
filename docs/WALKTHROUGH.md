@@ -264,7 +264,7 @@ Then the coordinator runs:
 ```
 [fa] job j1 started in the background: fa dispatch
 [fa]   follow it:  fa jobs j1        log: /home/you/linkbox/.orch/jobs/j1/log
-[fa]   watching it in herdr pane w1:p2 - it says in the sidebar when it ends
+[fa]   watching it in herdr tab w1:t2 - it says in the sidebar when it ends
 [fa]   tasks:      fa status
 [fa]   hands off these files until it ends: public/app.js public/index.html scripts/import-links.ts src/api.ts src/cli.ts src/store.ts
 ```
@@ -275,8 +275,9 @@ Its reply to you is one line, as its instructions require:
 > on you. Those six files are off-limits to both of us until it ends. What's
 > next?"*
 
-A pane opens to the right of yours. herdr split it that way because your pane
-is wide, and your cursor stays where it was. The new pane streams the job:
+A tab opens beside yours, and your cursor stays where it was. Each task opens one
+of its own as it starts, named for the task and the agent working on it. The
+plan's tab streams the job:
 
 ```
 [fa] SPLIT EVALUATION: tasks=5  disjoint_pair=true  lanes=7  trivial=0  -> ORCHESTRATE
@@ -293,7 +294,7 @@ is wide, and your cursor stays where it was. The new pane streams the job:
 
 Each worker gets its own copy of the repository (a git worktree), so three of
 them can write at once without touching each other's files. In herdr's sidebar,
-the new pane shows as **fa · working**.
+each task's tab shows the agent working on it, such as **opencode · working**.
 
 ## Chapter 7: 10:10. While it runs, you keep talking
 
@@ -661,7 +662,7 @@ gh pr checks --watch            # CI: all of the above, on every push
 - **Real, as printed today:** setup's output, the read-only default in a new
   project's config, the put-back and fix-round lines, the `fa status` notes,
   `fa doctor`, `fa dispatch
-  --detach` and its job messages, the herdr pane and its sidebar state and
+  --detach` and its job messages, the herdr tabs and their sidebar state and
   notification, `fa status` with `(verified)` and `WAITING`, `fa jobs --news`,
   the fix-round and rate-limit lines, worktree isolation, declared-files-only
   merges, blocked tasks, the journal replay that runs only the unblocked task,

@@ -89,7 +89,8 @@ bin/orch.sh       per-project task graph   init | run | status | resume
 bin/lib/adapters.sh   the agent roster (FA_AGENTS); one file per agent in adapters/
 bin/lib/classify.sh   the error taxonomy - has its own self-test
 bin/lib/schedule.sh   the daily refresh cron, and doctor's report on it
-bin/lib/jobs.sh       background jobs: fa run/dispatch --detach, fa jobs, herdr panes
+bin/lib/jobs.sh       background jobs: fa run/dispatch --detach, fa jobs
+bin/lib/herdr.sh      what jobs show inside herdr: a tab each, the agent's name and state
 ```
 
 ## Before you commit

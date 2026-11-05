@@ -570,6 +570,7 @@ run_task() { # $1=task id ; runs in a subshell as a background job
   local id="$1" prompt category out rc=0 meta before wt_slot=""
   # The project run lock belongs to the orchestrator alone (cmd_run).
   [[ -n "${RUN_LOCK_FD:-}" ]] && exec {RUN_LOCK_FD}>&-
+  herdr_open_task "$id"
   prompt="$(build_prompt "$id")"
   category="$(task_field "$id" category)"; category="${category:-coding}"
   out="${RESULTS}/${id}.out"; mkdir -p "$RESULTS"
@@ -928,7 +929,7 @@ project_check() { # -> 1 only when the check fails and a worker could not fix it
     log "project check: nothing landed since it last ran - skipped"
     return 0
   fi
-  local logf="${RESULTS}/_check.log" t="${FA_PROJECT_VERIFY_TIMEOUT:-1800}" rc=0 landed
+  local logf="${RESULTS}/_check.log" t="${FA_PROJECT_VERIFY_TIMEOUT:-1800}" rc=0 landed _FA_LIVE_TAG=check
   mkdir -p "$RESULTS"
   landed="$(done_since project_check | describe_tasks)"
   log "project check: \`${cmd}\`"
@@ -1421,7 +1422,8 @@ cmd_run() {
         RUNNING[$id]=dry; continue
       fi
       rm -f "${RESULTS}/${id}.leased"
-      run_task "$id" & PIDS[$id]=$!; RUNNING[$id]=1
+      { run_task "$id"; task_rc=$?; herdr_task_ended "$task_rc"; exit "$task_rc"; } &
+      PIDS[$id]=$!; RUNNING[$id]=1
       log "dispatch $id (pid ${PIDS[$id]})"
       progressed=1
     done <<<"$todo"

@@ -1784,3 +1784,19 @@ coordinator) turned up four requirements that no doc named. All four are now in
   credential helper.
 - **herdr:** not a service, so after a reboot the coordinator has to be started inside
   it again, or jobs run without tabs.
+
+## Contributors: fa commits as the project, and no co-authors (2026-11-07)
+
+GitHub lists every commit author as a contributor, so fa's `free-agents@localhost`
+identity showed up in projects it built, next to `root@<host>` commits and
+`Co-Authored-By` trailers. The owner asked for a single contributor:
+
+- **`fa_commit` (orch.sh)** commits with the project's own `user.name` and `user.email`;
+  the `fa: ` subject is what marks fa's commits. Only a repository with no identity at all
+  (a CI machine) gets `free-agents@localhost`, because git refuses to commit without one.
+  `test_worktree_merge.sh` asserts the project's identity.
+- **No co-author trailers** in this repo's commits (CLAUDE.md, working agreements).
+- History of this repo and of the NovoBanca project was rewritten on 2026-11-07 to drop
+  the trailers and map `free-agents@localhost`, `root@…` and the work email to
+  `rcsoft <rcsoft@gmail.com>`. Trees are byte-identical; commit ids changed, so an older
+  clone needs `git fetch && git reset origin/master`.

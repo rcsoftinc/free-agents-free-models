@@ -60,6 +60,9 @@ assert_contains "task a's commit is in the log" \
   "$(git -C "$PROJECT_DIR" log --format=%s)" "fa: a"
 assert_contains "task b's commit is in the log" \
   "$(git -C "$PROJECT_DIR" log --format=%s)" "fa: b"
+assert_eq "fa commits as the project's own identity, adding no contributor" \
+  "$(git -C "$PROJECT_DIR" log --format='%an <%ae> %cn <%ce>' | sort -u)" \
+  "test <test@test.test> test <test@test.test>"
 
 # The worktree POOL persists by design (see wt_pool_get in orch.sh) - a
 # sequentially-run dependency pair (b waits on a) only ever needs ONE lane,

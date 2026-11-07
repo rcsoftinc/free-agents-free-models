@@ -745,9 +745,7 @@ run_task() { # $1=task id ; runs in a subshell as a background job
         (
           flock -w 30 9 || { log "WARNING: merge lock timed out for $id - files copied but NOT committed, a later dependent task will not see them"; exit 1; }
           git -C "$WORK" add -A -- "${merged[@]}" >/dev/null 2>&1
-          GIT_AUTHOR_NAME="free-agents" GIT_AUTHOR_EMAIL="free-agents@localhost" \
-          GIT_COMMITTER_NAME="free-agents" GIT_COMMITTER_EMAIL="free-agents@localhost" \
-            git -C "$WORK" commit -q -m "fa: ${id}" -- "${merged[@]}" >/dev/null 2>&1
+          fa_commit -q -m "fa: ${id}" -- "${merged[@]}" >/dev/null 2>&1
         ) 9>"${ORCH_DIR}/.merge.lock" \
           && log "merged and committed $id changes from worktree" \
           || log "WARNING: $id changes were copied but the commit failed - a later dependent task may not see them; check ${ORCH_DIR}/.merge.lock contention or run 'git -C $WORK status'"
@@ -858,17 +856,32 @@ done_since() { # $1=event
   return 0
 }
 
-# Commit paths in the run's working tree as fa, under the merge lock the
-# worktree merges take - the same identity, so `git log` tells fa's commits
-# apart from yours.
+# A commit in the run's working tree under the project's own git identity, so
+# fa never adds a contributor the project didn't choose (GitHub lists every
+# author). The "fa: " subject is what tells fa's commits apart from yours. Only
+# a repository with no identity at all (a CI machine) gets fa's own, because
+# git refuses to commit without one.
+fa_commit() { # git commit arguments
+  local name email
+  name="$(git -C "$WORK" config user.name 2>/dev/null || true)"
+  email="$(git -C "$WORK" config user.email 2>/dev/null || true)"
+  if [[ -z "$name" || -z "$email" ]]; then
+    name="free-agents"
+    email="free-agents@localhost"
+  fi
+  GIT_AUTHOR_NAME="$name" GIT_AUTHOR_EMAIL="$email" \
+  GIT_COMMITTER_NAME="$name" GIT_COMMITTER_EMAIL="$email" \
+    git -C "$WORK" commit "$@"
+}
+
+# Commit paths in the run's working tree, under the merge lock the worktree
+# merges take.
 commit_work() { # $1=message, rest=paths
   local msg="$1"; shift
   (
     flock -w 30 9 || exit 1
     git -C "$WORK" add -A -- "$@" >/dev/null 2>&1
-    GIT_AUTHOR_NAME="free-agents" GIT_AUTHOR_EMAIL="free-agents@localhost" \
-    GIT_COMMITTER_NAME="free-agents" GIT_COMMITTER_EMAIL="free-agents@localhost" \
-      git -C "$WORK" commit -q -m "$msg" -- "$@" >/dev/null 2>&1
+    fa_commit -q -m "$msg" -- "$@" >/dev/null 2>&1
   ) 9>"${ORCH_DIR}/.merge.lock"
 }
 

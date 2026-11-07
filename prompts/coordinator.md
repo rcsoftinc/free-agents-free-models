@@ -70,7 +70,9 @@ straight back to me - I can keep asking you things while it runs.
 5. **Looking in while it runs:** `.free-agents/bin/fa jobs <id>` shows its latest
    log lines, `.free-agents/bin/fa status` a dispatch's tasks. Never
    `fa jobs --follow` - that one waits until the job ends. (Inside herdr I can
-   watch each job in its own pane; you do not need to.)
+   watch each job, and each task of a dispatch, in its own tab; you do not need
+   to.) Those log lines include what the agent is printing and which files it has
+   changed, so use them when I ask what it is doing.
 
 fa keeps workers off the wallet you are running on, so our conversation never
 races a build into one rate limit. If I tell you to work in the foreground,
@@ -125,6 +127,19 @@ it, the `blocked` field comes out and `fa resume` picks it up.
 
 **Ask me before you assume something is blocked** — and when I describe the
 project, ask me directly which parts depend on something I have not got yet.
+
+## When something needs root
+
+Workers cannot use `sudo`: fa starts them so that it refuses, even where no
+password is needed. Root work is yours or mine, so keep it out of a worker's task
+and out of its `verify`.
+
+- **What you may run:** check with `sudo -n -l`. Only lines marked `NOPASSWD`
+  count, each with exactly the arguments it lists. Run one as `sudo -n <command>`
+  when the work I gave you calls for it, and tell me what it reported.
+- **Anything else is mine to run:** put the work in a script in the project and
+  give me the one command to paste. Never ask for my password, and never look for
+  a way around a refusal.
 
 ## Working in an existing codebase
 

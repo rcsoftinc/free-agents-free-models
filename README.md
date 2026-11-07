@@ -244,7 +244,6 @@ Using the actual registry state (8 lanes, 163 free models):
 │  REGISTRY: 8 lanes, 163 free models                            │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
-│  antigravity:67da9cad9d70  ── agy        14 free (Gemini/Claude)│
 │  opencode:zen             ── opencode    4 free (hosted)        │
 │  openrouter:845a3f963b8a  ── opencode   27 free (OR key 1)     │
 │  openrouter:131083dc00f2  ── pi         13 free (OR key 2)     │
@@ -252,6 +251,7 @@ Using the actual registry state (8 lanes, 163 free models):
 │  nous:6b7db10dba77        ── hermes      7 free (Nous key)     │
 │  copilot:bbc7cfd0e9b0     ── copilot     1 (metered, last)     │
 │  cursor:eca81fa11190      ── cursor      1 (metered, last)     │
+│  antigravity:67da9cad9d70  ── agy        14 (metered, last)     │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 
@@ -356,18 +356,20 @@ SCENARIO: "Build a React dashboard with tests"
 │  1. Free lanes (unlimited)                                      │
 │     ┌─────────────────────────────────────────────────────┐    │
 │     │  kilo:anon, opencode:zen, openrouter:*, nous:*,     │    │
-│     │  antigravity:*, pi:*                                │    │
+│     │  pi:*                                               │    │
 │     └─────────────────────────────────────────────────────┘    │
 │                                                                 │
 │  2. Metered lanes (depleting)                                   │
 │     ┌─────────────────────────────────────────────────────┐    │
 │     │  copilot:bbc7cfd0e9b0 (200 credits, renews Oct 1)  │    │
 │     │  cursor:eca81fa11190 (metered)                     │    │
+│     │  antigravity:67da9cad9d70 (metered, weekly)         │    │
 │     └─────────────────────────────────────────────────────┘    │
 │                                                                 │
 │  Metered lanes are tried LAST, only when all free lanes are     │
-│  busy, cold, or exhausted. They cannot bill you — they stop     │
-│  when credits run out and renew monthly.                        │
+│  busy, cold, or exhausted. Copilot and cursor cannot bill you:  │
+│  they stop when credits run out and renew monthly. agy has      │
+│  weekly limits, and its pricing page makes no such promise.     │
 │                                                                 │
 │  --no-metered  → skip step 2 entirely                          │
 │  --allow-metered → force step 2 even if free lanes available   │
@@ -441,8 +443,9 @@ sooner, run `fa probe --bucket <id>` or ask your coordinator to. Details:
 
 You approve work at the task level, through the coordinator, and workers never
 stop to ask about a command. **Do not start herdr or the agents as root:** every
-worker and every command it runs would be root too. When a task really needs root,
-allow exactly that command in sudoers. Details:
+worker and every command it runs would be root too. Workers cannot use `sudo`, so
+when work really needs root, you run it, or the coordinator does from exact commands
+you allow in sudoers. Details:
 [Permissions](docs/SETUP.md#permissions-running-without-approving-every-command).
 
 ### First run
@@ -479,7 +482,7 @@ The **OpenRouter lane**. Pi backed by OpenRouter lists hundreds of models, and f
 
 ### agy (Antigravity)
 
-The **Google-quality lane** with 14 free models (Gemini, Claude, GPT-OSS). Uses Google OAuth — the adapter fingerprints the refresh token (stable) so token rotation doesn't create duplicate lanes. Uses `--add-dir` for containment. Useful when you want models from Google's ecosystem without managing an API key directly. The `--print` flag makes it non-interactive and script-friendly.
+The **Google-quality lane** with 14 models (Gemini, Claude, GPT-OSS). It is metered: Antigravity's $0 tier has weekly rate limits, so it is tried last, and `agy` publishes no balance to check. Uses Google OAuth — the adapter fingerprints the refresh token (stable) so token rotation doesn't create duplicate lanes. Uses `--add-dir` for containment. Useful when you want models from Google's ecosystem without managing an API key directly. The `--print` flag makes it non-interactive and script-friendly.
 
 ### copilot
 
@@ -523,7 +526,7 @@ fa jobs --clean         # drop the finished ones
 - **Hands off its files.** A detached dispatch prints the files its plan declares. Neither you nor the coordinator should edit them until the job ends.
 - **One run per project.** While a plan is running, a second `fa dispatch` or `fa resume` in that project is refused - two runs replaying one journal would each dispatch the same tasks. Detached `fa run` jobs are separate and can run side by side, one lane each.
 - **The coordinator keeps its own wallet.** fa finds which agent CLI it is running under (by walking up its own process tree) and keeps workers off every wallet that agent reaches - otherwise a worker and your conversation race one rate limit, and the coordinator starts failing mid-build. `fa lanes -v` and `fa doctor` show what is held back; the dispatch gate counts only the lanes left. If the coordinator's wallet is the only lane, it is shared rather than leaving work stuck. `FA_COORDINATOR=none` turns it off.
-- **Inside herdr, every job gets a pane.** When fa runs inside a herdr pane (`HERDR_ENV=1`), a detached job opens a pane beside the coordinator's - split to the right or down by herdr's own rule, your focus left where it was - that follows the job's log. The sidebar shows it `working`, then `done`, and a notification says how it ended (with herdr's attention sound on a failure). The pane is only a window: closing it stops nothing, and herdr being down or slow never fails or stalls a job (every call is time-boxed). `fa jobs --clean` closes the panes of finished jobs - only ones fa opened. `FA_HERDR=0` turns it off.
+- **Inside herdr, every job gets a tab.** When fa runs inside a herdr pane (`HERDR_ENV=1`), a detached job opens a tab that follows its log, your focus left where it was, and each task of a `fa dispatch` opens its own, showing only that task's lines. What an agent prints appears there as it prints it, and every few seconds fa adds the time spent and the files changed, which is all you get from a CLI that prints nothing until it ends (pi, hermes). The tab and the sidebar name the agent working there, `working` and then `done`, and a notification says how a job ended (with herdr's attention sound on a failure). fa supplies those names: agents run in the background with no terminal, so herdr can't recognize them itself, and you can't type to them. The tab is only a window: closing it stops nothing, and herdr being down or slow never fails or stalls a job (every call is time-boxed). `fa jobs --clean` closes the tabs of finished jobs - only ones fa opened. `FA_HERDR=0` turns it off.
 - **It outlives its caller.** A job runs in its own session with its own log, so an agent CLI that ends a shell call (or kills it) does not take the job down. A job that dies anyway - the machine went to sleep - shows as `DIED`, never as running.
 
 Small work is still faster done directly: a worker starts cold, on a free model, without this conversation. Detach what would otherwise keep you waiting.
@@ -634,7 +637,7 @@ fa dispatch         # same check, against a task graph you already wrote
 | hermes | `hermes` on PATH | `~/.hermes/auth.json` | Multi-provider (nous, kilo, etc.) |
 | copilot | `/usr/local/nodejs/bin/copilot` | GitHub OAuth | Metered (200 credits, renews monthly) |
 | cursor | `/usr/local/nodejs/bin/cursor-agent` | cursor status | Metered |
-| agy | `~/.local/bin/agy` | Google OAuth | 14+ free models (Gemini, Claude, GPT) |
+| agy | `~/.local/bin/agy` | Google OAuth | Metered (weekly limits; 14+ models: Gemini, Claude, GPT) |
 | pi | `/usr/local/nodejs/bin/pi` | `~/.pi/agent/auth.json` | OpenRouter-backed |
 
 ## Features
@@ -655,7 +658,7 @@ fa dispatch         # same check, against a task graph you already wrote
 | **Graph visualization** | Render the task graph as an ASCII diagram (`fa graph`, `fa plan --graph`) — verify the split before spending tokens |
 | **`when` conditional edges** | A task can run only if a completed dependency's reported result matches — a real branch in the task graph, not just a wait |
 | **Crash-safe resume** | Append-only journal; resume any run after interruption, without redispatching a task whose child from a killed process is still running |
-| **Metered lanes** | Auto-includes copilot/cursor when detected with credits, tried last |
+| **Metered lanes** | Auto-includes copilot/cursor/agy when detected with credits, tried last |
 | **Validation gate** | Optional post-build syntax check with auto-fix loop (`--validate`) |
 | **Project check & push mode** | The project's own check (`verify:`) after every run, a failure sent to a worker; `mode: push` takes the work to a branch, a pull request and CI, and CI's failures back to a worker |
 | **Handoffs** | Structured decisions + rejected + open block passed to dependents; no extra model call. A dependency that leaves no handoff gets a soft caution injected into its dependent's prompt instead of a silent gap |

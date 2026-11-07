@@ -18,7 +18,7 @@
 #       every executable whose presence means "this harness is installed".
 #       (cursor advertises both cursor-agent and cursor.)
 #   FA_<NAME>_METERED=0|1
-#       a metered lane spends a depleting MONTHLY ALLOWANCE rather than an
+#       a metered lane spends a depleting ALLOWANCE rather than an
 #       unlimited free pool; it is off unless FA_ALLOW_METERED=1 and tried last.
 #   FA_<NAME>_VERIFIED_VERSION="x.y.z"
 #       the invocation-shape pin that fa doctor asserts (these CLIs have already
@@ -115,7 +115,7 @@ adapters_installed() { # -> names of installed adapters, one per line
   done
 }
 
-adapter_metered() { # $1=agent -> "1" if a depleting monthly allowance
+adapter_metered() { # $1=agent -> "1" if a depleting allowance
   printf '%s' "$(adapter_field "$1" METERED)"
 }
 
@@ -144,7 +144,7 @@ metered_mode() { # -> auto|0|1 ; 0==off, 1==on, auto==detect-on-token
 # A helper because the auto rule mixes several fields:
 #   - metered wallet (flagged)  -> only with a detected token (credential_fp != "anon")
 #   - a published credit budget that says 0 left  -> invisible (spent)
-#   - no published credits (cursor, or copilot without gh) -> its "has a token"
+#   - no published credits (cursor, agy, or copilot without gh) -> its "has a token"
 #     check is the only signal we have, so a token means include.
 # The fragment is written against the bucket as `.` (not `$b`), so it can be
 # spliced directly into a jq program as `select( <fragment> )`.
@@ -156,7 +156,7 @@ metered_include_pred() { # -> jq boolean expr operating on the current bucket `.
       # auto: a metered wallet is a lane only when a token was actually detected
       # (credential_fp != "anon") AND its recorded allowance is not spent.
       # credits_remaining == 0 (the bucket reports zero left) is exhausted and
-      # drops off; null/absent (cursor, or copilot without gh) is "unknown" and
+      # drops off; null/absent (cursor, agy, or copilot without gh) is "unknown" and
       # stays in as long as a token was seen - spending nothing is worse than
       # one extra lane.
       printf '(((.metered // false) == false) or
@@ -244,5 +244,10 @@ adapter_invoke() { # $1=agent; then (model provider prompt)
   # children see it, the caller's own value is back the moment this returns.
   local _d="${FA_DEPTH:-0}"; [[ "$_d" =~ ^[0-9]+$ ]] || _d=0
   local FA_DEPTH=$(( _d + 1 )); export FA_DEPTH
+  # Who is working, for a background job's log and tab (common.sh, herdr.sh). This
+  # all runs inside the caller's capture, so nothing here may print to stdout.
+  local _FA_LIVE_TAG="$agent"
+  [[ -z "${FA_LIVE_LOG:-}" ]] || live_line "(fa: starting, model ${1:-?})"
+  herdr_agent_working "$agent"
   "$fn" "$@"
 }

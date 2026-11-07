@@ -563,7 +563,7 @@ cmd_show() {
       "   free models: \([$b.models[] | select(.free)] | length)   probed ok: \([$b.models[] | select(.probe.state=="ok")] | length)",
       (if ($b.limits | length) > 0 then "   limits: \($b.limits | to_entries | map("\(.key)=\(.value)") | join(" "))" else empty end),
       (if ($b.metered // false) then
-        "   METERED - a depleting monthly allowance, not an unlimited pool. In auto mode it counts as a lane only when a token was detected and credits remain; always tried last. FA_METERED=0 disables, =1 forces it."
+        "   METERED - a depleting allowance, not an unlimited pool. In auto mode it counts as a lane only when a token was detected and credits remain; always tried last. FA_METERED=0 disables, =1 forces it."
         + (if $b.meter.credits_remaining != null then
              "\n   credits: \($b.meter.credits_remaining)/\($b.meter.entitlement // $b.meter.credits_entitlement) - renews \($b.meter.renews // "?") - overage \(if $b.meter.overage_permitted then "PERMITTED" else "blocked (it stops, it cannot bill you)" end)"
            else "" end)

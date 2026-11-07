@@ -244,7 +244,6 @@ Con el estado real del registro (8 carriles, 163 modelos gratis):
 │  REGISTRO: 8 carriles, 163 modelos gratis                      │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
-│  antigravity:67da9cad9d70  ── agy        14 gratis (Gemini/Claude)│
 │  opencode:zen             ── opencode    4 gratis (hospedado)   │
 │  openrouter:845a3f963b8a  ── opencode   27 gratis (clave OR 1)  │
 │  openrouter:131083dc00f2  ── pi         13 gratis (clave OR 2)  │
@@ -252,6 +251,7 @@ Con el estado real del registro (8 carriles, 163 modelos gratis):
 │  nous:6b7db10dba77        ── hermes      7 gratis (clave Nous)  │
 │  copilot:bbc7cfd0e9b0     ── copilot     1 (medido, último)     │
 │  cursor:eca81fa11190      ── cursor      1 (medido, último)     │
+│  antigravity:67da9cad9d70  ── agy        14 (medido, último)    │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 
@@ -359,19 +359,21 @@ ESCENARIO: "Construir un dashboard React con tests"
 │  1. Carriles gratis (ilimitados)                                │
 │     ┌─────────────────────────────────────────────────────┐    │
 │     │  kilo:anon, opencode:zen, openrouter:*, nous:*,     │    │
-│     │  antigravity:*, pi:*                                │    │
+│     │  pi:*                                               │    │
 │     └─────────────────────────────────────────────────────┘    │
 │                                                                 │
 │  2. Carriles medidos (agotables)                                │
 │     ┌─────────────────────────────────────────────────────┐    │
 │     │  copilot:bbc7cfd0e9b0 (200 créditos, renueva oct 1)│    │
 │     │  cursor:eca81fa11190 (medido)                      │    │
+│     │  antigravity:67da9cad9d70 (medido, semanal)         │    │
 │     └─────────────────────────────────────────────────────┘    │
 │                                                                 │
 │  Los carriles medidos se intentan ÚLTIMOS, solo cuando todos    │
-│  los gratis están ocupados, fríos o agotados. No pueden         │
-│  facturarte — se detienen cuando se acaban los créditos y       │
-│  renuevan mensualmente.                                         │
+│  los gratis están ocupados, fríos o agotados. Copilot y cursor  │
+│  no pueden facturarte: se detienen al acabarse los créditos y   │
+│  renuevan mensualmente. agy tiene límites semanales, y su       │
+│  página de precios no promete lo mismo.                         │
 │                                                                 │
 │  --no-metered  → omitir paso 2 completamente                  │
 │  --allow-metered → forzar paso 2 aunque haya gratis disponibles│
@@ -447,9 +449,10 @@ a tu coordinador. Detalles (en inglés):
 
 Apruebas el trabajo a nivel de tarea, a través del coordinador, y los trabajadores
 nunca se detienen a preguntar por un comando. **No inicies herdr ni los agentes como
-root:** cada trabajador y cada comando que ejecute también sería root. Cuando una
-tarea de verdad necesite root, permite exactamente ese comando en sudoers. Detalles
-(en inglés):
+root:** cada trabajador y cada comando que ejecute también sería root. Los
+trabajadores no pueden usar `sudo`, así que cuando un trabajo de verdad necesite root,
+lo ejecutas tú, o el coordinador a partir de comandos exactos que permitas en sudoers.
+Detalles (en inglés):
 [Permissions](docs/SETUP.md#permissions-running-without-approving-every-command).
 
 ### Primera ejecución
@@ -484,7 +487,7 @@ El **carril de OpenRouter**. Pi respaldado por OpenRouter lista cientos de model
 
 ### agy (Antigravity)
 
-El **carril de calidad Google** con 14 modelos gratis (Gemini, Claude, GPT-OSS). Usa Google OAuth — el adaptador huella digital del token de actualización (estable) así que la rotación de tokens no crea carriles duplicados. Usa `--add-dir` para contención. Útil cuando quieres modelos del ecosistema de Google sin manejar una clave API directamente. La bandera `--print` lo hace no interactivo y amigable con scripts.
+El **carril de calidad Google** con 14 modelos (Gemini, Claude, GPT-OSS). Es medido: el nivel de $0 de Antigravity tiene límites semanales, así que se intenta último, y `agy` no publica un saldo que consultar. Usa Google OAuth — el adaptador huella digital del token de actualización (estable) así que la rotación de tokens no crea carriles duplicados. Usa `--add-dir` para contención. Útil cuando quieres modelos del ecosistema de Google sin manejar una clave API directamente. La bandera `--print` lo hace no interactivo y amigable con scripts.
 
 ### copilot
 
@@ -528,7 +531,7 @@ fa jobs --clean         # elimina los terminados
 - **No toques sus archivos.** Un dispatch en segundo plano imprime los archivos que declara su plan. Ni tú ni el coordinador deben editarlos hasta que el trabajo termine.
 - **Una ejecución por proyecto.** Mientras un plan corre, un segundo `fa dispatch` o `fa resume` en ese proyecto se rechaza - dos ejecuciones repitiendo un mismo journal enviarían las mismas tareas dos veces. Los trabajos de `fa run --detach` son independientes y pueden correr lado a lado, un carril cada uno.
 - **El coordinador conserva su propia billetera.** fa detecta bajo qué CLI de agente está corriendo (recorriendo hacia arriba su propio árbol de procesos) y mantiene a los trabajadores fuera de toda billetera que ese agente alcanza - si no, un trabajador y tu conversación compiten por el mismo límite de tasa, y el coordinador empieza a fallar a mitad de la construcción. `fa lanes -v` y `fa doctor` muestran qué se reserva; la puerta de dispatch cuenta solo los carriles restantes. Si la billetera del coordinador es el único carril, se comparte en vez de dejar el trabajo atascado. `FA_COORDINATOR=none` lo desactiva.
-- **Dentro de herdr, cada trabajo tiene su panel.** Cuando fa corre dentro de un panel de herdr (`HERDR_ENV=1`), un trabajo en segundo plano abre un panel junto al del coordinador - dividido a la derecha o hacia abajo según la propia regla de herdr, sin quitarte el foco - que sigue el log del trabajo. La barra lateral lo muestra `working` y luego `done`, y una notificación dice cómo terminó (con el sonido de atención de herdr si falla). El panel es solo una ventana: cerrarlo no detiene nada, y que herdr esté caído o lento nunca hace fallar ni bloquea un trabajo (cada llamada tiene tiempo límite). `fa jobs --clean` cierra los paneles de los trabajos terminados - solo los que abrió fa. `FA_HERDR=0` lo desactiva.
+- **Dentro de herdr, cada trabajo tiene su pestaña.** Cuando fa corre dentro de un panel de herdr (`HERDR_ENV=1`), un trabajo en segundo plano abre una pestaña que sigue su log, sin quitarte el foco, y cada tarea de un `fa dispatch` abre la suya, con solo las líneas de esa tarea. Lo que imprime un agente aparece ahí mientras lo imprime, y cada pocos segundos fa añade el tiempo transcurrido y los archivos cambiados, que es todo lo que verás de una CLI que no imprime nada hasta terminar (pi, hermes). La pestaña y la barra lateral nombran al agente que trabaja ahí, `working` y luego `done`, y una notificación dice cómo terminó un trabajo (con el sonido de atención de herdr si falla). Esos nombres los pone fa: los agentes corren en segundo plano sin terminal, así que herdr no puede reconocerlos por sí mismo, y no puedes escribirles. La pestaña es solo una ventana: cerrarla no detiene nada, y que herdr esté caído o lento nunca hace fallar ni bloquea un trabajo (cada llamada tiene tiempo límite). `fa jobs --clean` cierra las pestañas de los trabajos terminados - solo las que abrió fa. `FA_HERDR=0` lo desactiva.
 - **Sobrevive a quien lo lanzó.** Un trabajo corre en su propia sesión con su propio log, así que una CLI de agente que termina (o mata) una llamada de shell no se lo lleva. Un trabajo que muere de todos modos - la máquina se suspendió - aparece como `DIED`, nunca como corriendo.
 
 El trabajo pequeño sigue siendo más rápido hacerlo directamente: un trabajador arranca en frío, en un modelo gratuito, sin esta conversación. Envía al segundo plano lo que de otro modo te tendría esperando.
@@ -644,7 +647,7 @@ fa dispatch         # el mismo chequeo, contra un grafo de tareas que ya escribi
 | hermes | `hermes` en PATH | `~/.hermes/auth.json` | Multi-proveedor (nous, kilo, etc.) |
 | copilot | `/usr/local/nodejs/bin/copilot` | GitHub OAuth | Medido (200 créditos, renueva mensualmente) |
 | cursor | `/usr/local/nodejs/bin/cursor-agent` | estado de cursor | Medido |
-| agy | `~/.local/bin/agy` | Google OAuth | 14+ modelos gratis (Gemini, Claude, GPT) |
+| agy | `~/.local/bin/agy` | Google OAuth | Medido (límites semanales; 14+ modelos: Gemini, Claude, GPT) |
 | pi | `/usr/local/nodejs/bin/pi` | `~/.pi/agent/auth.json` | Respaldado por OpenRouter |
 
 ## Características
@@ -665,7 +668,7 @@ fa dispatch         # el mismo chequeo, contra un grafo de tareas que ya escribi
 | **Visualización de grafo** | Renderiza el grafo de tareas como diagrama ASCII (`fa graph`, `fa plan --graph`) — verifica la división antes de gastar tokens |
 | **Bordes condicionales `when`** | Una tarea puede correr solo si el resultado reportado de una dependencia completada coincide — una rama real en el grafo de tareas, no solo una espera |
 | **Resumen a prueba de caídas** | Registro de solo añadir; resume cualquier ejecución después de una interrupción, sin reenviar una tarea cuyo proceso hijo de una ejecución matada sigue vivo |
-| **Carriles medidos** | Auto-incluye copilot/cursor cuando se detectan con créditos, intentados últimos |
+| **Carriles medidos** | Auto-incluye copilot/cursor/agy cuando se detectan con créditos, intentados últimos |
 | **Puerta de verificación** | Verificación de sintaxis post-construcción opcional con bucle de auto-arreglo (`--validate`) |
 | **Verificación del proyecto y modo push** | La verificación propia del proyecto (`verify:`) tras cada ejecución, con un trabajador para un fallo; `mode: push` lleva el trabajo a una rama, un pull request y CI, y los fallos de CI de vuelta a un trabajador |
 | **Handoffs** | Bloque estructurado (decisions, rejected, open) pasado a dependientes; sin llamada de modelo extra. Una dependencia que no deja handoff hace que se inyecte una advertencia suave en el prompt de su dependiente, en vez de un vacío silencioso |

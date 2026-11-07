@@ -15,10 +15,11 @@ set -euo pipefail
 #   -w, --workdir DIR     run the agent in DIR (default: cwd)
 #   -b, --bucket ID       pin to one bucket (used by the scheduler to hold a lane)
 #   -x, --exclude ID      skip a bucket (repeatable)
-#       --allow-metered   force-include metered wallets (copilot, cursor). They
-#                         spend a small MONTHLY ALLOWANCE, not money - GitHub
-#                         reports overage_permitted:false, so they stop rather
-#                         than bill. Default (FA_METERED=auto) is to include them
+#       --allow-metered   force-include metered wallets (copilot, cursor, agy).
+#                         They spend a small ALLOWANCE (agy's is weekly, the
+#                         others monthly) - GitHub reports overage_permitted:false,
+#                         so copilot stops rather than bills. Default
+#                         (FA_METERED=auto) is to include them
 #                         only when a token was detected and credits remain.
 #                         When included they are tried LAST.
 #       --no-metered      force-exclude metered wallets (FA_METERED=0)
@@ -211,7 +212,7 @@ candidates() {
       | select((.health.cooldown_until // 0) <= ($now|tonumber))
       | select( '"$(wallet_answered_pred)"' )
       | select((.id | IN($ex[])) | not)
-      # A metered wallet spends a small monthly allowance rather than an
+      # A metered wallet spends a small allowance rather than an
       # unlimited free pool. In auto mode it appears only when a token was
       # detected and credits are not spent; it still sorts LAST (below) and is
       # marked, so it never crowds out genuinely free capacity.
@@ -571,7 +572,7 @@ validate_build() {
 # Exit 0 is the only thing that counts - an agent saying "done" is not evidence,
 # and with free models it is often not true.
 run_verify() { # -> 0 passed; otherwise prints how it failed: exit code + tail
-  local o rc=0
+  local o rc=0 _FA_LIVE_TAG=check
   o="$( cd "$WORKDIR" && timeout_no_tty "$VERIFY_TIMEOUT" bash -c "$VERIFY_CMD" </dev/null 2>&1 )" || rc=$?
   [[ $rc -eq 0 ]] && return 0
   [[ $rc -eq 124 ]] && o+=$'\n'"(timed out after ${VERIFY_TIMEOUT}s)"
@@ -818,7 +819,7 @@ for row in "${CHAIN[@]}"; do
     fi
     record "$bucket" "$model" "$agent" "$final" "$ms" "$out"
     lease_release
-    printf '%s\n' "$out"
+    [[ "${FA_LIVE_SKIP_RESULT:-}" == 1 ]] || printf '%s\n' "$out"
     printf '%s %s\n' '---RUN-META---' \
       "$(jq -cn --arg b "$bucket" --arg m "$model" --arg a "$agent" \
               --arg p "$provider" --argjson n "$attempt" --argjson ms "$ms" \

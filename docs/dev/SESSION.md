@@ -8,7 +8,7 @@
 
 **Complete, working, and proven on a real project.** Published (public) at
 `github.com/rcsoftinc/free-agents-free-models`. Full suite green:
-**942 assertions, 45 suites, offline** - and CI runs it on every push to master and
+**1033 assertions, 47 suites, offline** - and CI runs it on every push to master and
 every pull request (GitHub Actions, Ubuntu 24.04 + 26.04).
 
 **It has built real software unattended.** All independently verified against what
@@ -108,12 +108,12 @@ bin/buckets.sh    credential registry      lanes | discover | probe | show | pro
 bin/run.sh        dispatch engine          fallback chain, bucket lease, breaker, agent/harness ranking, exclusion trace
 bin/plan.sh       goal -> task graph       planning itself has fallback, rejects malformed graphs locally
 bin/orch.sh       per-project task graph   run | status | resume (journal replay), "when" conditional edges
-bin/lib/          common.sh, deps.sh, adapters.sh, classify.sh, quota.sh, schedule.sh, jobs.sh + adapters/ (one file per harness)
+bin/lib/          common.sh, deps.sh, adapters.sh, classify.sh, quota.sh, schedule.sh, jobs.sh, herdr.sh + adapters/ (one file per harness)
 data/model-seed.json      OPTIONAL cold-start opinion per model/category - hand-edit or delete, nothing breaks
 data/provider-notes.json  OPTIONAL ToS/evidence note per provider - same rules as model-seed.json
 prompts/          coordinator.md - the single pasted prompt
 skills/           skill cards, linked into the project by bootstrap
-test/             45 suites, a stub for every agent (and herdr), fixture registry - fully offline
+test/             47 suites, a stub for every agent (and herdr), fixture registry - fully offline
 ```
 
 ## Lanes on this machine
@@ -1602,8 +1602,20 @@ decision, over an allow-list in `settings.json` that would also apply to its TUI
 probe has no workdir and only asks for text, so it gets no grant, and neither does
 the daily refresh. Proven on 1.4.12 by a real task the user ran, because Claude Code's permission
 check refuses to launch agy with this flag. Its pin moved with that run. That same run
-started agy's updater, so the machine was on 1.5.0 six seconds later and `fa doctor` reads
-`differs`, as it should: no real task has run on 1.5.0 yet.
+started agy's updater, so the machine was on 1.5.0 six seconds later and `fa doctor` read
+`differs`, as it should. The user then ran a real task on 1.5.0 the same day (first attempt,
+`--verify` passed, still 1.5.0 afterwards), and the pin moved to 1.5.0.
+
+**agy is metered now**, on the user's decision. Antigravity's pricing page (checked
+2026-11-04) lists a $0 tier with weekly rate limits and AI credits only on paid plans, so
+it is an allowance like copilot and cursor rather than an unlimited pool. Two declarations
+had to change: `FA_agy_METERED` for `fa doctor`, and `{"metered":true}` on the identity line
+for the registry and the scheduler. `test_metered.sh` now fails if they disagree. Still open:
+`agy models` reports no prices, so "free" remains an assumption; the page does not promise
+that the free tier stops rather than bills, as GitHub does for copilot. The account on this
+machine is a regular free Google account (the user's word, 2026-11-04), and a real task reached
+`claude-opus-4-6-thinking` on it, so Opus is available on that tier even though the page does
+not say so.
 
 **A wallet that is out now gets reported.** `unresponsive` has no expiry, so `fa
 doctor` names the wallet and the recheck command, and `prompts/coordinator.md` tells
@@ -1629,17 +1641,146 @@ Forcing that delay fails the same way on `d75dff5`, from before this work. The s
 now waits for the job to exit (`wait_gone`) instead of sleeping and hoping. The rc
 order stays, so a hung herdr still cannot hold up a job's result.
 
-## Fix: a run that passed exited 141 as FAILED (2026-11-07)
+## Feature: workers cannot use `sudo` (2026-11-05)
 
-Found on a real project: every run with more than 12 lines of new findings ended
-`FAILED rc=141`, though its tasks and the project check had passed. The end-of-run
-summary was `findings_show new | sed | head -12` under `set -euo pipefail`. Once head
-had its 12 lines it closed the pipe, the next write killed sed with SIGPIPE, and the
-pipeline's 141 ended the script before its last line. The log showed the cut-off list
-and no "review with" line after it.
+A user gave their coordinator a short sudoers list with no password. Workers run as
+the same user with approvals off, so every worker got that list too. `timeout_no_tty`
+now starts its command with `setpriv --no-new-privs`. All agents and both kinds of
+check already go through it, and `test_no_tty.sh` fails on anything that goes around
+it. Checks get the flag because they run code a worker just edited. Where `setpriv` is
+missing or fails, the work still runs without the flag. The coordinator prompt says to
+read `sudo -n -l` and to hand anything else to the user as a script.
 
-`findings_brief` (findings.sh) now captures the whole list and cuts it with awk, which
-reads to the end. `survey` in plan.sh had the same shape (`find | sed | head -60`) on
-repositories with more than 60 files, and now ends in `awk 'NR <= 60'`. The test stubs
-`findings_show` to write one line per call, so the old pipeline fails every time
-rather than by timing: with the real 12 KB findings store it failed only sometimes.
+**Real tasks found what the stubs could not.** One task per free agent wrote
+`grep NoNewPrivs /proc/self/status` to a file:
+
+| Agent | Flag | |
+|---|---|---|
+| kilo, opencode, pi | 1 | |
+| hermes | **0** | its commands ran in `hermes-gateway.service`, with the gateway as parent |
+| copilot, cursor | not run | a test spends their metered allowance |
+| agy | not run | Claude Code's permission check refuses to launch it with this flag |
+
+`hermes -z` always goes through the gateway for its home (`gateway_chat.py`), and
+there is no switch to run it in-process. A service that is already running is outside
+the worker's process tree, so nothing fa sets on the worker reaches those commands.
+fa can't fix that, so `docs/SETUP.md` gives the service a `NoNewPrivileges=yes`
+drop-in. **Confirmed after a reboot:** the same real task on this machine reported
+`NoNewPrivs: 1`, still in that service's cgroup, and `sudo` refused a command on the
+coordinator's list with its "no new privileges" error. Telegram reconnected as usual.
+
+**Not checked:** a gateway hermes starts for itself when no service is running; and
+whether fa's timeout stops a hermes command, or `HOME` contains it, since both also
+rest on the process tree. Recorded with `fa findings --note`.
+
+**Not a boundary.** `systemd-run --user` starts a process without the flag (tested),
+and a worker can edit `~/.bashrc`. Only a separate Linux user would stop those.
+
+## Feature: a job's pane shows its agent as it works (2026-11-05)
+
+The herdr section above says a pane showed the worker's output live. On this code it
+did not: each adapter captures the output because fa classifies it, so a fake agent
+printing a line every 3s reached fa all at once at the end. A pane showed fa's own
+lines, then the whole reply.
+
+`timeout_no_tty` now also copies each line to the job's log as it arrives, when the job
+set `FA_LIVE_LOG` and the caller set `_FA_LIVE_TAG`. The tag is a plain variable, not
+exported, and only `adapter_invoke`, `run_verify` and `project_check` set it, so a
+caller that discards stderr keeps doing so. What fa captures is unchanged, byte for
+byte. The log is now opened with `>>`, or fa's own writes would land on top of the
+copied lines. `fa run` drops its final print inside a job, or the reply would show
+twice; a dispatch and `fa plan` read their result from stdout, so they keep it.
+
+**Real agents, each given three steps of `sleep; echo`, then timed line by line:**
+
+| Agent | What the pane shows |
+|---|---|
+| kilo, opencode | Each command as it finishes, and their colour codes (they send them even into a pipe, which is why whole sequences are stripped) |
+| pi, hermes | Nothing until the end: `pi --print` and `hermes -z` print only the final answer |
+| copilot, cursor, agy | Not run, for the same reasons as above |
+
+So fa adds its own line every `FA_LIVE_STEP` seconds (15): the files changed since last
+time, or after four quiet steps, that work continues. This works for any agent, and it
+skips dot folders and `node_modules`, so a dependency install cannot drown it.
+
+**Verified in the live herdr session:** two real detached jobs started from Claude Code,
+so `--detach` is not refused by its permission check. Kilo's pane showed its steps. Pi's
+showed `(fa: 0m30s in, changed: a.txt)` and `(fa: 1m0s in, changed: b.txt)`, then its
+reply. Neither log held an escape code.
+
+`test_live_output.sh`, mutation-tested twelve ways: log opened without append, result
+repeated, stderr not copied, escape codes kept, agent not tagged, no live log, task check
+not tagged, project check not tagged, progress joining the captured output, progress
+never stopped, colour-only lines kept, and dot folders not skipped.
+
+**Next, if resuming:** cursor's `--output-format stream-json` might show real steps, but
+it changes what classification reads, so it was not tried.
+
+## Feature: a tab for each job and each dispatched task (2026-11-05)
+
+The user watched the panes above and asked for what they had meant: each agent in its
+own window, named by herdr, not a split of the pane they were reading. Replaces the
+split from 2026-10-04, along with its layout rule.
+
+Herdr recognizes an agent only in the foreground of its own terminal. Workers run in the
+background with no terminal, on purpose (`timeout_no_tty`), so real recognition would
+mean driving interactive agents through `herdr agent start` and reading their screens to
+classify them. The user chose not to: fa names the agent itself instead, and the tabs
+look the same. Nobody can type to an agent, which is the visible cost.
+
+All of fa's herdr code now lives in `bin/lib/herdr.sh`, because run.sh, orch.sh and the
+job runner all need it.
+
+- **A tab per job:** `tab create --no-focus`. Closing a tab's only pane closes the tab, so
+  `--clean` still closes panes.
+- **A tab per task:** `run_task` opens one when it runs inside a job, and a requeued task
+  keeps it. It runs `fa jobs --follow <job> <task>`, which filters the job's log down to
+  that task's lines, so there is still one log with one writer. The plan keeps a tab too,
+  for the overview.
+- **The agent's name:** `adapter_invoke` reports it to the sidebar and renames the tab on
+  every attempt, so a fallback shows. It also logs `(fa: starting, model ...)`, so a silent
+  CLI's tab is not blank for its first 15 seconds.
+- **Report numbers:** real herdr ignores a report numbered lower than the last, so they are
+  milliseconds now, not 1 and 2.
+
+**Found by the suite:** `bin/fa` runs under `set -e`, so reading a missing `herdr_agent`
+aborted the end-of-job report for any job where no agent had started, and its failure
+notification with it. Mutation testing also caught a test that passed because its fake
+view had no pane; it has one now.
+
+**Verified in the live herdr session:** a real two-task `fa dispatch --detach`, the first
+real dispatch from Claude Code. Three tabs opened (`fa j1`, `alpha opencode`, `beta
+opencode`) with focus kept. Both tasks verified, in 49s. Each task tab held only its own
+lines and ended on `done`. A real `fa run --detach` opened `j1 kilo`, `working` then `done`.
+
+**Seen, not fixed:**
+- That plan's own tab showed no agent in the sidebar after it ended, though a probe shows
+  herdr accepts `fa` as a name. Not investigated; the notification still fired.
+- In a project that is not a git repo, tasks share one folder, so a task's `changed:` line
+  can name a sibling's file (`alpha.txt beta.txt` above). In a git repo, parallel tasks get
+  their own worktrees, so this should not arise; that case was not run for real.
+
+`test_herdr.sh` now has 56 assertions, mutation-tested nine ways: agent not named, no task
+tab, task end not reported, task falling back on the job's view, fixed report numbers, tab
+taking focus, task view showing everything, `--clean` leaving task tabs, and a task marking
+the job's view ended.
+
+## Docs: what the machine and the project must provide (2026-11-05)
+
+Setting up a real project (a pnpm monorepo on a fresh Ubuntu VPS, with Claude Code as
+coordinator) turned up four requirements that no doc named. All four are now in
+`docs/SETUP.md` section 4b:
+
+- **`PATH`:** workers and checks inherit the coordinator's. Here `~/.local/bin/node`
+  pointed at the agents' Node 22, so `nvm use 24` had no effect, and the project's
+  Node 24 had to come in through a `pnpm` wrapper script.
+- **Worktrees:** a parallel task's copy holds tracked files only, so `verify` must
+  install dependencies. Read from `wt_pool_acquire` and `git worktree add` in orch.sh;
+  not yet seen in a real parallel run on this project.
+- **Push mode:** `GIT_TERMINAL_PROMPT=0 git push` fails with "could not read
+  Username" when git has no credential helper, even with `gh` logged in. GitHub also
+  refused a branch that added `.github/workflows/ci.yml` until the token had the
+  `workflow` scope. The 2026-10-06 trial passed because that machine already used gh's
+  credential helper.
+- **herdr:** not a service, so after a reboot the coordinator has to be started inside
+  it again, or jobs run without tabs.

@@ -67,6 +67,12 @@ buckets, nothing else.
   (`refuse_if_worker`, exit 6). Two levels only: coordinator and workers. A
   rule in a prompt is not enough - workers read AGENTS.md too, and a free model
   told to "delegate" will.
+- **Workers cannot use `sudo`.** Every agent and check runs through
+  `timeout_no_tty` (common.sh), which sets `no_new_privs`, so a rule meant for the
+  coordinator does nothing for a worker. Checks get it too, because they run code a
+  worker just edited. Nothing may start either one around that helper. An agent
+  that runs commands in a long-lived service escapes it: hermes does, through its
+  gateway, so that service needs the flag itself (`docs/SETUP.md`).
 - **One writer per artifact.** Two copies of one thing, and the wrong copy wins
   by ordering — this repo has been bitten twice (a stale coordinator playbook
   under `.opencode/`, and `.orch/.gitignore`). If you find yourself writing a
@@ -83,7 +89,8 @@ bin/orch.sh       per-project task graph   init | run | status | resume
 bin/lib/adapters.sh   the agent roster (FA_AGENTS); one file per agent in adapters/
 bin/lib/classify.sh   the error taxonomy - has its own self-test
 bin/lib/schedule.sh   the daily refresh cron, and doctor's report on it
-bin/lib/jobs.sh       background jobs: fa run/dispatch --detach, fa jobs, herdr panes
+bin/lib/jobs.sh       background jobs: fa run/dispatch --detach, fa jobs
+bin/lib/herdr.sh      what jobs show inside herdr: a tab each, the agent's name and state
 ```
 
 ## Before you commit

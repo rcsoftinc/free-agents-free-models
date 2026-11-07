@@ -30,12 +30,93 @@ have() { command -v "$1" >/dev/null 2>&1; }
 # real agy probe froze setup.sh that way for 25 minutes. With no terminal, opening
 # /dev/tty just fails. -w because a session leader makes setsid fork, and without
 # it the caller would lose both the output and the exit code.
+#
+# Every agent and every check runs through here, so this is also where they lose
+# sudo. no_new_privs is inherited by all they start and cannot be cleared, so a
+# NOPASSWD rule meant for the coordinator does nothing for a worker with its
+# approvals off. Checks get it too: they run code a worker just edited. Not a
+# security boundary (docs/SETUP.md says what gets around it), and absent where
+# setpriv is, such as macOS, because there is nothing to fall back on.
+#
+# Inside a background job (FA_LIVE_LOG, set by job_run), a command labelled with
+# _FA_LIVE_TAG also has its output copied to the job's log as it arrives, which is
+# what the job's herdr pane follows. The label is a plain variable, not exported, so
+# only the agents and checks that set it are copied; a caller that throws stderr
+# away, like the model listing in buckets.sh, keeps doing so. Some CLIs print nothing
+# until they finish (hermes -z, pi --print), so live_progress reports for those.
 timeout_no_tty() { # $1=seconds; then the command
-  if have setsid && setsid -w true 2>/dev/null; then
-    setsid -w timeout "$@"
-  else
-    timeout "$@"
+  local run=(timeout)
+  if have setpriv && setpriv --no-new-privs true 2>/dev/null; then
+    run=(setpriv --no-new-privs timeout)
   fi
+  if have setsid && setsid -w true 2>/dev/null; then
+    run=(setsid -w "${run[@]}")
+  fi
+  if [[ -n "${FA_LIVE_LOG:-}" && -n "${_FA_LIVE_TAG:-}" ]]; then
+    local rc=0 progress
+    # Its output must not join the captured output, or fa would classify it.
+    live_progress "$BASHPID" >/dev/null 2>&1 &
+    progress=$!
+    "${run[@]}" "$@" > >(live_copy) 2>&1 || rc=$?
+    kill "$progress" 2>/dev/null
+    wait "$progress" 2>/dev/null
+    return "$rc"
+  fi
+  "${run[@]}" "$@"
+}
+
+# One line for the job's log. A dispatch shares that log between its tasks, so a line
+# names its task. Nothing that could hide other lines in the pane gets through, and
+# lines that were only colour codes are dropped.
+live_line() { # $1=text
+  local s="$1" colour=$'\033''\[[0-9;]*[A-Za-z]'
+  while [[ "$s" =~ $colour ]]; do s="${s//"${BASH_REMATCH[0]}"/}"; done
+  s="${s//$'\033'/}"; s="${s//$'\r'/}"
+  [[ -n "${s//[[:space:]]/}" ]] || return 0
+  { printf '  %s%s | %s\n' "${FA_TASK_ID:+[$FA_TASK_ID] }" "$_FA_LIVE_TAG" "$s" >>"$FA_LIVE_LOG"; } 2>/dev/null
+}
+
+# stdin -> stdout as it came, and each line to the job's log as it arrives.
+live_copy() {
+  local line
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    printf '%s\n' "$line"
+    live_line "$line"
+  done
+}
+
+# Every FA_LIVE_STEP seconds, the files changed since last time, or after four quiet
+# steps, that the work is still going. Agent-independent, so it works for a CLI that
+# prints nothing until it ends. Stops if the shell it reports for is gone.
+live_progress() { # $1=pid of that shell
+  local owner="$1" step="${FA_LIVE_STEP:-15}" wd="${FA_WORKDIR:-$PWD}" start=$SECONDS
+  local quiet=0 nap="" marker f spent names n
+  marker="$(mktemp)" || return 0
+  trap '[[ -z "$nap" ]] || kill "$nap" 2>/dev/null; rm -f "$marker"; exit 0' TERM
+  while kill -0 "$owner" 2>/dev/null; do
+    sleep "$step" & nap=$!
+    wait "$nap"
+    spent=$(( SECONDS - start )); spent="$(( spent / 60 ))m$(( spent % 60 ))s"
+    names=""; n=0
+    while IFS= read -r f; do
+      n=$(( n + 1 ))
+      [[ $n -gt 5 ]] || names+=" ${f#"$wd"/}"
+    done < <(find "$wd" -mindepth 1 -type d \( -name '.*' -o -name node_modules \) -prune \
+               -o -type f -newer "$marker" -print 2>/dev/null | head -n 200)
+    touch "$marker"
+    if [[ $n -gt 0 ]]; then
+      quiet=0
+      [[ $n -le 5 ]] || names+=" and $(( n - 5 )) more"
+      live_line "(fa: ${spent} in, changed:${names})"
+    else
+      quiet=$(( quiet + 1 ))
+      if [[ $quiet -ge 4 ]]; then
+        quiet=0
+        live_line "(fa: ${spent} in, still working)"
+      fi
+    fi
+  done
+  rm -f "$marker"
 }
 
 # jq: is the current bucket `.` allowed to count and be scheduled, given its last
@@ -65,6 +146,8 @@ _LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "${_LIB_DIR}/deps.sh"
 # shellcheck source=lib/adapters.sh
 . "${_LIB_DIR}/adapters.sh"
+# shellcheck source=lib/herdr.sh
+. "${_LIB_DIR}/herdr.sh"
 unset _LIB_DIR
 
 # ---------------------------------------------------- the coordinator's lane --

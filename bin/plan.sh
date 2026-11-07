@@ -57,7 +57,7 @@ survey() {
   printf 'Files (up to 60):\n'
   ( cd "$WORKDIR" && find . -maxdepth 3 \
       \( -name .git -o -name node_modules -o -name .orch -o -name __pycache__ \) -prune -o \
-      -type f -print 2>/dev/null | sed 's|^\./||' | head -60 )
+      -type f -print 2>/dev/null | sed 's|^\./||' | awk 'NR <= 60' )
   local readme
   readme="$(cd "$WORKDIR" && ls README* 2>/dev/null | head -1)"
   if [[ -n "$readme" ]]; then

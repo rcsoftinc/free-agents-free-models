@@ -91,5 +91,23 @@ EOF
 assert_eq "a task with no dependents never reports a missing handoff" \
   "$("$FA" findings --count)" "0"
 
+# --- the end-of-run summary --------------------------------------------------
+# A long list is cut to 12 lines without failing the run. The old
+# `findings_show | sed | head -12`, under pipefail, killed the writer with
+# SIGPIPE once head stopped reading, and a run that had passed exited 141.
+# The stub writes one line per call, so the old pipeline fails every time.
+brief() {
+  bash -c 'set -euo pipefail
+    . '"$REPO"'/bin/lib/common.sh; . '"$REPO"'/bin/lib/findings.sh
+    findings_show() { local i; for i in $(seq 1 3000); do printf "line %s\n" "$i"; done; }
+    findings_brief new 12
+    echo "still running"' 2>&1
+}
+out="$(brief)"; rc=$?
+assert_eq       "a long findings list does not fail the run" "$rc" "0"
+assert_contains "the run carries on after it"                "$out" "still running"
+assert_eq       "it is cut to 12 indented lines" \
+  "$(grep -c '^  line ' <<<"$out")" "12"
+
 end_suite
 final_report

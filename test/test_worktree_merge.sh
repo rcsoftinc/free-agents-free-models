@@ -60,6 +60,15 @@ assert_contains "task a's commit is in the log" \
   "$(git -C "$PROJECT_DIR" log --format=%s)" "fa: a"
 assert_contains "task b's commit is in the log" \
   "$(git -C "$PROJECT_DIR" log --format=%s)" "fa: b"
+for t in a b; do
+  want="$(jq -r --arg t "$t" 'select(.event=="done" and .task==$t) | "\(.agent):\(.model)"' "$JOURNAL" | tail -1)"
+  got="$(git -C "$PROJECT_DIR" log --format='%s%x09%(trailers:key=Assisted-by,valueonly,separator=%x2C)' \
+         | awk -F'\t' -v s="fa: $t" '$1==s{print $2}')"
+  assert_true "task ${t}'s commit names the agent and model that ran it (want ${want}, got ${got})" \
+    '[[ -n "$want" && "$want" != ":" && "$got" == "$want" ]]'
+done
+assert_not_contains "no Assisted-by trailer names a bucket or a credential" \
+  "$(git -C "$PROJECT_DIR" log --format='%(trailers:key=Assisted-by,valueonly)')" "$(jq -r 'select(.event=="done") | .bucket' "$JOURNAL" | head -1)"
 assert_eq "fa commits as the project's own identity, adding no contributor" \
   "$(git -C "$PROJECT_DIR" log --format='%an <%ae> %cn <%ce>' | sort -u)" \
   "test <test@test.test> test <test@test.test>"

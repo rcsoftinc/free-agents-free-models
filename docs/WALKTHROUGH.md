@@ -423,7 +423,8 @@ Then it reviews, and you watch:
    `protected_edit` finding naming the model, without anyone asking.
 5. `npx tsc --noEmit`, `npx eslint .`, `npx playwright test`: clean.
 6. `git log --oneline` shows the workers' commits: `fa: store`, `fa: cli`,
-   `fa: api`, `fa: ui`.
+   `fa: api`, `fa: ui`. Each one names the agent and model that wrote it in an
+   `Assisted-by` trailer: `git log --format='%s  %(trailers:key=Assisted-by,valueonly)'`.
 
 Its report to you is four lines long, and ends with a question: *"Wednesday's
 import will need a test of its own. Should a worker be allowed to write it?"*

@@ -180,9 +180,14 @@ test data would have caught either.
 
 - **Update `docs/dev/SESSION.md` whenever the state of the work changes**, so a
   closed window loses nothing.
-- **No co-authors.** Commits carry only their author: no `Co-Authored-By` trailers, for
-  Claude or anyone else. fa's own commits use the project's identity (`fa_commit` in
-  orch.sh), so it never adds a contributor the project didn't choose.
+- **No co-authors; `Assisted-by` instead.** Commits carry only their author: no
+  `Co-Authored-By` trailers, for Claude or anyone else. fa's own commits use the project's
+  identity (`fa_commit` in orch.sh), so it never adds a contributor the project didn't
+  choose. What wrote the code goes in an `Assisted-by: <agent>:<model>` trailer, which
+  GitHub does not count as a contributor: fa writes it from the RUN-META footer of the
+  attempt that succeeded (`assisted_by`), never from what a model says it is, and never
+  with the bucket. A commit made by the coordinator names itself the same way, with the
+  model id its harness gives it (`Assisted-by: claude-code:claude-opus-5-5`).
 - `AGENTS.md` decides *how* to work — direct vs orchestrate — and applies to
   every agent, including work on this repo. Its gate: **≥2 tasks with disjoint
   file sets and no interdependency, AND `fa lanes` ≥ 2.** Default is direct.

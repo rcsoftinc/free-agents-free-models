@@ -1,6 +1,6 @@
 # SESSION STATE — read this first on resume
 
-**Last updated:** 2026-11-04
+**Last updated:** 2026-11-07
 
 ---
 
@@ -8,7 +8,7 @@
 
 **Complete, working, and proven on a real project.** Published (public) at
 `github.com/rcsoftinc/free-agents-free-models`. Full suite green:
-**939 assertions, 45 suites, offline** - and CI runs it on every push to master and
+**942 assertions, 45 suites, offline** - and CI runs it on every push to master and
 every pull request (GitHub Actions, Ubuntu 24.04 + 26.04).
 
 **It has built real software unattended.** All independently verified against what
@@ -1628,3 +1628,18 @@ last herdr calls, so the suite could clear the log and then catch those late cal
 Forcing that delay fails the same way on `d75dff5`, from before this work. The suite
 now waits for the job to exit (`wait_gone`) instead of sleeping and hoping. The rc
 order stays, so a hung herdr still cannot hold up a job's result.
+
+## Fix: a run that passed exited 141 as FAILED (2026-11-07)
+
+Found on a real project: every run with more than 12 lines of new findings ended
+`FAILED rc=141`, though its tasks and the project check had passed. The end-of-run
+summary was `findings_show new | sed | head -12` under `set -euo pipefail`. Once head
+had its 12 lines it closed the pipe, the next write killed sed with SIGPIPE, and the
+pipeline's 141 ended the script before its last line. The log showed the cut-off list
+and no "review with" line after it.
+
+`findings_brief` (findings.sh) now captures the whole list and cuts it with awk, which
+reads to the end. `survey` in plan.sh had the same shape (`find | sed | head -60`) on
+repositories with more than 60 files, and now ends in `awk 'NR <= 60'`. The test stubs
+`findings_show` to write one line per call, so the old pipeline fails every time
+rather than by timing: with the real 12 KB findings store it failed only sometimes.

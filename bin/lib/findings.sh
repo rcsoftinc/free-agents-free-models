@@ -90,6 +90,15 @@ findings_show() {
          "    first \(.first)  last \(.last)\n"' <<<"$g"
 }
 
+# The first N lines of findings_show, indented, for the end of a run. It reads
+# the whole list before cutting it: `findings_show | sed | head -12` under
+# pipefail let head close the pipe early, the writer died of SIGPIPE, and a
+# run whose tasks and project check had passed exited 141 as FAILED.
+findings_brief() { # $1 = "new"|"all", $2 = max lines (default 12)
+  local out; out="$(findings_show "${1:-new}" 2>/dev/null)" || true
+  awk -v n="${2:-12}" 'NR <= n { print "  " $0 }' <<<"$out"
+}
+
 # One place that turns a grouped finding into an issue TITLE + BODY, so the
 # text a human reviews (findings_issue, and the --post confirmation prompt)
 # can never drift from the text that actually gets filed (--post reads the

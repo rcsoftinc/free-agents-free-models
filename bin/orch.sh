@@ -1519,7 +1519,7 @@ cmd_run() {
   if [[ "${nnew:-0}" -gt 0 ]]; then
     log ""
     log "${nnew} new finding(s) from this run - things the tool handled badly:"
-    findings_show new 2>/dev/null | sed 's/^/  /' | head -12 >&2
+    findings_brief new 12 >&2
     log "review with: fa findings     file one with: fa findings --issue"
   fi
   [[ "$nfail" -eq 0 && $check_ok -eq 0 && $push_ok -eq 0 ]]

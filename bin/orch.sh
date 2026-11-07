@@ -745,7 +745,8 @@ run_task() { # $1=task id ; runs in a subshell as a background job
         (
           flock -w 30 9 || { log "WARNING: merge lock timed out for $id - files copied but NOT committed, a later dependent task will not see them"; exit 1; }
           git -C "$WORK" add -A -- "${merged[@]}" >/dev/null 2>&1
-          fa_commit -q -m "fa: ${id}" -- "${merged[@]}" >/dev/null 2>&1
+          mapfile -d '' -t msg_args < <(fa_message_args "fa: ${id}" "$id")
+          fa_commit -q "${msg_args[@]}" -- "${merged[@]}" >/dev/null 2>&1
         ) 9>"${ORCH_DIR}/.merge.lock" \
           && log "merged and committed $id changes from worktree" \
           || log "WARNING: $id changes were copied but the commit failed - a later dependent task may not see them; check ${ORCH_DIR}/.merge.lock contention or run 'git -C $WORK status'"
@@ -765,7 +766,7 @@ run_task() { # $1=task id ; runs in a subshell as a background job
         if [[ -n "$f" && -e "${WORK}/${f}" ]]; then landed+=("$f"); fi
       done < <(task_files "$id")
       if [[ ${#landed[@]} -gt 0 ]]; then
-        commit_work "fa: ${id}" "${landed[@]}" \
+        commit_work "fa: ${id}" "$id" "${landed[@]}" \
           || log "WARNING: $id's files are on the run's branch but the commit failed - they will not be pushed"
       fi
     fi
@@ -874,14 +875,37 @@ fa_commit() { # git commit arguments
     git -C "$WORK" commit "$@"
 }
 
+# Who wrote a worker's change: "agent:model" of the attempt that succeeded, from
+# the RUN-META footer run.sh leaves in .orch/results/<name>.err - what fa itself
+# launched, never what the model says it is. Empty when there is no such line.
+# Only the agent and the model: the bucket names a credential and stays out.
+assisted_by() { # $1=results name: a task id, _check or _ci<N>
+  local meta
+  meta="$(sed -n 's/^---RUN-META--- //p' "${RESULTS}/$1.err" 2>/dev/null | tail -1)"
+  jq -r 'select(type == "object" and (.agent // "") != "")
+         | if (.model // "") == "" then .agent else "\(.agent):\(.model)" end' \
+    <<<"${meta:-null}" 2>/dev/null || true
+}
+
+# The commit message: the subject, then an Assisted-by trailer naming the
+# worker when it is known (git log --format='%(trailers:key=Assisted-by)').
+fa_message_args() { # $1=subject $2=results name
+  local who; who="$(assisted_by "$2")"
+  printf '%s\0' -m "$1"
+  [[ -n "$who" ]] && printf '%s\0' -m "Assisted-by: ${who}"
+  return 0
+}
+
 # Commit paths in the run's working tree, under the merge lock the worktree
-# merges take.
-commit_work() { # $1=message, rest=paths
-  local msg="$1"; shift
+# merges take, with the worker that wrote them.
+commit_work() { # $1=message $2=results name, rest=paths
+  local msg="$1" who="$2"; shift 2
+  local args=()
+  mapfile -d '' -t args < <(fa_message_args "$msg" "$who")
   (
     flock -w 30 9 || exit 1
     git -C "$WORK" add -A -- "$@" >/dev/null 2>&1
-    fa_commit -q -m "$msg" -- "$@" >/dev/null 2>&1
+    fa_commit -q "${args[@]}" -- "$@" >/dev/null 2>&1
   ) 9>"${ORCH_DIR}/.merge.lock"
 }
 
@@ -985,7 +1009,7 @@ to them is undone."
     # Committed when this run commits its work (isolated tasks, push mode): a
     # later worktree starts from HEAD and would never see an uncommitted fix.
     if [[ ${#changed[@]} -gt 0 ]] && { [[ $ISOLATE -eq 1 ]] || [[ "$WORK" != "$PROJECT" ]]; }; then
-      commit_work "fa: fix the project check" "${changed[@]}" \
+      commit_work "fa: fix the project check" _check "${changed[@]}" \
         || log "WARNING: the fix for the project check could not be committed"
     fi
     return 0
@@ -1204,7 +1228,7 @@ to them is undone."
     log "the worker could not fix it${changed[*]:+ (it changed: ${changed[*]})}"
     return 1
   fi
-  commit_work "fa: fix CI (${names})" "${changed[@]}" || { log "could not commit the CI fix"; return 1; }
+  commit_work "fa: fix CI (${names})" "_ci$1" "${changed[@]}" || { log "could not commit the CI fix"; return 1; }
   push_branch
 }
 

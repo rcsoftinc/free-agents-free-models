@@ -1800,3 +1800,13 @@ identity showed up in projects it built, next to `root@<host>` commits and
   the trailers and map `free-agents@localhost`, `root@…` and the work email to
   `rcsoft <rcsoft@gmail.com>`. Trees are byte-identical; commit ids changed, so an older
   clone needs `git fetch && git reset origin/master`.
+
+**Later the same day: `Assisted-by`.** For statistics on which tool wrote what, each fa commit
+now ends with `Assisted-by: <agent>:<model>`. fa takes it from the RUN-META footer of the
+attempt that succeeded (`assisted_by` in orch.sh), so it is what fa launched, not what a
+model claims. It covers task merges, push-mode commits and both fixers (`_check`, `_ci<N>`),
+and never includes the bucket. `git blame` plus `%(trailers:key=Assisted-by)` attributes
+each line through its commit. A commit holding both a worker's output and the
+coordinator's edits would need both names, so fa keeps one commit per task.
+`test_worktree_merge.sh` (against the journal) and `test_push_mode.sh` (the CI fixer)
+assert it, and removing the trailer line fails both.

@@ -113,6 +113,11 @@ assert_contains "the worker is told which check failed" "$cp" "Failing: suite"
 assert_contains "  ...and given its log" "$cp" "expected status 409, got 500"
 assert_eq "its fix is on the branch" "$(on_branch src/a.txt)" "fixed"
 assert_contains "  ...as its own commit" "$(git -C "$R/origin.git" log --format='%s' "$(branches)")" "fa: fix CI (suite)"
+trailers="$(git -C "$R/origin.git" log --format='%s%x09%(trailers:key=Assisted-by,valueonly,separator=%x2C)' "$(branches)")"
+assert_true "  ...naming the agent and model that fixed it" \
+  '[[ "$(awk -F"\t" '"'"'$1=="fa: fix CI (suite)"{print $2}'"'"' <<<"$trailers")" == opencode:?* ]]'
+assert_true "  ...and the task's commit names its own" \
+  '[[ "$(awk -F"\t" '"'"'$1=="fa: a"{print $2}'"'"' <<<"$trailers")" == opencode:?* ]]'
 assert_contains "fa status: passed after the fix" "$(status)" "CI      passed after 1 fix round(s)"
 
 # --- 4. the CI files are not the fixer's to change -------------------------------------------

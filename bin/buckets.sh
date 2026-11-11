@@ -597,20 +597,39 @@ cmd_profile() {
   local all_agents; all_agents="$(printf '%s\n' "${FA_AGENTS[@]}" | jq -R . | jq -sc .)"
   jq -r --argjson all "$all_agents" '
     def pct($ok; $fail): (($ok + $fail) as $n | if $n > 0 then "\(($ok*100/$n)|round)%" else "n/a" end);
+    # Lane minutes per pass: the lane time of every scored attempt, the failed
+    # ones included, over the attempts that passed - in integer tenths, so the
+    # text does not depend on how a jq prints floats. n/a until a pass has
+    # been recorded with timing (a registry from before it was kept has none).
+    def per_ok: (.ok // 0) as $ok | (.ms // 0) as $ms
+      | if $ok > 0 and $ms > 0
+        then (($ms * 10 / 60000 / $ok) | round) as $t | "\($t / 10 | floor).\($t % 10) min/ok"
+        else "n/a min/ok" end;
+    def row: "\(.ok // 0) ok / \(.fail // 0) fail  (\(pct(.ok // 0; .fail // 0)))  \(per_ok)";
     (.agent_stats // {}) as $a
     | ($all - ($a | keys)) as $unseen
     | "agent profile (learned harness reliability - independent of which wallet)",
+      "min/ok: minutes a lane was held per attempt that passed its checks, the time of the attempts that did not included",
       "",
       ( $a | to_entries[] | .key as $agent | .value as $v |
         "\($agent)",
-        "   overall: \($v.stats.ok // 0) ok / \($v.stats.fail // 0) fail  (\(pct($v.stats.ok // 0; $v.stats.fail // 0)))",
+        "   overall: \($v.stats // {} | row)",
         ( ($v.cat_stats // {}) | to_entries
           | if length == 0 then "   (no per-category data yet)"
-            else (.[] | "   \(.key):  \(.value.ok // 0) ok / \(.value.fail // 0) fail  (\(pct(.value.ok // 0; .value.fail // 0)))") end
+            else (.[] | "   \(.key):  \(.value | row)") end
         ),
         ""
       ),
-      (if ($unseen | length) > 0 then "no data yet for: \($unseen | join(", "))" else empty end)
+      (if ($unseen | length) > 0 then "no data yet for: \($unseen | join(", "))", "" else empty end),
+      "model profile (per wallet and model; only models that have been dispatched)",
+      "",
+      ( [ .buckets | to_entries[] | .key as $bid | .value.models[]
+          | select(((.stats.ok // 0) + (.stats.fail // 0)) > 0)
+          | "\($bid)  \(.upstream)",
+            "   overall: \(.stats | row)",
+            ((.cat_stats // {}) | to_entries[] | "   \(.key):  \(.value | row)"),
+            "" ] as $rows
+        | if ($rows | length) == 0 then "   (no model has been dispatched yet)" else $rows[] end )
   ' "$REGISTRY"
 }
 
@@ -662,7 +681,7 @@ usage: $(basename "$0") <command>
   discover [--probe]  build the registry from real credentials + model lists
   probe [--all]       prove reachability (default: one free model per bucket)
   show                human-readable summary
-  profile             per-agent/harness learned reliability (fa profile)
+  profile             learned record per harness and per model, with lane minutes per pass (fa profile)
   quota                live check against OpenRouter's own published ledger
                        (opt-in, one network call; see bin/lib/quota.sh)
 

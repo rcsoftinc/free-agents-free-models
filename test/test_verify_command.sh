@@ -180,5 +180,19 @@ assert_contains "  ...then passes" "$J" '"event":"done","task":"word"'
 assert_contains "  ...journaled as informed" "$J" '"event":"retry_informed","task":"word","after":"unverified"'
 rm -rf "$PROJ"
 
+# --- 7. what an attempt cost its lane includes its checks -------------------------
+# The lease is held while the verify command runs (and through any fix round),
+# so the time booked per attempt - RUN-META's lane_ms, and the ms `fa profile`
+# divides by passes - is that whole span, not the agent call alone.
+booked() { jq '[.buckets["b0:fp0"].models[].stats.ms // 0] | add' "$FIXTURE_DIR/buckets.json"; }
+ms0="$(booked)"
+run GOOD --verify "sleep 0.3; $CHECK"
+meta="$(sed -n 's/^---RUN-META--- //p' "$FAKE/err" | tail -1)"
+call_ms="$(jq -r '.ms' <<<"$meta")"; lane_ms="$(jq -r '.lane_ms' <<<"$meta")"
+assert_true "lane_ms covers the verify command's run, ms only the call (ms=${call_ms} lane_ms=${lane_ms})" \
+  '[[ $((lane_ms - call_ms)) -ge 250 ]]'
+assert_true "  ...and the record of the model that served it ($(jq -r .model <<<"$meta")) books the whole span" \
+  '[[ $(( $(booked) - ms0 )) -ge 250 ]]'
+
 end_suite
 final_report

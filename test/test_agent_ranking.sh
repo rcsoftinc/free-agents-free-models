@@ -53,12 +53,34 @@ kilo_ok="$(jq '.agent_stats.kilo.stats.ok // 0' "$REG")"
 kilo_cat_ok="$(jq '.agent_stats.kilo.cat_stats.coding.ok // 0' "$REG")"
 assert_true "agent_stats.kilo.stats.ok incremented (got ${kilo_ok})" '[[ $kilo_ok -ge 1 ]]'
 assert_true "agent_stats.kilo.cat_stats.coding.ok incremented (got ${kilo_cat_ok})" '[[ $kilo_cat_ok -ge 1 ]]'
+# And what that attempt cost its lane, in ms, beside the counts: on the agent,
+# per category, and on the model that served it.
+kilo_ms="$(jq '.agent_stats.kilo.stats.ms // 0' "$REG")"
+kilo_cat_ms="$(jq '.agent_stats.kilo.cat_stats.coding.ms // 0' "$REG")"
+m_ms="$(jq '[.buckets["b1:fp1"].models[].stats.ms // 0] | max' "$REG")"
+m_cat_ms="$(jq '[.buckets["b1:fp1"].models[].cat_stats.coding.ms // 0] | max' "$REG")"
+assert_true "agent_stats.kilo.stats.ms carries the attempt's lane time (got ${kilo_ms})" '[[ $kilo_ms -gt 0 ]]'
+assert_true "  ...per category too (got ${kilo_cat_ms})" '[[ $kilo_cat_ms -gt 0 ]]'
+assert_true "  ...and on the model's own record (got ${m_ms})" '[[ $m_ms -gt 0 ]]'
+assert_true "  ...per category (got ${m_cat_ms})" '[[ $m_cat_ms -gt 0 ]]'
 rm -f run_agentstats_err.txt
 
-mode_for opencode ratelimit
+# A wallet fault, for real: both harnesses answer rate-limited, so whichever
+# route b0 tries first trips the bucket. (Before, only opencode was put in that
+# mode; kilo's route to the same model, ranked first by now, simply served the
+# run, so no fault happened and the check below passed empty.)
+# (Counts, not raw objects: on a fault record() writes a model's empty
+# {ok:0,fail:0} defaults, which is not evidence either.)
+tallies() { jq -c '{a:.agent_stats, m:[.buckets["b0:fp0"].models[]
+                     | {ok:(.stats.ok // 0), fail:(.stats.fail // 0), ms:(.stats.ms // 0),
+                        cats:((.cat_stats // {}) | map_values({ok:(.ok // 0), fail:(.fail // 0), ms:(.ms // 0)}))}]}' "$REG"; }
+before="$(tallies)"
+mode_for opencode ratelimit; mode_for kilo ratelimit
 "$REPO/bin/run.sh" -b b0:fp0 "do a thing" >/dev/null 2>run_agentstats_err2.txt || true
-oc_fail="$(jq '.agent_stats.opencode.stats.fail // 0' "$REG")"
-assert_eq "a bucket-level fault does not count against the AGENT either (mirrors .stats)" "$oc_fail" "0"
+assert_contains "the wallet answered rate-limited" "$(cat run_agentstats_err2.txt)" '-> rate'
+assert_contains "  ...and was written off for the run" "$(cat run_agentstats_err2.txt)" 'is at fault (rate'
+after="$(tallies)"
+assert_eq "a bucket-level fault counts against no AGENT and no model: not as a failure, not as lane time" "$after" "$before"
 rm -f run_agentstats_err2.txt
 clear_modes
 
@@ -81,6 +103,7 @@ meta="$(grep -- '---RUN-META---' run4_err.txt || true)"
 assert_eq "the run still succeeds despite opencode's route failing" "$rc" "0"
 assert_contains "RUN-META shows kilo actually served it" "$meta" '"agent":"kilo"'
 assert_contains "RUN-META shows the SAME model, not a different one" "$meta" '"model":"m0-a"'
+assert_contains "RUN-META carries the time the attempt held its lane" "$meta" '"lane_ms":'
 oc_fail4="$(jq '.agent_stats.opencode.stats.fail // 0' "$REG")"
 assert_true "the failing agent's OWN record reflects the failure (got ${oc_fail4})" '[[ $oc_fail4 -ge 1 ]]'
 kilo_ok4="$(jq '.agent_stats.kilo.stats.ok // 0' "$REG")"
@@ -94,13 +117,31 @@ clear_modes
 # coordinating LLM) can see WHY a harness was picked without reading and
 # mentally executing the ranking formula in run.sh.
 echo "=== Test 5: fa profile surfaces the learned per-agent record ==="
-jq '.agent_stats = {opencode: {stats:{ok:12,fail:3}, cat_stats:{coding:{ok:8,fail:1}}}}' \
+# Lane time per pass sits beside each rate: opencode's 15 attempts held a lane
+# for 50.4 minutes in all and 12 passed (4.2 min/ok); its 9 coding attempts
+# 24.8 minutes for 8 passes (3.1); docs never passed (n/a); kilo's record is
+# from before timing was kept (n/a). Per model the same, for models that have
+# been dispatched at all: m0-a's 5 attempts held b0 for 10 minutes and 4
+# passed (2.5); m0-b never ran and is not listed.
+jq '.agent_stats = {opencode: {stats:{ok:12,fail:3,ms:3024000},
+                               cat_stats:{coding:{ok:8,fail:1,ms:1488000}, docs:{ok:0,fail:2,ms:120000}}},
+                    kilo: {stats:{ok:3,fail:0}, cat_stats:{}}}
+    | del(.buckets[].models[].stats, .buckets[].models[].cat_stats)
+    | .buckets["b0:fp0"].models[0].stats = {ok:4,fail:1,ms:600000}
+    | .buckets["b0:fp0"].models[0].cat_stats = {coding:{ok:4,fail:1,ms:600000}}' \
   "$REG" > "$REG.t" && mv "$REG.t" "$REG"
 out="$("$REPO/bin/buckets.sh" profile 2>&1)"
 assert_contains "shows the agent name" "$out" "opencode"
 assert_contains "shows overall ok/fail counts" "$out" "12 ok / 3 fail"
 assert_contains "shows the per-category breakdown" "$out" "coding:"
 assert_contains "shows a computed percentage" "$out" "80%"
+assert_contains "shows lane minutes per pass overall" "$out" "overall: 12 ok / 3 fail  (80%)  4.2 min/ok"
+assert_contains "  ...and per category" "$out" "coding:  8 ok / 1 fail  (89%)  3.1 min/ok"
+assert_contains "  ...n/a where nothing passed" "$out" "docs:  0 ok / 2 fail  (0%)  n/a min/ok"
+assert_contains "  ...and n/a for a record from before timing was kept" "$out" "overall: 3 ok / 0 fail  (100%)  n/a min/ok"
+assert_contains "the same per model, under its wallet" "$out" "b0:fp0  m0-a"
+assert_contains "  ...with its lane minutes per pass" "$out" "overall: 4 ok / 1 fail  (80%)  2.5 min/ok"
+assert_not_contains "  ...a model never dispatched is not listed" "$out" "m0-b"
 assert_contains "names harnesses with no data yet, rather than omitting them silently" \
   "$out" "no data yet for:"
 assert_contains "an agent never dispatched is listed as having no data" "$out" "hermes"

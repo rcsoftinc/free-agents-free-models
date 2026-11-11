@@ -21,7 +21,8 @@ set -euo pipefail
 #                       --workers   only those a worker may take: the wallet of
 #                                   the agent you are talking to is held back
 #                                   (FA_COORDINATOR=none turns that off)
-#   fa profile         per-agent/harness learned reliability (read-only)
+#   fa profile         learned record per harness and per model: ok/fail and
+#                       lane minutes per pass (read-only)
 #   fa rank [category] the ranked candidate chain for a category (read-only)
 #   fa discover        rebuild the credential registry (after adding/removing keys)
 #   fa probe [--all]   prove each wallet answers

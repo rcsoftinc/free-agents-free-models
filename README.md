@@ -617,8 +617,13 @@ See what the tool has learned, without spending a request:
 
 ```sh
 fa rank coding      # the full ranked candidate chain for a category
-fa profile          # per-agent/harness success rate, learned from real runs
+fa profile          # per-harness and per-model record: ok/fail, and lane minutes per pass
 ```
+
+Beside each rate, `fa profile` shows what a pass cost: the minutes a lane was
+held per attempt that passed its checks, with the time of the attempts that did
+not. On free lanes that time is the scarce resource, so it is the number that
+separates two models with the same pass rate. It is shown, not ranked on.
 
 And when a multi-part goal is worth splitting across lanes at all — instead
 of you (or the agent) guessing — is itself a mechanical check:

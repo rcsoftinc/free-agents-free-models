@@ -54,7 +54,9 @@ set -euo pipefail
 #       6 refused: called from inside a worker (FA_DEPTH, see common.sh)
 #
 # stdout is the agent's output. A machine-readable footer goes to stderr:
-#   ---RUN-META--- {"bucket":...,"model":...,"agent":...,"attempts":N,"state":"ok"}
+#   ---RUN-META--- {"bucket":...,"model":...,"agent":...,"attempts":N,"ms":M,"lane_ms":L,"state":"ok"}
+#   ms is the last agent call; lane_ms the whole span the lane was held for
+#   that attempt, its checks and fix rounds included.
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG_TAG=run
@@ -433,8 +435,14 @@ invoke() { # $1=agent $2=model $3=provider $4=prompt
 # NOTE on what counts as evidence: a bucket-level failure (rate limit, billing)
 # says nothing about whether this model is good at this category, so it must not
 # be scored against the model. Only ok / timeout / dead / provider_error do.
-record() { # $1=bucket $2=model $3=agent $4=state $5=ms $6=output(optional)
-  local bucket="$1" model="$2" agent="$3" state="$4" ms="$5" out="${6:-}" cd_secs until_ts=0 hint
+# Besides ok/fail, every scored attempt adds its lane time (lane_ms: the span
+# the lease was held, checks and fix rounds included) as .ms to the same
+# .stats, .cat_stats and .agent_stats entries. `fa profile` divides it by ok:
+# on free lanes the scarce resource is lane time, so minutes per pass - the
+# failed attempts' time included - is what separates two models with the same
+# pass rate. Shown, not ranked on.
+record() { # $1=bucket $2=model $3=agent $4=state $5=ms $6=lane_ms $7=output(optional)
+  local bucket="$1" model="$2" agent="$3" state="$4" ms="$5" lane_ms="$6" out="${7:-}" cd_secs until_ts=0 hint
   [[ "$state" == "local_network" || "$state" == "context_overflow" ]] && return 0
   # Pass the failure count so a first, possibly transient failure gets a short
   # window and only a repeatedly-failing wallet earns the long one.
@@ -454,6 +462,8 @@ record() { # $1=bucket $2=model $3=agent $4=state $5=ms $6=output(optional)
   is_bucket_fault "$state" && bucket_fault=true
 
   registry_txn '
+    def tally: (if $s == "ok" then .ok += 1 else .fail += 1 end)
+               | .ms = ((.ms // 0) + ($lane|tonumber));
     .buckets[$b].health.last_used = ($now|tonumber)
   | .buckets[$b].models |= map(
       if ([.routes[].model_arg] | index($m)) != null then
@@ -464,12 +474,10 @@ record() { # $1=bucket $2=model $3=agent $4=state $5=ms $6=output(optional)
         # the check the task set - a ranking fact, not a liveness one.
         .probe = (if $fault or $s == "unverified" then .probe else {state:$s, at:$at, ms:($ms|tonumber)} end)
       | .stats = (if $fault then (.stats // {ok:0, fail:0})
-                  else (.stats // {ok:0, fail:0})
-                  | if $s == "ok" then .ok += 1 else .fail += 1 end end)
+                  else (.stats // {ok:0, fail:0}) | tally end)
       | .cat_stats = (if $fault then (.cat_stats // {})
                       else ((.cat_stats // {})
-                            | .[$cat] = ((.[$cat] // {ok:0, fail:0})
-                                         | if $s == "ok" then .ok += 1 else .fail += 1 end)) end)
+                            | .[$cat] = ((.[$cat] // {ok:0, fail:0}) | tally)) end)
       # A model cooldown parks one endpoint; it never touches the wallet.
       | .cooldown_until = (if ($fault|not) and $s != "ok" and ($until|tonumber) > 0
                            then ($until|tonumber) else (.cooldown_until // 0) end)
@@ -496,12 +504,11 @@ record() { # $1=bucket $2=model $3=agent $4=state $5=ms $6=output(optional)
   | .agent_stats = (.agent_stats // {})
   | .agent_stats[$a] = ( (.agent_stats[$a] // {stats:{ok:0, fail:0}, cat_stats:{}})
       | if $fault then .
-        else ( .stats |= (if $s == "ok" then .ok += 1 else .fail += 1 end)
-             | .cat_stats[$cat] = ((.cat_stats[$cat] // {ok:0, fail:0})
-                                   | if $s == "ok" then .ok += 1 else .fail += 1 end)
+        else ( .stats |= tally
+             | .cat_stats[$cat] = ((.cat_stats[$cat] // {ok:0, fail:0}) | tally)
              )
         end )
-  ' --arg b "$bucket" --arg m "$model" --arg a "$agent" --arg s "$state" --arg ms "$ms" \
+  ' --arg b "$bucket" --arg m "$model" --arg a "$agent" --arg s "$state" --arg ms "$ms" --arg lane "$lane_ms" \
     --arg at "$(iso_now)" --arg now "$(now_epoch)" --arg until "$until_ts" \
     --arg trip "${BREAKER_TRIP:-2}" --argjson fault "$bucket_fault" \
     --arg cat "$CATEGORY"
@@ -817,16 +824,20 @@ for row in "${CHAIN[@]}"; do
     if [[ $VALIDATE -eq 1 || -n "$VERIFY_CMD" ]]; then
       run_gates "$agent" "$model" "$provider" || final=unverified
     fi
-    record "$bucket" "$model" "$agent" "$final" "$ms" "$out"
+    # What this attempt cost its lane: the lease was held through the checks
+    # and their fix rounds, not only the first call - time no other task could
+    # have the lane for, and the time `fa profile` counts per pass.
+    lane_ms=$(( $(now_ms) - t0 ))
+    record "$bucket" "$model" "$agent" "$final" "$ms" "$lane_ms" "$out"
     lease_release
     [[ "${FA_LIVE_SKIP_RESULT:-}" == 1 ]] || printf '%s\n' "$out"
     printf '%s %s\n' '---RUN-META---' \
       "$(jq -cn --arg b "$bucket" --arg m "$model" --arg a "$agent" \
-              --arg p "$provider" --argjson n "$attempt" --argjson ms "$ms" \
+              --arg p "$provider" --argjson n "$attempt" --argjson ms "$ms" --argjson lms "$lane_ms" \
               --argjson est "${est:-0}" --arg st "$final" --arg vc "$VERIFY_CMD" \
               --argjson fr "${GATE_ROUNDS:-0}" \
               --argjson pr "$(printf '%s\n' "${PROTECTED_RESTORED[@]}" | sort -u | jq -R . | jq -sc 'map(select(length > 0))')" \
-              '{bucket:$b, model:$m, agent:$a, provider:$p, attempts:$n, ms:$ms,
+              '{bucket:$b, model:$m, agent:$a, provider:$p, attempts:$n, ms:$ms, lane_ms:$lms,
                 est_prompt_tokens:$est, state:$st, fix_rounds:$fr,
                 verify:(if $vc == "" then null elif $st == "ok" then "passed" else "failed" end),
                 protected_restored:$pr}')" >&2
@@ -834,7 +845,8 @@ for row in "${CHAIN[@]}"; do
     exit 1
   fi
 
-  record "$bucket" "$model" "$agent" "$state" "$ms" "$out"
+  lane_ms=$(( $(now_ms) - t0 ))
+  record "$bucket" "$model" "$agent" "$state" "$ms" "$lane_ms" "$out"
   lease_release
 
   log "$(printf 'attempt %d: %-26s %-8s %-40s -> %s' "$attempt" "$bucket" "$agent" "$model" "$state")"

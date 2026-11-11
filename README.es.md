@@ -626,8 +626,14 @@ Mira lo que la herramienta ha aprendido, sin gastar una petición:
 
 ```sh
 fa rank coding      # la cadena completa de candidatos clasificados para una categoría
-fa profile          # tasa de éxito por agente/contenedor, aprendida de ejecuciones reales
+fa profile          # historial por contenedor y por modelo: aciertos/fallos y minutos de carril por acierto
 ```
+
+Junto a cada tasa, `fa profile` muestra lo que costó cada acierto: los minutos
+que un carril estuvo ocupado por cada intento que pasó sus comprobaciones, con
+el tiempo de los intentos que no pasaron. En carriles gratuitos ese tiempo es el
+recurso escaso, así que es el número que separa a dos modelos con la misma tasa
+de aciertos. Se muestra; no entra en la clasificación.
 
 Y si una meta de varias partes vale la pena dividirla entre carriles —
 en lugar de que tú (o el agente) lo adivinen — es en sí misma una verificación

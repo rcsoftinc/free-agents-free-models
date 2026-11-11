@@ -153,7 +153,13 @@ assert_true() {
 # ---- stub control ----
 # mode_for agent success|ratelimit|error
 mode_for() { export "${1}_STUB_MODE=$2"; }
-clear_modes() { unset OPENCODE_STUB_MODE KILO_STUB_MODE HERMES_STUB_MODE GOOD_MODEL; }
+# mode_for exports the name as given (opencode_STUB_MODE, what the stubs read);
+# clearing only the upper-case spellings left a mode set for the rest of the
+# suite, which a later test then met as a lane that failed for no reason.
+clear_modes() {
+  unset OPENCODE_STUB_MODE KILO_STUB_MODE HERMES_STUB_MODE GOOD_MODEL
+  unset opencode_STUB_MODE kilo_STUB_MODE hermes_STUB_MODE
+}
 stub_log_new() { STUB_LOG_FILE="$(mktemp)"; export STUB_LOG="$STUB_LOG_FILE"; }
 stub_log_lines() { [[ -n "${STUB_LOG_FILE:-}" ]] && wc -l < "$STUB_LOG_FILE" || echo 0; }
 stub_log_cat() { [[ -n "${STUB_LOG_FILE:-}" ]] && cat "$STUB_LOG_FILE"; }

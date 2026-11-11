@@ -43,6 +43,25 @@ assert_true "kilo's route is present at all (not just absent from the chain)" '[
 assert_true "kilo's strong record ranks it above opencode for the SAME model" \
   '[[ -n "$p_kilo" && -n "$p_oc" && $p_kilo -lt $p_oc ]]'
 
+# Agent evidence fades like model evidence: those ten successes dated ten
+# half-lives ago are worth a hundredth of one, so two of opencode's from
+# today outrank them. Undated, ten beat two (the control).
+jq --argjson old "$(( $(date +%s) - 300*86400 ))" '.agent_stats = {
+      kilo:     {stats:{ok:10,fail:0,at:$old}, cat_stats:{coding:{ok:10,fail:0,at:$old}}},
+      opencode: {stats:{ok:2,fail:0},          cat_stats:{coding:{ok:2,fail:0}}}}' \
+  "$REG" > "$REG.t" && mv "$REG.t" "$REG"
+out="$(DRY_RUN_LIMIT=0 timeout 60 "$REPO/bin/run.sh" --dry-run -c coding 2>/dev/null)"
+p_kilo=$(printf '%s\n' "$out" | grep -nE 'kilo.*m0-a'     | head -1 | cut -d: -f1)
+p_oc=$(printf '%s\n' "$out"   | grep -nE 'opencode.*m0-a' | head -1 | cut -d: -f1)
+assert_true "ten successes dated ten half-lives ago rank below two from today" \
+  '[[ -n "$p_kilo" && -n "$p_oc" && $p_oc -lt $p_kilo ]]'
+jq 'del(.agent_stats[].stats.at, .agent_stats[].cat_stats[].at)' "$REG" > "$REG.t" && mv "$REG.t" "$REG"
+out="$(DRY_RUN_LIMIT=0 timeout 60 "$REPO/bin/run.sh" --dry-run -c coding 2>/dev/null)"
+p_kilo=$(printf '%s\n' "$out" | grep -nE 'kilo.*m0-a'     | head -1 | cut -d: -f1)
+p_oc=$(printf '%s\n' "$out"   | grep -nE 'opencode.*m0-a' | head -1 | cut -d: -f1)
+assert_true "  ...undated (taken at face value), ten beat two" \
+  '[[ -n "$p_kilo" && -n "$p_oc" && $p_kilo -lt $p_oc ]]'
+
 # Reset for the next tests - clean slate, no agent evidence at all.
 jq '.agent_stats = {}' "$REG" > "$REG.t" && mv "$REG.t" "$REG"
 
@@ -142,6 +161,18 @@ assert_contains "  ...and n/a for a record from before timing was kept" "$out" "
 assert_contains "the same per model, under its wallet" "$out" "b0:fp0  m0-a"
 assert_contains "  ...with its lane minutes per pass" "$out" "overall: 4 ok / 1 fail  (80%)  2.5 min/ok"
 assert_not_contains "  ...a model never dispatched is not listed" "$out" "m0-b"
+# Shown as the ranking sees it: a record dated one half-life ago at half
+# its counts - same rate, same minutes per pass, since both fade alike.
+jq --argjson at "$(( $(date +%s) - 30*86400 ))" '.agent_stats.opencode.stats.at = $at' \
+  "$REG" > "$REG.t" && mv "$REG.t" "$REG"
+out="$("$REPO/bin/buckets.sh" profile 2>&1)"
+assert_contains "a record dated one half-life ago shows at half its counts, same rate and min/ok" \
+  "$out" "overall: 6 ok / 1.5 fail  (80%)  4.2 min/ok"
+assert_contains "  ...and the profile says that counts fade" "$out" "counts fade: halved every 30 days"
+out="$(FA_HALF_LIFE_DAYS=0 "$REPO/bin/buckets.sh" profile 2>&1)"
+assert_contains "with FA_HALF_LIFE_DAYS=0 the same record shows its lifetime counts" \
+  "$out" "overall: 12 ok / 3 fail  (80%)  4.2 min/ok"
+assert_contains "  ...and says so" "$out" "counts do not fade"
 assert_contains "names harnesses with no data yet, rather than omitting them silently" \
   "$out" "no data yet for:"
 assert_contains "an agent never dispatched is listed as having no data" "$out" "hermes"

@@ -8,7 +8,7 @@
 
 **Complete, working, and proven on a real project.** Published (public) at
 `github.com/rcsoftinc/free-agents-free-models`. Full suite green:
-**1073 assertions, 46 suites, offline** - and CI runs it on every push to master and
+**1089 assertions, 46 suites, offline** - and CI runs it on every push to master and
 every pull request (GitHub Actions, Ubuntu 24.04 + 26.04).
 
 **It has built real software unattended.** All independently verified against what
@@ -331,9 +331,12 @@ value:
 4. **Token accounting** was assessed and deliberately not built: worth it only
    for the two lanes that publish a budget (`nous` tph, `copilot` credits).
    A general ledger for the five lanes with no budget changes no decision.
-5. Smaller should-do items raised but not built this session: a known-bad
-   demotion band (distinct from cold-start), and deciding whether to trust
-   cached wallet health vs. re-probing before a large dispatch.
+5. Smaller should-do items raised but not built this session: ~~a known-bad
+   demotion band (distinct from cold-start)~~ (settled by item 13 on
+   2026-11-11: cold start is less than one attempt of evidence as it stands
+   today, fading included; anything above that is known, good or bad), and
+   deciding whether to trust cached wallet health vs. re-probing before a
+   large dispatch.
 6. **Catch up missed scheduled refreshes.** Cron skips a 03:00 run while the
    machine is off or asleep and never makes it up - 2 runs in 13 days on the
    dev machine. `fa doctor` now says so and how to move the hour. The real fix
@@ -375,15 +378,12 @@ code first):
 12. ~~Lane-minutes per verified task.~~ - built 2026-11-11 (entry below):
    `fa profile` shows min/ok per harness and per model. Whether it joins the
    ranking score is still a separate decision, not taken.
-13. **The registry never forgets.** `.stats`, `.cat_stats` and `.agent_stats`
-   are lifetime counters with no timestamps, a failure weighs twice a success
-   in the candidate score (run.sh, `candidates`), and a demoted model runs
-   again only when everything above it fails. Free models change under the
-   same name, so evidence from months ago may describe a model that no longer
-   exists. A half-life on the counters, or one exploratory attempt per demoted
-   model every so often, would let a wrong demotion heal. Belongs with item
-   5's known-bad band; a decay, never a reset - the counters are the thing
-   that compounds.
+13. ~~The registry never forgets.~~ - built 2026-11-11 (entry below): counts
+   fade with a half-life (`FA_HALF_LIFE_DAYS`, 30), read and written, so a
+   demotion heals to a cold start. The exploratory attempt was not built: a
+   model that has faded to cold is reconsidered the way a new one is, which
+   is the same path a new model gets; a deliberate attempt would spend a lane
+   on purpose and can be added if healing proves too slow in practice.
 14. **A harness eval the tool ships with.** The suite is offline by design and
    real agent behaviour is listed as untested on purpose. The three proof
    builds (mdsite, fmtkit, coldrun) are an eval set in embryo: made rerunnable
@@ -1904,3 +1904,33 @@ faulted (kilo's route to the same model, ranked first by then, served it), so bo
 are now rate-limited and the before/after tallies compared; and `clear_modes` in
 harness.sh unset `KILO_STUB_MODE` while `mode_for` exports `kilo_STUB_MODE`, so a mode
 leaked for the rest of a suite - it now unsets both spellings.
+
+## Feature: evidence fades with a half-life (2026-11-11)
+
+Item 13 above. `.stats`, `.cat_stats` and `.agent_stats` were lifetime counters: nothing
+was dated, a failure weighed twice a success in `candidates()`, and a model demoted months
+ago ran again only once everything above it had failed on the same task - while free
+models change under the same name. Now every count the ranking reads is halved for every
+`FA_HALF_LIFE_DAYS` (30; 0 turns it off) since the record's date, in two places. `record()`
+fades what is there before adding this attempt and dates the record (`at`, epoch seconds;
+lane time `ms` fades with the counts, so min/ok stays a recent average; counts kept to
+four decimals). `candidates()` fades what it reads, so a record nobody writes to any more
+fades too. The gate that lets the cold-start prior speak - "no evidence in this category" -
+is now less than one attempt of evidence as it stands, so a demotion heals to a cold start:
+the model is reconsidered the way a new one is, its faded failures still counting for the
+little they are worth. A decay, never a reset; nothing is zeroed. Undated records (every
+registry from before this) count at face value until written; `discover` dates them once
+when it carries them over, so from the next refresh they fade like the rest. `fa profile`
+shows the faded counts, to one decimal, and says so in its header. Agent evidence (the
+Beta posterior) fades the same way. Item 5's known-bad band falls out of this: known is at
+least one attempt of evidence as it stands today, cold is less.
+
+Tests: `test_ranking.sh` (a record one half-life old counts half before this attempt is
+added, lane time with it, dated today; four failures from five half-lives ago rank above
+three from today, and below them with `FA_HALF_LIFE_DAYS=0` or re-dated today),
+`test_agent_ranking.sh` (ten harness successes dated ten half-lives ago rank below two
+from today, above them undated; the profile shows a record one half-life old at half its
+counts, same rate and min/ok, and lifetime counts at 0), `test_discover.sh` (undated
+carried stats and agent_stats are dated by that discover; a dated record keeps its date).
+Each of four mutations - reading at face value, writing without fading, the profile
+without fading, discover without dating - fails only the assertions written for it.

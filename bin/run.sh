@@ -72,6 +72,13 @@ WORKDIR="$(pwd)"
 PIN_BUCKET=""
 EXCLUDES=()
 MAX_ATTEMPTS="${MAX_ATTEMPTS:-6}"
+# Evidence fades. Every count the ranking reads (.stats, .cat_stats,
+# .agent_stats) is halved every FA_HALF_LIFE_DAYS from its date, both when a
+# record is written and when it is read, so a model is judged on recent form:
+# free models change under the same name, and a demotion from months ago
+# should heal to a cold start, not last forever. A decay, never a reset; 0
+# turns it off (lifetime totals).
+HALF_LIFE_DAYS="${FA_HALF_LIFE_DAYS:-30}"
 ATTEMPT_TIMEOUT="${ATTEMPT_TIMEOUT:-300}"
 DRY_RUN=0
 VALIDATE=0
@@ -184,7 +191,10 @@ mkdir -p "$LEASE_DIR"
 #   1. skip buckets in cooldown (the breaker) and explicit excludes
 #   2. prefer the least-recently-used bucket, so load spreads across wallets
 #      instead of draining the best one first
-#   3. within a bucket, prefer models with the best observed record
+#   3. within a bucket, prefer models with the best observed record - as it
+#      stands today: counts fade with a half-life (HALF_LIFE_DAYS), so old
+#      evidence weighs less than fresh, and a model demoted long ago is back
+#      to a cold start rather than last forever
 #
 # Only free models are ever offered. A model whose own cooldown has not expired
 # is skipped, which is how a hang demotes one endpoint without touching its wallet.
@@ -208,6 +218,14 @@ candidates() {
 
   registry_read '
     def beta_post(ok; fail; k; p0): (ok + k*p0) / (ok + fail + k);
+    # A stats object as it stands now: ok/fail halved for every half-life
+    # since its date. Undated (from before dates were kept) is taken at face
+    # value until it is next written. Never inflates: a date in the future
+    # counts as now.
+    def faded(s): ((s // {}) | . + {ok: (.ok // 0), fail: (.fail // 0)}
+                   | if (.at // null) == null or ($hl|tonumber) <= 0 then .
+                     else pow(0.5; ([(($now|tonumber) - .at), 0] | max) / (($hl|tonumber) * 86400)) as $d
+                        | .ok *= $d | .fail *= $d end);
     (.agent_stats // {}) as $astats
     | [ .buckets[]
       | select(($pin == "") or (.id == $pin))
@@ -257,10 +275,9 @@ candidates() {
           # a fresh registry has stats for none. Weights are set so ONE observed
           # success (+4) outranks the best possible prior: evidence beats opinion
           # the moment evidence exists.
-          score: ( 4 * ( (($m.cat_stats[$cat].ok   // 0))
-                       - 2 * (($m.cat_stats[$cat].fail // 0)) )
-                   + 2 * ( (($m.stats.ok   // 0))
-                         - 2 * (($m.stats.fail // 0)) )
+          score: ( faded($m.cat_stats[$cat]) as $mc | faded($m.stats) as $mo
+                   | 4 * ( $mc.ok - 2 * $mc.fail )
+                   + 2 * ( $mo.ok - 2 * $mo.fail )
                    + (if $m.probe.state == "ok" then 5 else 0 end)
                    # The prior applies whenever THIS CATEGORY has no evidence
                    # yet - not only when the model has never been tried at
@@ -274,10 +291,10 @@ candidates() {
                    # evidence gap. Gating it on "no evidence in THIS category"
                    # makes the rule exact - opinion orders what this category
                    # does not yet know, evidence orders everything else, and
-                   # the two never compete.
-                   + ( (if (($m.cat_stats[$cat].ok // 0)
-                            + ($m.cat_stats[$cat].fail // 0)) > 0
-                        then 0 else 1 end)
+                   # the two never compete. "No evidence" is less than one
+                   # attempt of evidence AS IT STANDS: a record that has faded
+                   # below that is a cold start again, prior included.
+                   + ( (if ($mc.ok + $mc.fail) >= 1 then 0 else 1 end)
                      * ( [ [ (if   ($m.context // 0) >= 400000 then 2
                             elif ($m.context // 0) >= 200000 then 1
                             else 0 end)
@@ -310,10 +327,10 @@ candidates() {
                    # 2*0.5-1=0, so every single-agent wallet (the overwhelming
                    # majority today) scores identically to before this axis
                    # existed.
-                   + ( ($astats[$r.agent].stats.ok // 0) as $aok
-                     | ($astats[$r.agent].stats.fail // 0) as $afail
-                     | ($astats[$r.agent].cat_stats[$cat].ok // 0) as $acok
-                     | ($astats[$r.agent].cat_stats[$cat].fail // 0) as $acfail
+                   + ( faded($astats[$r.agent].stats) as $as
+                     | faded($astats[$r.agent].cat_stats[$cat]) as $ac
+                     | $as.ok as $aok | $as.fail as $afail
+                     | $ac.ok as $acok | $ac.fail as $acfail
                      | beta_post($aok; $afail; ($k0|tonumber); 0.5) as $overall_post
                      | beta_post($acok; $acfail; ($k1|tonumber); $overall_post) as $cat_post
                      | ($weight|tonumber) * (2*$cat_post - 1) ) ) }
@@ -323,7 +340,7 @@ candidates() {
   ' --arg pin "$PIN_BUCKET" --arg now "$now" --argjson ex "$ex_json" \
     --arg cat "$CATEGORY" --argjson acaps "$acaps" --arg req_cap "$req_cap" \
     --arg k0 "${FA_AGENT_PRIOR_K0:-2}" --arg k1 "${FA_AGENT_PRIOR_K1:-4}" \
-    --arg weight "${FA_AGENT_WEIGHT:-3}"
+    --arg weight "${FA_AGENT_WEIGHT:-3}" --arg hl "$HALF_LIFE_DAYS"
 }
 
 # Why something did NOT make candidates()'s chain, grouped and counted by
@@ -462,8 +479,18 @@ record() { # $1=bucket $2=model $3=agent $4=state $5=ms $6=lane_ms $7=output(opt
   is_bucket_fault "$state" && bucket_fault=true
 
   registry_txn '
-    def tally: (if $s == "ok" then .ok += 1 else .fail += 1 end)
-               | .ms = ((.ms // 0) + ($lane|tonumber));
+    # What was there fades first (halved per half-life since its date, lane
+    # time with it, so min/ok stays a recent average), then this attempt is
+    # added and the record dated today. Counts kept to four decimals.
+    def fade: (if (.at // null) == null or ($hl|tonumber) <= 0 then .
+               else pow(0.5; ([(($now|tonumber) - .at), 0] | max) / (($hl|tonumber) * 86400)) as $d
+                  | .ok = ((.ok // 0) * $d) | .fail = ((.fail // 0) * $d) | .ms = ((.ms // 0) * $d) end);
+    def tidy: (. * 10000 | round) / 10000;
+    def tally: fade
+               | (if $s == "ok" then .ok += 1 else .fail += 1 end)
+               | .ok |= tidy | .fail |= tidy
+               | .ms = (((.ms // 0) + ($lane|tonumber)) | round)
+               | .at = ($now|tonumber);
     .buckets[$b].health.last_used = ($now|tonumber)
   | .buckets[$b].models |= map(
       if ([.routes[].model_arg] | index($m)) != null then
@@ -509,6 +536,7 @@ record() { # $1=bucket $2=model $3=agent $4=state $5=ms $6=lane_ms $7=output(opt
              )
         end )
   ' --arg b "$bucket" --arg m "$model" --arg a "$agent" --arg s "$state" --arg ms "$ms" --arg lane "$lane_ms" \
+    --arg hl "$HALF_LIFE_DAYS" \
     --arg at "$(iso_now)" --arg now "$(now_epoch)" --arg until "$until_ts" \
     --arg trip "${BREAKER_TRIP:-2}" --argjson fault "$bucket_fault" \
     --arg cat "$CATEGORY"

@@ -225,6 +225,11 @@ cmd_discover() {
     --slurpfile prev "$( [[ -f "$REGISTRY" ]] && echo "$REGISTRY" || echo /dev/null )" \
     --rawfile ids "$idfile" --rawfile models "$modfile" '
     def tsv($s): $s | split("\n") | map(select(length>0) | split("\u001f"));
+    # Learned counts are dated so they can fade (run.sh, FA_HALF_LIFE_DAYS).
+    # A record from before dates were kept is dated by the discover that
+    # carries it, once; from then on it fades like any other.
+    def dated: if ((.ok // 0) + (.fail // 0)) > 0 and (.at // null) == null
+               then . + {at: (now | floor)} else . end;
 
     (tsv($ids)  | map({agent:.[0], provider:.[1], wallet:.[2], ident:.[3],
                        source:.[4], extra:(.[5] // "{}" | fromjson)})) as $ids
@@ -350,8 +355,8 @@ cmd_discover() {
                   # already was. Without this, every `fa discover`/`fa
                   # refresh` (the daily cron) silently zeroed all observed
                   # ranking evidence and any active model-level cooldown.
-                  stats: ($prevm.stats // {ok:0, fail:0}),
-                  cat_stats: ($prevm.cat_stats // {}),
+                  stats: (($prevm.stats // {ok:0, fail:0}) | dated),
+                  cat_stats: (($prevm.cat_stats // {}) | map_values(dated)),
                   cooldown_until: ($prevm.cooldown_until // 0),
                   probe: ($prevm.probe // {state:"unprobed", at:null, ms:null})
                 } ] | group_by(.upstream)
@@ -373,7 +378,9 @@ cmd_discover() {
       # which refreshing will not change.
       examined_agents: $examined,
       buckets: $buckets,
-      agent_stats: $old_agent_stats,
+      agent_stats: ($old_agent_stats | map_values(
+                      .stats |= ((. // {ok:0, fail:0}) | dated)
+                    | .cat_stats |= ((. // {}) | map_values(dated)))),
       phantom_routes: ($phantom | map({agent, provider, model_arg})),
       counts: {
         buckets: ($buckets | length),
@@ -595,21 +602,32 @@ cmd_show() {
 cmd_profile() {
   [[ -f "$REGISTRY" ]] || die "no registry; run: $0 discover"
   local all_agents; all_agents="$(printf '%s\n' "${FA_AGENTS[@]}" | jq -R . | jq -sc .)"
-  jq -r --argjson all "$all_agents" '
+  jq -r --argjson all "$all_agents" --arg now "$(now_epoch)" --arg hl "${FA_HALF_LIFE_DAYS:-30}" '
     def pct($ok; $fail): (($ok + $fail) as $n | if $n > 0 then "\(($ok*100/$n)|round)%" else "n/a" end);
+    # As the ranking sees it: counts and lane time halved for every half-life
+    # since the record was written (run.sh, FA_HALF_LIFE_DAYS); an undated
+    # record at face value.
+    def faded: (. // {}) | . + {ok: (.ok // 0), fail: (.fail // 0), ms: (.ms // 0)}
+      | if (.at // null) == null or ($hl|tonumber) <= 0 then .
+        else pow(0.5; ([(($now|tonumber) - .at), 0] | max) / (($hl|tonumber) * 86400)) as $d
+           | .ok *= $d | .fail *= $d | .ms *= $d end;
+    def n: (. * 10 | round) / 10;
     # Lane minutes per pass: the lane time of every scored attempt, the failed
     # ones included, over the attempts that passed - in integer tenths, so the
     # text does not depend on how a jq prints floats. n/a until a pass has
     # been recorded with timing (a registry from before it was kept has none).
-    def per_ok: (.ok // 0) as $ok | (.ms // 0) as $ms
+    def per_ok: .ok as $ok | .ms as $ms
       | if $ok > 0 and $ms > 0
         then (($ms * 10 / 60000 / $ok) | round) as $t | "\($t / 10 | floor).\($t % 10) min/ok"
         else "n/a min/ok" end;
-    def row: "\(.ok // 0) ok / \(.fail // 0) fail  (\(pct(.ok // 0; .fail // 0)))  \(per_ok)";
+    def row: faded | "\(.ok | n) ok / \(.fail | n) fail  (\(pct(.ok; .fail)))  \(per_ok)";
     (.agent_stats // {}) as $a
     | ($all - ($a | keys)) as $unseen
     | "agent profile (learned harness reliability - independent of which wallet)",
       "min/ok: minutes a lane was held per attempt that passed its checks, the time of the attempts that did not included",
+      (if ($hl|tonumber) > 0
+       then "counts fade: halved every \($hl) days since the record was written (FA_HALF_LIFE_DAYS) - recent form, not lifetime totals"
+       else "counts do not fade (FA_HALF_LIFE_DAYS=0): lifetime totals" end),
       "",
       ( $a | to_entries[] | .key as $agent | .value as $v |
         "\($agent)",

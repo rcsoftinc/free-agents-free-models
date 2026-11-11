@@ -45,6 +45,30 @@ assert_true "Test 2: coding.ok >= 1 after success" '[[ $coding_ok -ge 1 ]]'
 
 rm -f run2_err.txt
 
+# --- a write fades what was there before adding to it -----------------------
+# Counts are halved every FA_HALF_LIFE_DAYS (30) since the record's date.
+# m1-a's four successes dated one half-life ago are worth two by now; one
+# more makes three, dated today. Lane time fades with them, so min/ok stays
+# a recent average.
+echo "=== a record fades before this attempt is added to it ==="
+NOW=$(date +%s)
+jq --argjson at "$((NOW - 30*86400))" '.buckets["b1:fp1"].models[0]
+      |= (.stats = {ok:4, fail:0, ms:240000, at:$at}
+        | .cat_stats = {coding:{ok:4, fail:0, ms:240000, at:$at}})' \
+  "$REG" > "$REG.tmp" && mv "$REG.tmp" "$REG"
+"$REPO/bin/run.sh" -c coding -b b1:fp1 "do a thing" >/dev/null 2>&1 || true
+ok_now="$(jq '.buckets["b1:fp1"].models[0].stats.ok' "$REG")"
+cat_ok_now="$(jq '.buckets["b1:fp1"].models[0].cat_stats.coding.ok' "$REG")"
+at_now="$(jq '.buckets["b1:fp1"].models[0].stats.at // 0' "$REG")"
+ms_now="$(jq '.buckets["b1:fp1"].models[0].stats.ms // 0' "$REG")"
+assert_true "four successes one half-life old plus one today count three (got ${ok_now})" \
+  'awk -v v="$ok_now" "BEGIN{exit !(v > 2.9 && v < 3.1)}"'
+assert_true "  ...per category too (got ${cat_ok_now})" \
+  'awk -v v="$cat_ok_now" "BEGIN{exit !(v > 2.9 && v < 3.1)}"'
+assert_true "  ...dated today (at=${at_now})" '[[ $at_now -ge $NOW ]]'
+assert_true "  ...their lane time halved before this attempt's was added (ms=${ms_now})" \
+  '[[ $ms_now -ge 120000 && $ms_now -lt 180000 ]]'
+
 # ---------------------------------------------------------------- Test 3
 # With opencode in ratelimit mode, run pinned to b0:fp0, then assert the MODEL's
 # .stats.fail did NOT increase while .buckets["b0:fp0"].health.state became "rate_limited".
@@ -225,6 +249,34 @@ echo "=== fa rank exposes the same, FULL chain candidates() would dispatch from 
 direct="$(DRY_RUN_LIMIT=0 timeout 60 "$REPO/bin/run.sh" --dry-run -c coding 2>/dev/null)"
 via_fa="$(timeout 60 "$REPO/bin/fa" rank coding 2>/dev/null)"
 assert_eq "fa rank coding matches the FULL run.sh --dry-run -c coding chain exactly" "$via_fa" "$direct"
+
+# --- evidence fades: a demotion from long ago heals to a cold start ---------
+# Read the same way it is written: counts halved every FA_HALF_LIFE_DAYS
+# since their date. faded-x failed four times 150 days ago (five half-lives:
+# an eighth of a failure left, below one attempt's worth, so the cold-start
+# prior applies again); fresh-x failed three times today. Every undated record
+# above was taken at face value, which is why nothing above changed.
+echo "=== evidence fades: an old demotion ranks above a fresh, smaller one ==="
+NOW=$(date +%s); OLD=$((NOW - 150*86400))
+jq --argjson now "$NOW" --argjson old "$OLD" '.buckets["b2:fp2"].models = [
+      {upstream:"faded-x", free:true, context:200000, max_output:4096,
+       stats:{ok:0,fail:4,at:$old}, cat_stats:{coding:{ok:0,fail:4,at:$old}},
+       routes:[{agent:"hermes",model_arg:"faded-x",provider:"p2"}], probe:{state:"unprobed"}},
+      {upstream:"fresh-x", free:true, context:200000, max_output:4096,
+       stats:{ok:0,fail:3,at:$now}, cat_stats:{coding:{ok:0,fail:3,at:$now}},
+       routes:[{agent:"hermes",model_arg:"fresh-x",provider:"p2"}], probe:{state:"unprobed"}}
+    ]' "$REG" > "$REG.t" && mv "$REG.t" "$REG"
+out="$(DRY_RUN_LIMIT=0 timeout 60 "$REPO/bin/run.sh" --dry-run -c coding 2>/dev/null)"
+assert_true "four failures from five half-lives ago rank above three from today" \
+  '[[ $(pos_of "$out" faded-x) -lt $(pos_of "$out" fresh-x) ]]'
+out="$(FA_HALF_LIFE_DAYS=0 DRY_RUN_LIMIT=0 timeout 60 "$REPO/bin/run.sh" --dry-run -c coding 2>/dev/null)"
+assert_true "  ...FA_HALF_LIFE_DAYS=0 keeps lifetime totals: four failures rank below three" \
+  '[[ $(pos_of "$out" fresh-x) -lt $(pos_of "$out" faded-x) ]]'
+jq --argjson now "$NOW" '.buckets["b2:fp2"].models[0] |= (.stats.at = $now | .cat_stats.coding.at = $now)' \
+  "$REG" > "$REG.t" && mv "$REG.t" "$REG"
+out="$(DRY_RUN_LIMIT=0 timeout 60 "$REPO/bin/run.sh" --dry-run -c coding 2>/dev/null)"
+assert_true "  ...and dated today as well, four failures rank below three: the date is what fades them" \
+  '[[ $(pos_of "$out" fresh-x) -lt $(pos_of "$out" faded-x) ]]'
 
 end_suite
 final_report

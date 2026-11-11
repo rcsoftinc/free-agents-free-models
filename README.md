@@ -613,6 +613,14 @@ failing, the next attempt automatically falls back to the other harness on
 the *same* wallet and model, before ever trying a different model or a
 different wallet.
 
+**Evidence fades.** Every count the ranking reads is halved every 30 days
+from the day it was written (`FA_HALF_LIFE_DAYS`; `0` keeps lifetime
+totals), both when a record is written and when it is read, so a model is
+judged on recent form. Free models change under the same name: a model
+demoted months ago fades back to a cold start instead of running only once
+everything above it has failed. A decay, never a reset. `fa profile` shows
+the faded counts, since those are what the ranking sees.
+
 See what the tool has learned, without spending a request:
 
 ```sh

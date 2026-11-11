@@ -8,7 +8,7 @@
 
 **Complete, working, and proven on a real project.** Published (public) at
 `github.com/rcsoftinc/free-agents-free-models`. Full suite green:
-**1109 assertions, 46 suites, offline** - and CI runs it on every push to master and
+**1112 assertions, 47 suites, offline** - and CI runs it on every push to master and
 every pull request (GitHub Actions, Ubuntu 24.04 + 26.04).
 
 **It has built real software unattended.** All independently verified against what
@@ -389,6 +389,17 @@ code first):
    lane-minutes over three runs each, they would give a prompt, adapter or
    ranking change a number instead of an opinion. Run it before a change to
    any of those lands; the offline suite stays as it is.
+
+15. **A paid model met with a free key is retried every cooldown.** The
+   findings showed kilo's gateway models (`kilo-auto/*`, `openrouter/auto*`,
+   `pareto-code`) answering "Add credits to continue, or switch to a free
+   model" and "You need to sign in to use this model" while the registry had
+   them as free. Since 2026-11-11 the taxonomy names these (model-scope,
+   `dead`), so they park for the dead cooldown and fade back like any
+   demotion - one wasted attempt per cycle. The durable fix is a `not_free`
+   outcome that marks the model `free: false` for that credential, a
+   `discover` that keeps the mark, and a look at why the kilo adapter lists
+   them as free at all.
 
 **Do not** add: token budgets on unmetered lanes, live leaderboard fetching (see
 ALIGNMENT for why gateway metadata beats it), a summariser-based handoff, an LLM
@@ -1955,3 +1966,26 @@ on change, a failure reported, journaled and shown by `fa status` with the task 
 running and the next one trying again, and without a setup a reset still removing ignored
 files) and `test_push_mode.sh` (runs in the run's worktree before any task; a verify that
 needs it passes, the project check too; nothing lands in your working directory).
+
+## Fix: the taxonomy names what 25 findings showed (2026-11-11)
+
+`fa findings` held 45 unseen entries from the NovoBanca runs of 2026-11-05..07; 25 were
+`unclassified` - provider text no rule matched, classified dead by default and kept as
+evidence, which is what findings are for. Three shapes, each one model on a working wallet:
+kilo's gateway models wanting a Kilo sign-in ("You need to sign in to use this model"), an
+endpoint the account's OpenRouter guardrail excludes ("0 endpoints out of 1 requested are
+available matching your guardrail restrictions"), and paid models met with a free key ("Add
+credits to continue, or switch to a free model", "This request requires more credits").
+classify.sh now names them: `dead`, model-scope, in the model-scope block ahead of the
+wallet rules - read as a credit or sign-in fault they would cool a working wallet over one
+model it was never going to get. Two more were a gateway's own 500 ("Unexpected server
+error", `UnknownError`) and "Provider finish_reason: error": transient, now
+`provider_error` (a short park, not 72h). Six self-test cases carry the real messages, and
+`test/test_classify.sh` runs the self-test as a suite, so CI fails on a taxonomy regression
+(`fa doctor` ran it already, but only for whoever reads doctor's output). The other
+findings are facts about those runs, not the tool: 14 `protected_edit` (workers writing
+tests they were told not to - put back, as designed), 7 `all_lanes_failed` (a parser task
+every lane failed), the rest notes; one note reported a successful run ending rc=141 when
+more than 12 findings were printed through `head`, and the code now prints them with
+`findings_brief`, which does not pipe. None acked: they are the user's to review. Item 15
+above holds the durable fix this points at.

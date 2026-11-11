@@ -61,6 +61,16 @@ classify_ex() { # $1=rc $2=output -> state<TAB>matched
   if printf '%s' "$t" | grep -qE 'model.{0,40}not supported|unknown model|no such model|does not exist|model .* not found|invalid model'; then
     printf 'dead\tyes\n'; return
   fi
+  # Not available to THIS credential, said of one model: kilo's gateway models
+  # that want a Kilo sign-in, an OpenRouter endpoint the account's guardrail
+  # excludes, a paid model a free key is told to switch away from. The wallet
+  # is fine for every other model, so these park the model, never the wallet
+  # - read as a credit or sign-in fault they would cool a working wallet over
+  # one model it was never going to get. (Seen 25 times as unclassified, each
+  # defaulting to dead anyway; now said so, and no longer a finding.)
+  if printf '%s' "$t" | grep -qE 'need to sign in|sign in to use this model|guardrail restrictions|switch to a free model|add credits to continue|requires more credits'; then
+    printf 'dead\tyes\n'; return
+  fi
 
   # Account-wide free-tier exhaustion. This is a WALLET fault and must trip the
   # breaker: every other model on the same account will fail identically, so
@@ -95,7 +105,7 @@ classify_ex() { # $1=rc $2=output -> state<TAB>matched
   # A gateway failing upstream is usually transient and says nothing about the
   # model's health - parking it for 72h like a genuinely dead model throws away a
   # working endpoint over a blip. Short cooldown instead.
-  if printf '%s' "$t" | grep -qE 'upstream request failed|provider returned error|upstream error|bad gateway|service unavailable|50[234]|try again later|overloaded'; then
+  if printf '%s' "$t" | grep -qE 'upstream request failed|provider returned error|upstream error|bad gateway|service unavailable|50[234]|try again later|overloaded|unexpected server error|internal server error|unknownerror|finish_reason: error'; then
     printf 'provider_error\tyes\n'; return
   fi
 
@@ -185,6 +195,15 @@ _ct() { # rc, text, expected
   else printf '  FAIL %-16s got=%-16s %s\n' "$3" "$got" "${2:0:46}"; return 1; fi
 }
 
+# Like _ct, and the text must be RECOGNISED by a rule (matched=yes), not fall
+# through to the default - which is also "dead", so for a dead case _ct alone
+# cannot tell a rule from its absence.
+_ck() { # rc, text, expected
+  local got; got="$(classify_ex "$1" "$2")"
+  if [[ "$got" == "$3"$'\t'"yes" ]]; then printf '  ok   %-16s %s\n' "$3" "${2:0:46}"
+  else printf '  FAIL %-16s got=%-20s %s\n' "$3" "${got/$'\t'/,}" "${2:0:46}"; return 1; fi
+}
+
 classify_self_test() {
   local fails=0
   echo "classify() self-test"
@@ -243,6 +262,21 @@ classify_self_test() {
   _ct 1 "HTTP 401: Model x-preview-f-free is not supported"    dead             || fails=1
   # ... while a real credential failure must still condemn the wallet.
   _ct 1 "HTTP 401 Unauthorized: invalid api key"               auth_error       || fails=1
+  # One model this credential does not get, on a wallet that is otherwise
+  # fine: kilo's gateway models behind a Kilo sign-in, an endpoint the
+  # account's OpenRouter guardrail excludes, a paid model met with a free key.
+  # Each parks the model; none may cool the wallet.
+  _ck 1 "Error: You need to sign in to use this model."        dead             || fails=1
+  _ck 1 "Error: 0 endpoints out of 1 requested are available matching your guardrail restrictions" \
+                                                                dead             || fails=1
+  _ck 1 "Error: Add credits to continue, or switch to a free model" dead         || fails=1
+  _ck 1 "Error: This request requires more credits, or fewer max_tokens. You requested up to 32000 tokens" \
+                                                                dead             || fails=1
+  # A gateway's own 500 and a provider that errored mid-answer: transient,
+  # a short park - not 72h for a working endpoint.
+  _ck 1 '{"name":"UnknownError","data":{"message":"Unexpected server error. Check server logs for details."}}' \
+                                                                provider_error   || fails=1
+  _ck 1 "Provider finish_reason: error"                         provider_error   || fails=1
 
   echo "advertised retry windows"
   [[ "$(retry_after_secs 'retrying in 3h 53m attempt #1')" == "13980" ]] \

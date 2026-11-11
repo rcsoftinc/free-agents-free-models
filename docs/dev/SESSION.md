@@ -8,7 +8,7 @@
 
 **Complete, working, and proven on a real project.** Published (public) at
 `github.com/rcsoftinc/free-agents-free-models`. Full suite green:
-**1057 assertions, 46 suites, offline** - and CI runs it on every push to master and
+**1073 assertions, 46 suites, offline** - and CI runs it on every push to master and
 every pull request (GitHub Actions, Ubuntu 24.04 + 26.04).
 
 **It has built real software unattended.** All independently verified against what
@@ -372,12 +372,9 @@ code first):
 
 11. ~~A retried task learns nothing from the attempt before it.~~ - built
    2026-11-11 (entry below): `retry_context()` in orch.sh.
-12. **Lane-minutes per verified task.** On free lanes the scarce resource is
-   lane time, so the number that compares models is minutes of lane per task
-   that passed its checks, not the pass rate alone. Every journal event has
-   `ts` and every RUN-META has `ms`; `fa profile` shows ok/fail rates and
-   `fa analyze` computes no durations. A column first; whether it joins the
-   ranking score is a second decision.
+12. ~~Lane-minutes per verified task.~~ - built 2026-11-11 (entry below):
+   `fa profile` shows min/ok per harness and per model. Whether it joins the
+   ranking score is still a separate decision, not taken.
 13. **The registry never forgets.** `.stats`, `.cat_stats` and `.agent_stats`
    are lifetime counters with no timestamps, a failure weighs twice a success
    in the candidate score (run.sh, `candidates`), and a demoted model runs
@@ -1878,3 +1875,32 @@ no lane spent. A first attempt gets nothing, and so does a retry after `attempt_
 the event it drew on. `test_verify_command.sh` covers the in-place verify case, the
 isolated case and missing files, and a first attempt being told nothing; removing the
 prepend in `run_task` fails them.
+
+## Feature: lane minutes per pass in `fa profile` (2026-11-11)
+
+Item 12 above. The registry counted ok and fail per model, per category and per harness,
+and nothing counted time: two models with the same pass rate looked the same when one of
+them took three fix rounds to get there. `record()` (run.sh) now adds each scored attempt's
+lane time as `.ms` next to the counts, in `.stats`, `.cat_stats` and `.agent_stats`, under
+the same fault gating (a wallet fault books nothing). The time is `lane_ms`, the span the
+lease was held for that attempt - the agent call, then the validation or verify command
+and its fix rounds - because that is the time no other task could have the lane for;
+RUN-META carries it beside `ms`, which stays the last agent call alone. `fa profile`
+divides it by passes: `min/ok` beside every rate, the failed attempts' time included, and
+`n/a` until a pass has been recorded with timing (a registry from before this has counts
+and no `ms`; `discover` carries the field over like the counts). It also gained a per-model
+section, since the number exists to compare models and nothing showed per-model stats at
+all: one block per wallet and model that has been dispatched. The score in `candidates()`
+does not read it; that is item 12's second decision and is not taken here.
+
+Tests: `test_agent_ranking.sh` (ms booked on the agent, its category and the model after
+a stub run; nothing booked on a wallet fault; the profile text for 4.2, 3.1 and 2.5 min/ok,
+n/a for no passes and for a record without timing, a never-dispatched model absent) and
+`test_verify_command.sh` section 7 (a verify command that sleeps: `lane_ms` exceeds `ms`
+by that much and the model's record grows by the whole span). Removing the `.ms`
+accumulation fails five of them, booking `ms` instead of `lane_ms` fails two, dropping
+the column fails five. Two test fixes found on the way: Test 3's "wallet fault" run never
+faulted (kilo's route to the same model, ranked first by then, served it), so both stubs
+are now rate-limited and the before/after tallies compared; and `clear_modes` in
+harness.sh unset `KILO_STUB_MODE` while `mode_for` exports `kilo_STUB_MODE`, so a mode
+leaked for the rest of a suite - it now unsets both spellings.

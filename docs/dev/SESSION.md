@@ -1,6 +1,6 @@
 # SESSION STATE — read this first on resume
 
-**Last updated:** 2026-11-07
+**Last updated:** 2026-11-11
 
 ---
 
@@ -320,7 +320,9 @@ value:
 2. **BATCH mode for trivial tasks.** `fa dispatch` already surfaces when every
    task in a batch is `"complexity": "trivial"` but does not yet group them
    onto one lane — noted as roadmap, not built, in the README's Workers
-   section.
+   section. Named from outside too: the checklist in
+   `references/harness-loop-graph-2026-11-11.md` puts a fast path for small
+   tasks first among its cost levers.
 3. **Project modes (strict/push/local) do not yet change dispatch behavior.**
    `mode` and `automerge` are read from `.orch/config.yaml` but every task
    goes through the same isolated-worktree-and-commit merge-back regardless.
@@ -340,7 +342,9 @@ value:
    `discover` and `record_probe` write the registry WITHOUT `REGISTRY_LOCK`
    (only `run.sh`'s `registry_txn` takes it), so a refresh racing a build can
    lose a cooldown it just recorded. Build it together with that lock, or
-   skip a run while any lease is held.
+   skip a run while any lease is held. The same checklist calls a schedule
+   that fails without a sound its failure 14, and wants an alert on every
+   failed run.
 7. **Use director mode on a real project** (2026-10-04 entries below - all
    five steps are built). What the suite cannot tell: whether a coordinator
    on a free model judges "slower than a reply" sensibly, writes specs good
@@ -358,11 +362,55 @@ value:
    command that needs them fails for a reason that is not the code; for now
    the config tells you to install first (`npm ci && npm test`). A `setup:`
    step run once per fresh worktree would fix it properly - or symlinking the
-   project's own, at the cost of tasks sharing one install.
+   project's own, at the cost of tasks sharing one install. The checklist's
+   failure 05, environment drift: an `init.sh` that is part of the harness
+   and runs at the start of every session.
+
+Added 2026-11-11, from checking the tool against an outside checklist
+(`references/harness-loop-graph-2026-11-11.md`; each item was verified in the
+code first):
+
+11. **A retried task learns nothing from the attempt before it.** After
+   `verify_failed`, `validation_failed`, `unverified` or `attempt_failed`, the
+   main loop lets the task be dispatched again (`TASK_RETRIES`, default 2) and
+   `run_task` builds the same prompt as the first time (`build_prompt`). An
+   isolated pool slot is reset first (`wt_pool_prepare`: `reset --hard`,
+   `clean -fdx`), so the new attempt starts clean; in place, the earlier
+   attempt's edits are still there. Either way the new attempt is told
+   neither. Inside one lane a fix round already gets the whole task plus the
+   failing output (`fix_prompt` in run.sh); a retry should get the same, plus
+   whether the directory still holds the earlier work. The journal already
+   carries what is needed: `verify_failed` keeps `cmd`, `rounds` and a 15-line
+   `tail`; `unverified` keeps `missing`.
+12. **Lane-minutes per verified task.** On free lanes the scarce resource is
+   lane time, so the number that compares models is minutes of lane per task
+   that passed its checks, not the pass rate alone. Every journal event has
+   `ts` and every RUN-META has `ms`; `fa profile` shows ok/fail rates and
+   `fa analyze` computes no durations. A column first; whether it joins the
+   ranking score is a second decision.
+13. **The registry never forgets.** `.stats`, `.cat_stats` and `.agent_stats`
+   are lifetime counters with no timestamps, a failure weighs twice a success
+   in the candidate score (run.sh, `candidates`), and a demoted model runs
+   again only when everything above it fails. Free models change under the
+   same name, so evidence from months ago may describe a model that no longer
+   exists. A half-life on the counters, or one exploratory attempt per demoted
+   model every so often, would let a wrong demotion heal. Belongs with item
+   5's known-bad band; a decay, never a reset - the counters are the thing
+   that compounds.
+14. **A harness eval the tool ships with.** The suite is offline by design and
+   real agent behaviour is listed as untested on purpose. The three proof
+   builds (mdsite, fmtkit, coldrun) are an eval set in embryo: made rerunnable
+   as an opt-in, lane-spending command that reports pass rate and
+   lane-minutes over three runs each, they would give a prompt, adapter or
+   ranking change a number instead of an opinion. Run it before a change to
+   any of those lands; the offline suite stays as it is.
 
 **Do not** add: token budgets on unmetered lanes, live leaderboard fetching (see
-ALIGNMENT for why gateway metadata beats it), or a summariser-based handoff — each
-was evaluated and rejected with reasons recorded.
+ALIGNMENT for why gateway metadata beats it), a summariser-based handoff, an LLM
+evaluator per task (a lane spent on an opinion the verify command does not give;
+the coordinator reviews), or a stall detector on fix rounds (three check rounds
+leave at most one to save) — each was evaluated and rejected with reasons
+recorded (the last two in `references/harness-loop-graph-2026-11-11.md`).
 
 ## This session: the adapter list
 
@@ -1810,3 +1858,16 @@ each line through its commit. A commit holding both a worker's output and the
 coordinator's edits would need both names, so fa keeps one commit per task.
 `test_worktree_merge.sh` (against the journal) and `test_push_mode.sh` (the CI fixer)
 assert it, and removing the trailer line fails both.
+
+## Reference: the tool against an outside checklist (2026-11-11)
+
+An article on agent engineering ("Harness, Loop and Graph", published 2026-11-05) was
+read against the tool; `references/harness-loop-graph-2026-11-11.md` keeps the
+comparison. Its three layers are the ones `PARADIGMS.md` already uses, and against its
+checklist the tool holds: a verify step the actor cannot edit, classification on output,
+policy outside the model, typed edges, a replayable journal, an idempotent pull request,
+an explicit join, budget exits, redacted findings. Four things it exposed went into "Next,
+if resuming" as items 11-14 (a retried task gets no feedback, lane-minutes per verified
+task, counters that never forget, an eval the tool ships with), and three existing items
+(2, 6, 10) got outside confirmation. Declined, with reasons in the note: an LLM evaluator
+per task, token accounting, a stall detector on fix rounds, model-written workflows.

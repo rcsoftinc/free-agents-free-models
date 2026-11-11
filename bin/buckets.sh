@@ -221,6 +221,11 @@ cmd_discover() {
   # Join models to buckets by (agent, provider). A model with no matching
   # credential is a PHANTOM ROUTE - advertised by the CLI but unreachable -
   # and is recorded as such rather than silently entering the schedulable set.
+  # Under the registry lock from the read of the old registry ($prev) to the
+  # write: a build recording an outcome in between (run.sh's registry_txn,
+  # which takes the same lock) was lost when the daily refresh raced it. The
+  # slow part - asking every harness for its models - happened above, outside.
+  ( flock -w 20 9 || { echo "registry lock timeout" >&2; exit 3; }
   jq -Rn \
     --slurpfile prev "$( [[ -f "$REGISTRY" ]] && echo "$REGISTRY" || echo /dev/null )" \
     --rawfile ids "$idfile" --rawfile models "$modfile" '
@@ -400,9 +405,9 @@ cmd_discover() {
         && jq -c 'with_entries(select(.key | startswith("_") | not))
                   | with_entries(.key |= ascii_downcase)' "$PROVIDER_NOTES" 2>/dev/null \
         || echo '{}' )" \
-    > "${REGISTRY}.tmp" || die "failed to build registry"
-
+    > "${REGISTRY}.tmp" || exit 3
   mv "${REGISTRY}.tmp" "$REGISTRY"
+  ) 9>"$REGISTRY_LOCK" || die "failed to build registry"
   log "wrote ${REGISTRY}"
 
   [[ $do_probe -eq 1 ]] && cmd_probe
@@ -421,7 +426,9 @@ record_probe() { # $1=bucket $2=model_arg $3=state $4=ms
   local bid="$1" model="$2" state="$3" ms="$4"
   # A local_network result is our fault, not the model's - never record it.
   [[ "$state" == "local_network" ]] && { log "  network fault - not recorded"; return; }
-  jq --arg b "$bid" --arg u "$model" --arg s "$state" --argjson ms "${ms:-0}" '
+  # Read-modify-write under the registry lock (registry_txn), like run.sh's
+  # record(): a probe and a build may touch the registry at the same moment.
+  registry_txn '
     .buckets[$b].models |= map(
       if ([.routes[].model_arg] | index($u)) != null
       then .probe = {state:$s, at:(now|todate), ms:$ms} else . end)
@@ -436,7 +443,7 @@ record_probe() { # $1=bucket $2=model_arg $3=state $4=ms
                cooldown_until:null}
          # timeout/dead demote the MODEL; the bucket keeps its prior state.
          else . end)
-  ' "$REGISTRY" > "${REGISTRY}.tmp" && mv "${REGISTRY}.tmp" "$REGISTRY"
+  ' --arg b "$bid" --arg u "$model" --arg s "$state" --argjson ms "${ms:-0}"
 }
 
 # Every model tried timed out or was dead, so nothing shows this wallet works.
@@ -677,9 +684,7 @@ cmd_quota() {
   }
   log "$(printf '%-26s usage=%s limit=%s remaining=%s free_tier=%s rate=%s/%s' \
     "$bid" "$usage" "$limit" "$remaining" "$free_tier" "$rpm" "$interval")"
-  jq --arg b "$bid" --arg at "$(iso_now)" \
-     --arg usage "$usage" --arg limit "$limit" --arg remaining "$remaining" \
-     --arg free "$free_tier" --arg rpm "$rpm" --arg interval "$interval" '
+  registry_txn '
     .buckets[$b].health.quota = {
       checked_at: $at, source: "openrouter:auth/key",
       usage: ($usage | tonumber? // $usage),
@@ -688,7 +693,9 @@ cmd_quota() {
       is_free_tier: ($free == "true"),
       rate_limit: { requests: (if $rpm == "null" then null else ($rpm | tonumber? // $rpm) end),
                     interval: (if $interval == "null" then null else $interval end) }
-    }' "$REGISTRY" > "${REGISTRY}.tmp" && mv "${REGISTRY}.tmp" "$REGISTRY"
+    }' --arg b "$bid" --arg at "$(iso_now)" \
+     --arg usage "$usage" --arg limit "$limit" --arg remaining "$remaining" \
+     --arg free "$free_tier" --arg rpm "$rpm" --arg interval "$interval"
 }
 
 usage() {

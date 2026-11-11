@@ -8,7 +8,7 @@
 
 **Complete, working, and proven on a real project.** Published (public) at
 `github.com/rcsoftinc/free-agents-free-models`. Full suite green:
-**1112 assertions, 47 suites, offline** - and CI runs it on every push to master and
+**1114 assertions, 47 suites, offline** - and CI runs it on every push to master and
 every pull request (GitHub Actions, Ubuntu 24.04 + 26.04).
 
 **It has built real software unattended.** All independently verified against what
@@ -341,13 +341,12 @@ value:
    machine is off or asleep and never makes it up - 2 runs in 13 days on the
    dev machine. `fa doctor` now says so and how to move the hour. The real fix
    is an hourly cron that refreshes only once the registry is ~20h old, but
-   that moves refreshes into working hours, while builds run - and
-   `discover` and `record_probe` write the registry WITHOUT `REGISTRY_LOCK`
-   (only `run.sh`'s `registry_txn` takes it), so a refresh racing a build can
-   lose a cooldown it just recorded. Build it together with that lock, or
-   skip a run while any lease is held. The same checklist calls a schedule
-   that fails without a sound its failure 14, and wants an alert on every
-   failed run.
+   that moves refreshes into working hours, while builds run. ~~`discover`
+   and `record_probe` write the registry WITHOUT `REGISTRY_LOCK`~~ - closed
+   2026-11-11 (entry below): every registry write now takes the lock, so an
+   hourly cron would no longer need to skip a run while a lease is held. The
+   same checklist calls a schedule that fails without a sound its failure 14,
+   and wants an alert on every failed run.
 7. **Use director mode on a real project** (2026-10-04 entries below - all
    five steps are built). What the suite cannot tell: whether a coordinator
    on a free model judges "slower than a reply" sensibly, writes specs good
@@ -1989,3 +1988,16 @@ every lane failed), the rest notes; one note reported a successful run ending rc
 more than 12 findings were printed through `head`, and the code now prints them with
 `findings_brief`, which does not pipe. None acked: they are the user's to review. Item 15
 above holds the durable fix this points at.
+
+## Fix: every registry write takes the registry lock (2026-11-11)
+
+Item 6's second half. `run.sh` records outcomes through `registry_txn`, a read-modify-write
+under `$STATE/.registry.lock`; `discover`, `record_probe` and `quota` wrote the registry
+without it, as `jq ... > tmp && mv`. A refresh (the daily cron, or `fa probe`) racing a
+build could read the registry, let the build record a cooldown or a success, and then
+write over it with what it had read. `discover` now holds the lock from its read of the old
+registry (`--slurpfile prev`) to its `mv` - the slow part, asking every harness for its
+models, stays outside - and `record_probe` and `quota` go through `registry_txn`.
+`test_discover.sh` holds the lock for four seconds and checks that discover's and probe's
+writes land only after it is released; without the lock they land in under two. The
+hourly-refresh half of item 6 is still a schedule decision for the user.

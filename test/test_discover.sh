@@ -177,5 +177,27 @@ else
   fail "discover wrote no registry"
 fi
 
+# --- 9. the registry is written under its lock ------------------------------
+# run.sh records outcomes through registry_txn, under $STATE/.registry.lock.
+# discover and probe used to write without it: a refresh (the daily cron)
+# racing a build could lose a cooldown the build had just recorded. Hold the
+# lock for four seconds; a write that respects it lands after the release.
+LOCK="$FREE_AGENTS_STATE/.registry.lock"
+hold_lock() { ( flock -x 9; sleep 4 ) 9>"$LOCK" & sleep 0.3; }
+if [[ -s "$REG" ]]; then
+  t0=$(date +%s); hold_lock
+  timeout 150 "$REPO/bin/buckets.sh" discover >/dev/null 2>&1
+  assert_true "discover writes the registry only once the lock is free (after $(( $(stat -c %Y "$REG") - t0 ))s)" \
+    '[[ $(stat -c %Y "$REG") -ge $((t0 + 4)) ]]'
+  wait
+  t0=$(date +%s); hold_lock
+  timeout 150 "$REPO/bin/buckets.sh" probe --bucket "$(jq -r '.buckets | keys[0]' "$REG")" >/dev/null 2>&1
+  assert_true "probe records under the lock too (after $(( $(stat -c %Y "$REG") - t0 ))s)" \
+    '[[ $(stat -c %Y "$REG") -ge $((t0 + 4)) ]]'
+  wait
+else
+  fail "discover wrote no registry"
+fi
+
 end_suite
 final_report

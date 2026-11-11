@@ -136,6 +136,22 @@ project ""
 GH_STUB_CI=fail FAKE_A='echo a > src/a.txt' FAKE_CIFIX=':' orch run
 assert_eq "a fixer that changes nothing ends it at once" "$(grep -c . "$FAKE/cifixer" 2>/dev/null)" "1"
 
+# --- 5b. a fresh checkout gets its setup: before any task ----------------------------------
+# The run's worktree starts from a clean checkout; `setup:` runs there once,
+# so a task's verify, and the project check, can count on what it installs.
+project $'setup: echo ok > .deps\nverify: test -f .deps' \
+  '[{"id":"a","prompt":"DO_A","deps":[],"files":["src/a.txt"],"category":"general","verify":"test -f .deps"}]'
+printf '.deps\n' > "$P/.gitignore"
+git -C "$P" -c user.name=t -c user.email=t@t add .gitignore
+git -C "$P" -c user.name=t -c user.email=t@t commit -qm ignore && git -C "$P" push -q origin main
+GH_STUB_CI=pass FAKE_A='echo a > src/a.txt' orch run
+assert_eq "a task whose verify needs the setup passes in the run's worktree" "$rc" "0"
+assert_contains "  ...the setup ran there first" "$(journal)" \
+  '"event":"setup","task":"-","where":"run","result":"passed","cmd":"echo ok > .deps"'
+assert_true "  ...and left its install in the run worktree, not in yours" \
+  '[[ -f "$P/.orch/worktrees/run/.deps" && ! -e "$P/.deps" ]]'
+assert_contains "  ...and the project check, run there, passed too" "$(status)" "check   passed  \`test -f .deps\`"
+
 # --- 6. automerge ---------------------------------------------------------------------------------
 project "automerge: true"
 GH_STUB_CI=pass FAKE_A='echo a > src/a.txt' orch run

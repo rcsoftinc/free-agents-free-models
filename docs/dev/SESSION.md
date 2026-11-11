@@ -8,7 +8,7 @@
 
 **Complete, working, and proven on a real project.** Published (public) at
 `github.com/rcsoftinc/free-agents-free-models`. Full suite green:
-**1089 assertions, 46 suites, offline** - and CI runs it on every push to master and
+**1109 assertions, 46 suites, offline** - and CI runs it on every push to master and
 every pull request (GitHub Actions, Ubuntu 24.04 + 26.04).
 
 **It has built real software unattended.** All independently verified against what
@@ -360,14 +360,12 @@ value:
    (entry below): it worked end to end, and found one flaw, fixed. Still
    unseen: a repository whose rules refuse every merge method, required
    reviews, a fork's upstream as the base.
-10. **Dependencies in fresh worktrees.** Isolated tasks and push mode's run
-   both start from a clean checkout: no `node_modules`, no `.venv`. A verify
-   command that needs them fails for a reason that is not the code; for now
-   the config tells you to install first (`npm ci && npm test`). A `setup:`
-   step run once per fresh worktree would fix it properly - or symlinking the
-   project's own, at the cost of tasks sharing one install. The checklist's
-   failure 05, environment drift: an `init.sh` that is part of the harness
-   and runs at the start of every session.
+10. ~~Dependencies in fresh worktrees.~~ - built 2026-11-11 (entry below):
+   `setup:` in `.orch/config.yaml`, run once per new worktree (a pool slot
+   when it is created, push mode's run worktree) and again when the line
+   changes; what it installs stays between tasks. Symlinking the project's
+   own install was not done: one install shared by parallel tasks is the
+   drift the checklist's failure 05 warns about.
 
 Added 2026-11-11, from checking the tool against an outside checklist
 (`references/harness-loop-graph-2026-11-11.md`; each item was verified in the
@@ -1934,3 +1932,26 @@ counts, same rate and min/ok, and lifetime counts at 0), `test_discover.sh` (und
 carried stats and agent_stats are dated by that discover; a dated record keeps its date).
 Each of four mutations - reading at face value, writing without fading, the profile
 without fading, discover without dating - fails only the assertions written for it.
+
+## Feature: `setup:` for fresh checkouts (2026-11-11)
+
+Item 10 above. An isolated task's pool slot and push mode's run worktree start from a
+clean checkout - no `node_modules`, no `.venv` - so a verify command that needed them failed
+for a reason that was not the code, and the config could only tell you to install first.
+`setup:` in `.orch/config.yaml` is one command (bash -c) run in a checkout when it is new:
+`wt_pool_prepare` runs it on a slot it just created, and on a reused slot when it never ran
+there or the line has changed since (a marker beside the slot, `.pool-N.setup`, remembers
+the command's md5; not written after a failure, so the next task tries again); `push_setup`
+runs it in the run's worktree once it exists. What it installs stays between tasks: a slot
+with a setup is reset to HEAD with `git clean -fd`, keeping ignored files, where a slot
+without one keeps `clean -fdx` as before. Output goes to `.orch/results/_setup-<where>.log`,
+the journal gets a `setup` event either way, and a failure is said, shown by `fa status`
+(`SETUP FAILED`) and does not stop the tasks there: a docs task may not need the install,
+and the verify of one that does will say so. `FA_SETUP_TIMEOUT` (1800s) bounds it. `git
+worktree prune` now runs before a slot is created, so a slot directory removed by hand no
+longer blocks the next run. The config template `fa init` writes documents it next to
+`verify:`. Tests in `test_worktree_pool.sh` (once per slot, kept across resets, run again
+on change, a failure reported, journaled and shown by `fa status` with the task still
+running and the next one trying again, and without a setup a reset still removing ignored
+files) and `test_push_mode.sh` (runs in the run's worktree before any task; a verify that
+needs it passes, the project check too; nothing lands in your working directory).

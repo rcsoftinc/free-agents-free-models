@@ -35,8 +35,9 @@ set -euo pipefail
 #
 #   .orch/config.yaml (init writes one): readonly: files no worker may change;
 #   verify: the project's own check, run once a run's tasks have landed (a
-#   failure goes to one worker); mode: push takes the work to a branch and a
-#   pull request, and what CI reports back to a worker.
+#   failure goes to one worker); setup: what a fresh checkout needs before any
+#   task runs in it (npm ci), once per new worktree; mode: push takes the work
+#   to a branch and a pull request, and what CI reports back to a worker.
 #
 # Exit: 0 all tasks done (and checked) | 1 a task failed, the project check
 #       failed, or - push mode - the push or CI failed | 3 setup error
@@ -520,10 +521,15 @@ wt_pool_prepare() { # $1=project $2=slot -> worktree dir, or empty
     # $project has since advanced (every successful task commits its merge
     # - see the commit block in run_task()).
     head="$(git -C "$project" rev-parse HEAD 2>/dev/null)"
+    # A slot with a `setup:` keeps what that setup installed (ignored files:
+    # node_modules, .venv) across resets - clean -fd, not -fdx - so the
+    # install happens once per slot, not once per task.
+    local clean=-fdx; [[ -n "$(project_setting setup)" ]] && clean=-fd
     if [[ -n "$head" ]] \
        && git -C "$dir" reset --hard "$head" >/dev/null 2>&1 \
-       && git -C "$dir" clean -fdx >/dev/null 2>&1; then
+       && git -C "$dir" clean "$clean" >/dev/null 2>&1; then
       log "pool slot ${slot}: reused (reset to current HEAD)"
+      wt_slot_setup "$dir" "$slot" reused
       printf '%s' "$dir"; return 0
     fi
     # Would not reset cleanly (corrupted, or moved out from under git) -
@@ -543,10 +549,49 @@ wt_pool_prepare() { # $1=project $2=slot -> worktree dir, or empty
   # is now at ...") to STDOUT, not just stderr - this function's own stdout
   # IS its return value (the worktree path), so BOTH streams must be
   # silenced here or that git noise corrupts the caller's $workdir.
+  # A record git may still hold for a slot directory that is gone would make
+  # the add below refuse; pruning first is harmless otherwise.
+  git -C "$project" worktree prune >/dev/null 2>&1 || true
   if git -C "$project" worktree add -B "fa-pool-${slot}" "$dir" HEAD >/dev/null 2>&1; then
     log "pool slot ${slot}: created fresh"
+    wt_slot_setup "$dir" "$slot" fresh
     printf '%s' "$dir"; return 0
   fi
+  return 1
+}
+
+# The slot's setup (worktree_setup below), once: on a fresh slot always, on a
+# reused one when it never ran there or the `setup:` line has changed since -
+# a marker beside the slot remembers what ran. Not marked after a failure, so
+# the next task tries again.
+wt_slot_setup() { # $1=dir $2=slot $3=fresh|reused
+  local dir="$1" slot="$2" how="$3" marker="${WT_POOL_DIR}/.pool-${slot}.setup" want
+  want="$(project_setting setup | md5sum | cut -d' ' -f1)"
+  if [[ "$how" == reused && "$(cat "$marker" 2>/dev/null)" == "$want" ]]; then return 0; fi
+  if worktree_setup "$dir" "pool-${slot}"; then printf '%s' "$want" > "$marker"; else rm -f "$marker"; fi
+  return 0
+}
+
+# `setup:` in .orch/config.yaml: one command (bash -c) that gives a fresh
+# checkout what git does not carry - npm ci, pip install, a generated file.
+# Run where a checkout is new: a pool slot (wt_slot_setup above) and push
+# mode's run worktree (push_setup). Output in .orch/results/_setup-<where>.log.
+# A failure is said and journaled, and the checkout is still used: a docs
+# task may not need the install, and the verify of one that does will say.
+worktree_setup() { # $1=dir $2=where (pool-N | run) -> 0 unless the command failed
+  local dir="$1" where="$2" cmd t="${FA_SETUP_TIMEOUT:-1800}" rc=0 logf
+  cmd="$(project_setting setup)"
+  [[ -n "$cmd" ]] || return 0
+  mkdir -p "$RESULTS"; logf="${RESULTS}/_setup-${where}.log"
+  log "setup (${where}): \`${cmd}\`"
+  ( cd "$dir" && timeout_no_tty "$t" bash -c "$cmd" ) >"$logf" 2>&1 || rc=$?
+  if [[ $rc -eq 0 ]]; then
+    journal setup - "where=${where}" "result=passed" "cmd=${cmd}"
+    return 0
+  fi
+  local why="exited ${rc}"; [[ $rc -eq 124 ]] && why="was cut off after ${t}s"
+  log "WARNING: setup (${where}) FAILED: it ${why} - output in ${logf#"${PROJECT}"/}; a task there may fail for that reason, not its own"
+  journal setup - "where=${where}" "result=failed" "cmd=${cmd}" "rc=${rc}"
   return 1
 }
 
@@ -1150,6 +1195,7 @@ push_setup() {
     || die "mode: push could not create the run's worktree at ${dir}"
   WORK="$dir"
   journal branch - "branch=${PUSH_BRANCH}" "base=${PUSH_BASE}" "from=${PUSH_FROM}"
+  worktree_setup "$dir" run || true
   log "push mode: building on a new branch, ${PUSH_BRANCH}, from ${PUSH_BASE} at ${PUSH_FROM:0:7} - in ${dir#"${PROJECT}"/}, not in your working directory"
 }
 
@@ -1642,6 +1688,9 @@ cmd_status() {
           | if .result == "failed" then "  CHECK FAILED  `\(.cmd)`  output: .orch/results/_check.log"
             elif .result == "fixed" then "  check   fixed   `\(.cmd)`\(if (.files // "") != "" then "  a worker changed: \(.files)" else "" end)"
             else "  check   passed  `\(.cmd)`" end' "$JOURNAL" 2>/dev/null || true
+  # A fresh checkout's setup that failed: tasks there may have failed for it.
+  jq -r 'select(.event=="setup" and .result=="failed")
+         | "  SETUP FAILED  (\(.where))  `\(.cmd)`  output: .orch/results/_setup-\(.where).log"' "$JOURNAL" | sort -u
   # Push mode: the latest branch, its pull request, what CI said, the merge.
   jq -rs '. as $j
     | ([range(0; $j | length)] | map(select($j[.].event == "branch")) | last) as $i
@@ -1765,9 +1814,16 @@ readonly: tests/* test/* spec/* __tests__/* src/test/* */tests/* */test/* */__te
 # done (bash -c, in the project root). Each task's verify proves that task;
 # this proves them together. When it fails, one worker is sent to fix it.
 # For example: npm test | dotnet test | ./gradlew test | pytest
-# In push mode it runs in a fresh checkout, with no node_modules or .venv:
-# install first if the check needs them (npm ci && npm test).
+# In push mode it runs in a fresh checkout, after setup: below.
 verify:
+
+# What a fresh checkout needs before any task runs in it (bash -c, in that
+# checkout): the installs and generated files git does not carry. Run once
+# per new worktree - a pool slot when it is created, push mode's run
+# worktree - and again when this line changes. What it installs stays
+# between tasks. A failure is reported (fa status) and the tasks still run.
+# For example: npm ci | pip install -e . | dotnet restore
+# setup:
 EOF
     log "created ${ORCH_DIR}/config.yaml (mode: strict)"
   fi

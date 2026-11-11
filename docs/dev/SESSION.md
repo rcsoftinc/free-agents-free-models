@@ -8,7 +8,7 @@
 
 **Complete, working, and proven on a real project.** Published (public) at
 `github.com/rcsoftinc/free-agents-free-models`. Full suite green:
-**1033 assertions, 47 suites, offline** - and CI runs it on every push to master and
+**1057 assertions, 46 suites, offline** - and CI runs it on every push to master and
 every pull request (GitHub Actions, Ubuntu 24.04 + 26.04).
 
 **It has built real software unattended.** All independently verified against what
@@ -370,18 +370,8 @@ Added 2026-11-11, from checking the tool against an outside checklist
 (`references/harness-loop-graph-2026-11-11.md`; each item was verified in the
 code first):
 
-11. **A retried task learns nothing from the attempt before it.** After
-   `verify_failed`, `validation_failed`, `unverified` or `attempt_failed`, the
-   main loop lets the task be dispatched again (`TASK_RETRIES`, default 2) and
-   `run_task` builds the same prompt as the first time (`build_prompt`). An
-   isolated pool slot is reset first (`wt_pool_prepare`: `reset --hard`,
-   `clean -fdx`), so the new attempt starts clean; in place, the earlier
-   attempt's edits are still there. Either way the new attempt is told
-   neither. Inside one lane a fix round already gets the whole task plus the
-   failing output (`fix_prompt` in run.sh); a retry should get the same, plus
-   whether the directory still holds the earlier work. The journal already
-   carries what is needed: `verify_failed` keeps `cmd`, `rounds` and a 15-line
-   `tail`; `unverified` keeps `missing`.
+11. ~~A retried task learns nothing from the attempt before it.~~ - built
+   2026-11-11 (entry below): `retry_context()` in orch.sh.
 12. **Lane-minutes per verified task.** On free lanes the scarce resource is
    lane time, so the number that compares models is minutes of lane per task
    that passed its checks, not the pass rate alone. Every journal event has
@@ -1871,3 +1861,20 @@ if resuming" as items 11-14 (a retried task gets no feedback, lane-minutes per v
 task, counters that never forget, an eval the tool ships with), and three existing items
 (2, 6, 10) got outside confirmation. Declined, with reasons in the note: an LLM evaluator
 per task, token accounting, a stall detector on fix rounds, model-written workflows.
+
+## Feature: a retried task is told what its previous attempt did (2026-11-11)
+
+Item 11 above. A task that fails for real is dispatched again (`TASK_RETRIES`, 2 by
+default), and until now the retry got the prompt `build_prompt()` produced the first time:
+it did not know an earlier attempt existed, which check it failed or how, nor whether that
+attempt's edits were still in the directory. `retry_context()` (orch.sh) reads the task's
+last `verify_failed`, `validation_failed` or `unverified` event from the journal and puts
+in front of the retry's prompt what failed and how - the command and its tail, the
+validation errors, or the missing files - then whether the earlier attempt's changes are
+still in the directory (in place) or gone (an isolated slot is reset before reuse), the
+same "do not weaken the checks" line a fix round gets, and the whole task. No model call,
+no lane spent. A first attempt gets nothing, and so does a retry after `attempt_failed`
+(no agent answered: there is nothing to tell). The journal records `retry_informed` with
+the event it drew on. `test_verify_command.sh` covers the in-place verify case, the
+isolated case and missing files, and a first attempt being told nothing; removing the
+prepend in `run_task` fails them.

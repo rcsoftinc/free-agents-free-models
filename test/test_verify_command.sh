@@ -19,8 +19,9 @@ sandbox_on
 FAKE="$(mktemp -d)"; WD="$(mktemp -d)"
 trap 'rm -rf "$FAKE" "$WD" "$FIXTURE_DIR"' EXIT
 # A fake agent that does what a free model does: writes the next word of
-# FAKE_SEQ into out.txt each time it is called. It also keeps every prompt it
-# was given, and whether its lane's lease was held while it worked.
+# FAKE_SEQ into out.txt each time it is called (the word NONE writes nothing).
+# It also keeps every prompt it was given, and whether its lane's lease was
+# held while it worked.
 cat > "$FAKE/opencode" <<'EOF'
 #!/usr/bin/env bash
 dir=""; prev=""
@@ -28,7 +29,7 @@ for a in "$@"; do [[ "$prev" == "--dir" ]] && dir="$a"; prev="$a"; done
 n=$(( $(cat "$FAKE_DIR/calls" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$FAKE_DIR/calls"
 IFS=',' read -ra seq <<<"${FAKE_SEQ:-GOOD}"
 word="${seq[$((n - 1))]:-${seq[-1]}}"
-printf '%s\n' "$word" > "${dir:-.}/out.txt"
+[[ "$word" == NONE ]] || printf '%s\n' "$word" > "${dir:-.}/out.txt"
 printf '%s' "${@: -1}" > "$FAKE_DIR/prompt.$n"
 if ( exec 9<>"$FREE_AGENTS_STATE/leases/b0_fp0.lock"; flock -n 9 ) 2>/dev/null
 then echo free > "$FAKE_DIR/lease.$n"; else echo held > "$FAKE_DIR/lease.$n"; fi
@@ -106,13 +107,13 @@ out="$(cd "$WD" && FAKE_SEQ=GOOD PATH="$FAKE:$PATH" "$REPO/bin/fa" run --verify 
 assert_eq "fa run --verify passes it through" "$rc" "0"
 assert_contains "  ...and verifies" "$out" "verified: true"
 
-orch() { # $1=verify command for the one task -> runs it, leaves $PROJ
+orch() { # $1=verify command for the one task -> runs it, leaves $PROJ (RETRIES: TASK_RETRIES, 0)
   PROJ="$(mktemp -d)"; mkdir -p "$PROJ/.orch"
   jq -n --arg v "$1" --arg t "$TASK" \
     '{tasks:[{id:"word", prompt:$t, deps:[], files:["out.txt"], category:"general", verify:$v}]}' \
     > "$PROJ/.orch/tasks.json"
-  rm -f "$FAKE/calls"
-  ( cd "$PROJ" && FAKE_SEQ="${2:-GOOD}" FA_VALIDATE_ROUNDS=2 TASK_RETRIES=0 PATH="$FAKE:$PATH" \
+  rm -f "$FAKE"/calls "$FAKE"/prompt.*
+  ( cd "$PROJ" && FAKE_SEQ="${2:-GOOD}" FA_VALIDATE_ROUNDS=2 TASK_RETRIES="${RETRIES:-0}" PATH="$FAKE:$PATH" \
       timeout 120 "$REPO/bin/orch.sh" run </dev/null >/dev/null 2>&1 )
 }
 orch "$CHECK" GOOD
@@ -125,6 +126,58 @@ assert_contains "a task whose verify never passes is journaled verify_failed" \
   "$(cat "$PROJ/.orch/journal.ndjson")" '"event":"verify_failed","task":"word","cmd":"grep -qx GOOD out.txt"'
 assert_contains "  ...and fa status shows the command, to run by hand" \
   "$(cd "$PROJ" && "$REPO/bin/fa" status 2>&1)" "VERIFY FAILED  word  \`$CHECK\`"
+rm -rf "$PROJ"
+
+# --- 6. a retry is told what the attempt before it did ------------------------------
+# Past its rounds a task fails, and TASK_RETRIES lets the orchestrator run it
+# again. In place, the earlier attempt's out.txt (BAD) is still there when the
+# retry starts: it is told which check failed and how, that those changes are
+# still in the directory, and gets the whole task again. A first attempt is
+# told nothing.
+RETRIES=1 orch "$CHECK" BAD,BAD,GOOD
+J="$(cat "$PROJ/.orch/journal.ndjson")"
+assert_contains "the first attempt fails its verify after its rounds" "$J" '"event":"verify_failed","task":"word"'
+assert_contains "  ...and the retry passes" "$J" '"event":"done","task":"word".*"verified":"yes"'
+assert_eq "  ...on the third agent call: two in the first attempt, one in the retry" "$(calls)" "3"
+p1="$(cat "$FAKE/prompt.1" 2>/dev/null)"; p3="$(cat "$FAKE/prompt.3" 2>/dev/null)"
+assert_not_contains "a first attempt is told nothing about earlier attempts" "$p1" "An earlier attempt"
+assert_contains "the retry is told which check the earlier attempt failed" "$p3" "did not pass its verify command, \`$CHECK\`"
+assert_contains "  ...and how" "$p3" "exit 1"
+assert_contains "  ...that in place its changes are still there" "$p3" "still in the working directory"
+assert_contains "  ...not to cheat its way past the check" "$p3" "Do not weaken, skip or delete the checks"
+assert_contains "  ...and gets the whole task again" "$p3" "The task:"
+assert_contains "  ...the task itself" "$p3" "$TASK"
+assert_contains "  ...which the journal records" "$J" '"event":"retry_informed","task":"word","after":"verify_failed"'
+rm -rf "$PROJ"
+
+# Isolated, the pool slot is reset before the retry runs: it is told that
+# nothing of that attempt is in the directory.
+orch_isolated() { # like orch, in a git project, with --isolate
+  PROJ="$(mktemp -d)"; mkdir -p "$PROJ/.orch"
+  git -C "$PROJ" init -q && git -C "$PROJ" config user.email t@t.t \
+    && git -C "$PROJ" config user.name t && git -C "$PROJ" commit --allow-empty -q -m init
+  jq -n --arg v "$1" --arg t "$TASK" \
+    '{tasks:[{id:"word", prompt:$t, deps:[], files:["out.txt"], category:"coding", verify:$v}]}' \
+    > "$PROJ/.orch/tasks.json"
+  rm -f "$FAKE"/calls "$FAKE"/prompt.*
+  ( cd "$PROJ" && FAKE_SEQ="${2:-GOOD}" FA_VALIDATE_ROUNDS=2 TASK_RETRIES="${RETRIES:-0}" PATH="$FAKE:$PATH" \
+      timeout 120 "$REPO/bin/orch.sh" run --isolate </dev/null >/dev/null 2>&1 )
+}
+RETRIES=1 orch_isolated "$CHECK" BAD,BAD,GOOD
+p3="$(cat "$FAKE/prompt.3" 2>/dev/null)"
+assert_contains "isolated, the retry is told its slot was reset" "$p3" "fresh checkout"
+assert_not_contains "  ...and not that the earlier changes are still there" "$p3" "still in the working directory"
+assert_eq "  ...and its work lands in the project" "$(cat "$PROJ/out.txt" 2>/dev/null)" "GOOD"
+rm -rf "$PROJ"
+
+# Declared files that never appeared: the retry is told which ones.
+RETRIES=1 orch "" NONE,GOOD
+J="$(cat "$PROJ/.orch/journal.ndjson")"
+assert_contains "a declared file that never appeared is journaled unverified" "$J" '"event":"unverified","task":"word"'
+assert_contains "  ...and the retry is told which files" "$(cat "$FAKE/prompt.2" 2>/dev/null)" \
+  "declared files were missing or left unchanged: out.txt (absent)"
+assert_contains "  ...then passes" "$J" '"event":"done","task":"word"'
+assert_contains "  ...journaled as informed" "$J" '"event":"retry_informed","task":"word","after":"unverified"'
 rm -rf "$PROJ"
 
 end_suite

@@ -622,6 +622,15 @@ contenedor mejor clasificado empieza a fallar, el siguiente intento cae
 automáticamente al otro contenedor sobre la **misma** billetera y modelo,
 antes de siquiera intentar un modelo o una billetera diferente.
 
+**La evidencia se desvanece.** Cada conteo que lee la clasificación se reduce
+a la mitad cada 30 días desde el día en que se escribió (`FA_HALF_LIFE_DAYS`;
+`0` conserva totales de por vida), tanto al escribir un registro como al
+leerlo, así que un modelo se juzga por su forma reciente. Los modelos gratuitos
+cambian bajo el mismo nombre: un modelo degradado hace meses vuelve a un
+arranque en frío en lugar de correr solo cuando todo lo que está por encima ha
+fallado. Un desvanecimiento, nunca un reinicio. `fa profile` muestra los conteos
+desvanecidos, porque son los que ve la clasificación.
+
 Mira lo que la herramienta ha aprendido, sin gastar una petición:
 
 ```sh

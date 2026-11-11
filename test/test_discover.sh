@@ -127,6 +127,7 @@ assert_not_contains "an agent with no credentials contributes no bucket" "$out" 
 # zeroed once every 24h. Prove a second discover() keeps what the first one
 # (plus a run) produced, matched by upstream model id.
 write_configs "sk-or-v1-DIFFERENTKEY99999999999"
+T0=$(date +%s)
 timeout 150 "$REPO/bin/buckets.sh" discover >/dev/null 2>&1
 if [[ -s "$REG" ]]; then
   field_of() { jq -r --arg m "$1" --arg f "$2" \
@@ -135,7 +136,7 @@ if [[ -s "$REG" ]]; then
   jq '(.buckets[] | select(.models[]?.upstream == "free-a") | .models[]
        | select(.upstream == "free-a"))
       |= (.stats = {ok:7, fail:2}
-        | .cat_stats = {coding:{ok:3, fail:1}}
+        | .cat_stats = {coding:{ok:3, fail:1, at:1700000000}}
         | .cooldown_until = 9999999999)' \
     "$REG" > "$REG.tmp" && mv "$REG.tmp" "$REG"
 
@@ -147,6 +148,12 @@ if [[ -s "$REG" ]]; then
     "$(field_of free-a cat_stats | jq .coding.ok)" "3"
   assert_eq "an active model cooldown survives a second discover" \
     "$(field_of free-a cooldown_until)" "9999999999"
+  # Dated so it can fade (run.sh, FA_HALF_LIFE_DAYS): an undated record is
+  # dated by the discover that carries it, once; a dated one keeps its date.
+  assert_true "stats carried without a date are dated by that discover" \
+    '[[ $(field_of free-a stats | jq ".at // 0") -ge $T0 ]]'
+  assert_eq "  ...and a dated record keeps its own date" \
+    "$(field_of free-a cat_stats | jq .coding.at)" "1700000000"
 else
   fail "discover wrote no registry"
 fi
@@ -164,6 +171,8 @@ if [[ -s "$REG" ]]; then
     "$(jq '.agent_stats.opencode.stats.ok' "$REG")" "9"
   assert_eq "agent_stats.opencode.cat_stats.coding.ok survives a second discover" \
     "$(jq '.agent_stats.opencode.cat_stats.coding.ok' "$REG")" "4"
+  assert_true "agent_stats carried without a date are dated too" \
+    '[[ $(jq ".agent_stats.opencode.stats.at // 0" "$REG") -ge $T0 && $(jq ".agent_stats.opencode.cat_stats.coding.at // 0" "$REG") -ge $T0 ]]'
 else
   fail "discover wrote no registry"
 fi

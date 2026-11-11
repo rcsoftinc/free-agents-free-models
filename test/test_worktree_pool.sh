@@ -67,6 +67,47 @@ assert_eq "the task still completes correctly despite the corruption" \
 wt_count="$(git -C "$PROJECT_DIR" worktree list | wc -l)"
 assert_eq "still exactly one pool slot after four separate runs (main + pool-1)" "$wt_count" "2"
 
+# --- 6. `setup:` gives a fresh checkout what git does not carry, once -------
+# .deps is ignored by git, so a reset would normally remove it (clean -fdx).
+# With a setup configured a slot keeps what it installed between tasks (clean
+# -fd), so the install happens once per slot, not per task - and again when
+# the setup line changes. A failing setup is said, journaled, shown by fa
+# status, and the task still runs.
+printf '.deps\n' > "$PROJECT_DIR/.gitignore"
+git -C "$PROJECT_DIR" add .gitignore && git -C "$PROJECT_DIR" commit -q -m gitignore
+SETUP_LOG="$(mktemp)"
+printf 'setup: echo ran >> %s && echo installed > .deps\n' "$SETUP_LOG" > "$PROJECT_DIR/.orch/config.yaml"
+out6="$(run_one fifth fifth.txt FIFTH)"
+assert_contains "a reused slot gets the setup when none ran there before" "$out6" "setup (pool-1):"
+assert_eq "  ...once" "$(grep -c ran "$SETUP_LOG")" "1"
+assert_true "  ...and it left its install in the slot" '[[ -f "$POOL1/.deps" ]]'
+assert_contains "  ...journaled as passed" "$(cat "$PROJECT_DIR/.orch/journal.ndjson")" \
+  '"event":"setup","task":"-","where":"pool-1","result":"passed"'
+assert_eq "  ...and the task ran" "$(cat "${PROJECT_DIR}/fifth.txt" 2>/dev/null)" "FIFTH"
+out7="$(run_one sixth sixth.txt SIXTH)"
+assert_not_contains "the next task does not run it again" "$out7" "setup (pool-1):"
+assert_eq "  ...(still once)" "$(grep -c ran "$SETUP_LOG")" "1"
+assert_true "  ...and the install survived the slot's reset" '[[ -f "$POOL1/.deps" ]]'
+printf 'setup: echo ran >> %s && echo v2 > .deps\n' "$SETUP_LOG" > "$PROJECT_DIR/.orch/config.yaml"
+out8="$(run_one seventh seventh.txt SEVENTH)"
+assert_eq "a changed setup line runs again" "$(grep -c ran "$SETUP_LOG")" "2"
+assert_eq "  ...and its result replaces the old one" "$(cat "$POOL1/.deps" 2>/dev/null)" "v2"
+printf 'setup: exit 3\n' > "$PROJECT_DIR/.orch/config.yaml"
+out9="$(run_one eighth eighth.txt EIGHTH)"
+assert_contains "a failing setup is reported" "$out9" "setup (pool-1) FAILED: it exited 3"
+assert_contains "  ...journaled" "$(cat "$PROJECT_DIR/.orch/journal.ndjson")" \
+  '"event":"setup","task":"-","where":"pool-1","result":"failed","cmd":"exit 3","rc":"3"'
+assert_eq "  ...and the task still ran" "$(cat "${PROJECT_DIR}/eighth.txt" 2>/dev/null)" "EIGHTH"
+assert_contains "  ...which fa status shows" "$(cd "$PROJECT_DIR" && "$REPO/bin/fa" status 2>&1)" \
+  "SETUP FAILED  (pool-1)  \`exit 3\`"
+out10="$(run_one ninth ninth.txt NINTH)"
+assert_contains "  ...and the next task tries it again" "$out10" "setup (pool-1) FAILED"
+: > "$PROJECT_DIR/.orch/config.yaml"
+touch "$POOL1/.deps"
+out11="$(run_one tenth tenth.txt TENTH)"
+assert_true "without a setup, a reset removes ignored files as before" '[[ ! -e "$POOL1/.deps" ]]'
+rm -f "$SETUP_LOG"
+
 rm -rf "$PROJECT_DIR"
 end_suite
 final_report

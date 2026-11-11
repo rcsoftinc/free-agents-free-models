@@ -389,6 +389,53 @@ build_prompt() { # $1=task id
   printf '%s%s%s' "$ctx" "$(task_field "$id" prompt)" "${note:-}"
 }
 
+# What a retried task is told about the attempt before it. The main loop lets a
+# task run again after a real failure (TASK_RETRIES), and the new attempt used
+# to get the prompt build_prompt() produced the first time: it did not know an
+# earlier attempt existed, which check it failed or how, nor whether that
+# attempt's edits were still in the directory (in place) or gone (an isolated
+# slot is reset before reuse). A fix round inside one lane already gets the
+# whole task plus the failing output (fix_prompt in run.sh); this gives a retry
+# the same, from the journal - no model call, no lane spent. Only failures that
+# carry something to act on qualify: a verify or validation that failed,
+# declared files that never appeared. A lane-level failure (attempt_failed: no
+# agent answered) has nothing to tell, and a first attempt gets nothing.
+retry_context() { # $1=task id $2=1 when the workdir is a freshly reset slot -> text, or empty
+  local id="$1" fresh="${2:-0}" ev kind p=""
+  [[ -f "$JOURNAL" ]] || return 0
+  ev="$(jq -cs --arg id "$id" '
+          [ .[] | select(.task == $id
+                   and (.event == "verify_failed" or .event == "validation_failed"
+                        or .event == "unverified")) ] | last // empty' "$JOURNAL" 2>/dev/null)"
+  [[ -n "$ev" ]] || return 0
+  kind="$(jq -r '.event' <<<"$ev")"
+  case "$kind" in
+    verify_failed)
+      p="An earlier attempt at the task below did not pass its verify command, \`$(jq -r '.cmd // ""' <<<"$ev")\`"
+      p+=" ($(jq -r '.rounds // 0' <<<"$ev") fix round(s) on its lane). The command's last lines:"$'\n'
+      p+="$(jq -r '.tail // ""' <<<"$ev" | head -c 2000)"$'\n\n' ;;
+    validation_failed)
+      # journal() stored the marker's JSON under itself as the key; take the
+      # errors out of it when it parses, the raw text when it does not.
+      p="An earlier attempt at the task below did not pass syntax validation:"$'\n'
+      p+="$(jq -r 'del(.ts, .event, .task) | [.[]] | .[0] // "" | (try (fromjson | .errors) catch .)' <<<"$ev" \
+            | head -c 2000)"$'\n\n' ;;
+    unverified)
+      p="An earlier attempt at the task below reported success, but these declared files were missing or left unchanged: "
+      p+="$(jq -r '.missing // ""' <<<"$ev")"$'\n\n' ;;
+    *) return 0 ;;
+  esac
+  if [[ "$fresh" == 1 ]]; then
+    p+="Nothing of that attempt is in the working directory: it is a fresh checkout, so start from the files as they are."
+  else
+    p+="That attempt's changes are still in the working directory: build on them or redo them, but leave the directory passing."
+  fi
+  p+=$'\n\n'"Fix the work so that it passes. Do not weaken, skip or delete the checks or tests to get there,"
+  p+=" unless the task itself says to change them."$'\n\n'"The task:"$'\n'
+  journal retry_informed "$id" "after=${kind}"
+  printf '%s' "$p"
+}
+
 # Two tasks that touch the same file must not run at once, however many lanes are
 # free. The coordinator contract promises disjoint boundaries; this enforces it
 # rather than trusting it.
@@ -598,6 +645,12 @@ run_task() { # $1=task id ; runs in a subshell as a background job
       log "WARNING: no free worktree pool slot for $id, using main worktree"
     fi
   fi
+
+  # A retry is told what the attempt before it did and how it failed - and, now
+  # that the workdir is known, whether that attempt's changes are still in it.
+  local retry_note
+  retry_note="$(retry_context "$id" "$([[ -n "$wt_slot" ]] && echo 1 || echo 0)")"
+  if [[ -n "$retry_note" ]]; then prompt="${retry_note}${prompt}"; fi
 
   before="$(snapshot_files "$id")"
 

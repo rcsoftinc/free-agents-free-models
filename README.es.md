@@ -440,9 +440,13 @@ registro más tarde a mano.
 
 **Una billetera puede quedar fuera.** Si ningún modelo de una billetera responde a
 su sondeo, deja de contar como carril y no recibe tareas hasta que alguno responda.
-`fa doctor` y `fa lanes -v` la nombran, y el coordinador te avisa. El refresco diario
-la vuelve a comprobar; para hacerlo antes, ejecuta `fa probe --bucket <id>` o pídeselo
-a tu coordinador. Detalles (en inglés):
+`fa doctor` y `fa lanes -v` la nombran y repiten lo que dijo el proveedor, y el
+coordinador te avisa. Un ajuste del proveedor que rechaza sus modelos gratuitos
+("Allow free endpoints that train on request data" en opencode, la política de
+datos de OpenRouter) se nombra como tal, con la línea que hay que atender:
+actívalo y vuelve a sondear. El refresco diario la vuelve a comprobar; para
+hacerlo antes, ejecuta `fa probe --bucket <id>` o pídeselo a tu coordinador.
+Detalles (en inglés):
 [When a wallet drops out](docs/SETUP.md#when-a-wallet-drops-out).
 
 ### Permisos

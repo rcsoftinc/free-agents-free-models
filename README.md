@@ -435,8 +435,12 @@ review credentials first and bootstrap later by hand.
 
 **A wallet can drop out.** If no model on a wallet answers its probe, it stops
 counting as a lane and gets no tasks until one does. `fa doctor` and `fa lanes -v`
-name it, and the coordinator tells you. The daily refresh rechecks it; to recheck
-sooner, run `fa probe --bucket <id>` or ask your coordinator to. Details:
+name it and repeat what the provider said, and the coordinator tells you. A
+setting at the provider that refuses its free models (opencode's "Allow free
+endpoints that train on request data", OpenRouter's data policy) is named as
+that, with the line to act on: turn it on, then recheck. The daily refresh
+rechecks it; to recheck sooner, run `fa probe --bucket <id>` or ask your
+coordinator to. Details:
 [When a wallet drops out](docs/SETUP.md#when-a-wallet-drops-out).
 
 ### Permissions

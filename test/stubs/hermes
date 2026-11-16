@@ -158,6 +158,14 @@ case "$MODE" in
     printf 'Error: context length exceeded for this model, please shorten your prompt'
     exit 1
     ;;
+  optin)
+    # opencode's console setting, as the CLI prints it (colour codes and the
+    # banner line included): every free model on the wallet is refused until
+    # a person turns it on - a wallet fault no cooldown mends (classify.sh,
+    # opt_in_required). Exits 1.
+    printf '\033[0m\n> build · %s\n\033[0m\n\033[91m\033[1mError: \033[0mFree models may train on request data. Turn on "Allow free endpoints that train on request data" at https://opencode.ai/console/org_x/settings/privacy#training to use them.\n' "$MODEL_ID"
+    exit 1
+    ;;
   hang)
     # Simulate a combo that never returns (e.g. network stall). The runner's
     # ATTEMPT_TIMEOUT should kill it and move on.

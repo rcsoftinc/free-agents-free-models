@@ -392,6 +392,7 @@ health is learned and stored globally, and why nothing that cannot be attributed
 | Installed an agent CLI in a new directory | `fa schedule` — the daily refresh only sees the `PATH` it was scheduled with |
 | `fa doctor`'s **daily refresh** section reports a problem | Do what that line says — usually `fa schedule` from the shell you run your agents in |
 | `fa doctor` says a wallet **is out** | `fa probe --bucket <id>`, or ask your coordinator to run it |
+| `fa doctor` says a wallet is out and quotes a setting to turn on | Turn it on at the provider (the line says where), then `fa probe --bucket <id>` |
 
 `fa doctor` reports `current` / `STALE` / `aged:<days>` / `MISSING` — trust it over
 guessing.
@@ -416,6 +417,20 @@ wallet stays out until the next probe, up to a day. `fa doctor` and `fa lanes -v
 both name a wallet that is out and give the recheck command, and the coordinator
 tells you when `fa doctor` reports one. You or the coordinator can run the probe;
 workers are refused, on purpose.
+
+`fa probe` prints what each model that did not answer said, in the provider's own
+words, and keeps the line with the wallet: `fa lanes -v` and `fa doctor` repeat it,
+so you do not have to run the CLI by hand to learn why.
+
+A setting at the provider can refuse every free model on a wallet: opencode's
+console wants "Allow free endpoints that train on request data" turned on,
+OpenRouter's privacy page the same for endpoints that train on prompts. That
+wallet's health becomes `opt_in_required`, not `unresponsive`: it is out the same
+way, held until a probe answers rather than by a timer, since a setting does not
+wear off, and the line that says where to turn it on is shown. Whether to turn it
+on is your call - it means your prompts may be used for training - and a free
+model the setting does not cover still proves the wallet. Turn it on, then
+`fa probe --bucket <id>`.
 
 ### Permissions: running without approving every command
 

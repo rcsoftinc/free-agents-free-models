@@ -608,6 +608,7 @@ the day a CLI advertises something it cannot reach.
 |---|---|
 | `ok` | bucket healthy, failure counter reset |
 | `rate_limited` / `no_credits` / `auth_error` | **bucket-attributable** → bucket state + counter (feeds the M1 breaker) |
+| `opt_in_required` | **bucket-attributable** → bucket state, held until a probe answers; no cooldown (a setting at the provider, turned on by a person; the provider's line is kept) |
 | `timeout` / `dead` | **model only** — bucket keeps its prior state |
 | `local_network` | **recorded nowhere** (M2) |
 
@@ -761,7 +762,7 @@ unprompted. This is the fix for "walk 22 models at 120 s each to learn the accou
 limited" — now two attempts.
 
 Cooldown windows: `rate_limited` 30 min · `no_credits` / `auth_error` 24 h ·
-`timeout` 10 min · `dead` 72 h · `local_network` **none, and nothing recorded**.
+`timeout` 10 min · `dead` 72 h · `local_network` **none, and nothing recorded** · `opt_in_required` **none: held until a probe answers**.
 
 ### B1 is fixed, and it was worse than documented
 

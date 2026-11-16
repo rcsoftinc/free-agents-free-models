@@ -1,6 +1,6 @@
 # SESSION STATE — read this first on resume
 
-**Last updated:** 2026-11-11
+**Last updated:** 2026-11-16
 
 ---
 
@@ -8,7 +8,7 @@
 
 **Complete, working, and proven on a real project.** Published (public) at
 `github.com/rcsoftinc/free-agents-free-models`. Full suite green:
-**1114 assertions, 47 suites, offline** - and CI runs it on every push to master and
+**1157 assertions, 48 suites, offline** - and CI runs it on every push to master and
 every pull request (GitHub Actions, Ubuntu 24.04 + 26.04).
 
 **It has built real software unattended.** All independently verified against what
@@ -2001,3 +2001,46 @@ models, stays outside - and `record_probe` and `quota` go through `registry_txn`
 `test_discover.sh` holds the lock for four seconds and checks that discover's and probe's
 writes land only after it is released; without the lock they land in under two. The
 hourly-refresh half of item 6 is still a schedule decision for the user.
+
+## Feature: a probe keeps what the provider said; `opt_in_required` (2026-11-16)
+
+The opencode wallet probed dead for ten days - three models, four seconds each, `fa lanes
+-v` saying `unresponsive` - and the reason was only to be had by running the CLI by hand:
+"Free models may train on request data. Turn on 'Allow free endpoints that train on
+request data' at <console url> to use them." The user had turned that setting off for
+privacy, on every account, not knowing it conditioned the free models, and found the
+message the same way. The probe had that line and kept only the state it classified it
+into. Now `probe_one` returns the provider's own line beside the state (`error_excerpt`,
+classify.sh: the first line naming an error, else the first with text; colour codes
+stripped, whitespace collapsed, 300 characters; passed through findings.sh's `redact`
+before anything is written, since a provider can echo a key). `fa probe` prints it under
+the model (`says: ...`), `record_probe` keeps it with the model's probe result and, for a
+wallet fault, with the wallet (`health.reason`); `mark_unresponsive` keeps the last model's
+words and drops an old line when there are none; `fa lanes -v` and `fa doctor` repeat it;
+run.sh's `record()` keeps it the same way for a wallet fault met mid-build. An answer
+drops it.
+
+The taxonomy names the message: `opt_in_required`, a wallet fault (`is_bucket_fault`),
+since every free model on the wallet is refused the same way - so run.sh skips the
+wallet's other models for the run and scores nobody - held by state until a probe
+answers (`wallet_answered_pred`, common.sh, the one definition `fa lanes` and dispatch
+share) and never by a timer (`cooldown_for` gives it none): a setting nobody has turned on
+does not wear off. The rule sits ahead of the model-scope block; OpenRouter's "No
+endpoints found matching your data policy" is the same fault. The probe walks past it
+where it stops early on a credit or auth fault: the refusal spends nothing, and a free
+model the setting does not cover, if the wallet has one, proves the wallet. Doctor and
+`lanes -v` say what kind of fault it is and quote the line, the exclusion trace names it,
+and `prompts/coordinator.md` has the coordinator pass it on without advising either way:
+turning the setting on means the user's prompts may be used for training, which is
+theirs to decide.
+
+Tests: `test_probe_reason.sh` (the line printed and kept, colour codes stripped; both
+models asked; a model the setting does not cover restores the wallet; not a lane, with
+lanes -v, doctor and the exclusion trace saying why; the breaker trips to no timer, and one
+answer restores it; met mid-run it is the wallet's fault, skipped and unscored; an
+unresponsive wallet keeps the last model's words; all timeouts leave none and clear an old
+one; a key echoed back is redacted), and the self-test's two real messages and four
+excerpt cases, run by `test_classify.sh`. Each of eleven mutations - the probe stopping
+early, the strip, the shared predicate, the attribution, the cooldown, doctor's branch,
+the redaction, a stale line kept, the run or the probe not keeping the line for the
+wallet, lanes -v not repeating it - fails only its own assertions.

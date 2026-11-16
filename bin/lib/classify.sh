@@ -14,6 +14,8 @@
 #   rate_limited      BUCKET            bucket cooldown (breaker)
 #   no_credits        BUCKET            bucket cooldown, long
 #   auth_error        BUCKET            bucket cooldown, long
+#   opt_in_required   BUCKET            out until a probe answers, no cooldown:
+#                                       a person turns a setting on first
 #   context_overflow  neither           caller's prompt is too big; retry smaller
 #   timeout           MODEL             model cooldown only
 #   dead              MODEL             model cooldown, long
@@ -46,6 +48,20 @@ classify_ex() { # $1=rc $2=output -> state<TAB>matched
   # this and exits 0 when headless mode meets a tool it may not approve.
   if printf '%s' "$t" | grep -qE 'headless mode cannot prompt'; then
     printf 'dead\tyes\n'; return
+  fi
+
+  # A setting on the ACCOUNT stands between this credential and the free models
+  # it lists: opencode's console refuses every free model until "Allow free
+  # endpoints that train on request data" is on, OpenRouter's privacy page the
+  # same for endpoints that train on prompts ("no endpoints found matching your
+  # data policy"). The wallet's, since every free model on it fails the same
+  # way - but no cooldown mends it: a person turns the setting on, then a probe
+  # lets the wallet back in (common.sh wallet_answered_pred). Ahead of the
+  # model-scope rules because the wording is unmistakable and no model-scope
+  # message carries it. Until now it fell to the default, dead, and the one
+  # line that said what to do was discarded with the rest of the output.
+  if printf '%s' "$t" | grep -qE 'train on request data|allow free endpoints|matching your data policy|enable prompt training'; then
+    printf 'opt_in_required\tyes\n'; return
   fi
 
   # MODEL-SCOPE FIRST. These messages arrive carrying an HTTP status that belongs
@@ -136,9 +152,30 @@ retry_after_secs() { # $1=output -> seconds, or empty
   fi
 }
 
+# The provider's own words, one line, for a person to read: the first line of
+# the output that names an error, else its first line with any text. Colour
+# codes stripped, whitespace collapsed, cut at 300 characters. A probe used to
+# keep only the state it classified the output into, and the one line that said
+# what to do about it ("Turn on ... at <url>") was discarded with the rest, so
+# the only way to learn why a wallet was out was to run its CLI by hand. Not
+# redacted here: the callers pass it through findings.sh's redact before it is
+# written anywhere, since a provider can echo a key back.
+error_excerpt() { # $1=output -> one line, or empty
+  local esc; esc="$(printf '\033')"
+  printf '%s\n' "${1:-}" \
+    | sed -E "s/${esc}\\[[0-9;?]*[A-Za-z]//g" | tr -d '\r' \
+    | awk '{ gsub(/[ \t]+/, " "); sub(/^ /, ""); sub(/ $/, "") }
+           NF && first == "" { first = $0 }
+           NF && hit == "" && tolower($0) ~ /error|fail|denied|refus|invalid|exceed|limit|unauthori|forbidden|not found|unavailable|require|credit|sign in|quota|policy|turn on|enable/ { hit = $0 }
+           END { s = (hit != "" ? hit : first); if (length(s) > 300) s = substr(s, 1, 297) "..."; print s }'
+}
+
 # Is this state the WALLET's fault? Only these may trip the bucket breaker.
+# opt_in_required is held by state, not by time (cooldown_for gives it none,
+# common.sh's wallet_answered_pred keeps it out): a setting nobody has turned
+# on does not wear off.
 is_bucket_fault() {
-  case "$1" in rate_limited|no_credits|auth_error) return 0 ;; *) return 1 ;; esac
+  case "$1" in rate_limited|no_credits|auth_error|opt_in_required) return 0 ;; *) return 1 ;; esac
 }
 
 # Cooldown seconds per state, ESCALATING with consecutive failures.
@@ -159,6 +196,10 @@ cooldown_for() { # $1=state $2=consecutive_failures(optional, default 1) -> seco
     timeout)          base="${COOLDOWN_TIMEOUT:-600}";        cap="${CAP_TIMEOUT:-3600}" ;;
     provider_error)   base="${COOLDOWN_PROVIDER_ERROR:-600}"; cap="${CAP_PROVIDER_ERROR:-3600}" ;;
     dead)             base="${COOLDOWN_DEAD:-3600}";          cap="${CAP_DEAD:-259200}" ;;         # 1h -> 72h
+    # Held by STATE until a probe answers (common.sh): a setting nobody has
+    # turned on does not wear off, and a timer would only put the wallet back
+    # in the lane count to fail the same way.
+    opt_in_required)  echo 0; return ;;
     context_overflow) echo 0; return ;;
     *)                echo 0; return ;;
   esac
@@ -277,6 +318,28 @@ classify_self_test() {
   _ck 1 '{"name":"UnknownError","data":{"message":"Unexpected server error. Check server logs for details."}}' \
                                                                 provider_error   || fails=1
   _ck 1 "Provider finish_reason: error"                         provider_error   || fails=1
+  # A setting on the account standing between the credential and every free
+  # model it lists: the wallet's, and no cooldown mends it.
+  _ck 1 'Error: Free models may train on request data. Turn on "Allow free endpoints that train on request data" at https://opencode.ai/console/org_x/settings/privacy#training to use them.' \
+                                                                opt_in_required  || fails=1
+  _ck 1 "No endpoints found matching your data policy (Free model publication). Configure: https://openrouter.ai/settings/privacy" \
+                                                                opt_in_required  || fails=1
+
+  echo "the provider's own words (what a probe keeps)"
+  local ex
+  ex="$(error_excerpt "$(printf '\033[0m\n> build · beam-free\n\033[0m\n\033[91m\033[1mError: \033[0mFree models may train on request data. Turn it on.\n')")"
+  [[ "$ex" == "Error: Free models may train on request data. Turn it on." ]] \
+    && echo "  ok   the error line, colour codes stripped, not the banner above it" \
+    || { echo "  FAIL excerpt: '$ex'"; fails=1; }
+  ex="$(error_excerpt $'  some   text\n\nmore')"
+  [[ "$ex" == "some text" ]] \
+    && echo "  ok   no error line: the first line with text, whitespace collapsed" \
+    || { echo "  FAIL excerpt: '$ex'"; fails=1; }
+  [[ -z "$(error_excerpt $'\n  \n')" ]] \
+    && echo "  ok   nothing said, nothing kept" || { echo "  FAIL excerpt of nothing"; fails=1; }
+  ex="$(error_excerpt "$(printf 'error %0400d' 0)")"
+  [[ ${#ex} -eq 300 && "$ex" == *... ]] \
+    && echo "  ok   cut at 300 characters" || { echo "  FAIL excerpt length ${#ex}"; fails=1; }
 
   echo "advertised retry windows"
   [[ "$(retry_after_secs 'retrying in 3h 53m attempt #1')" == "13980" ]] \
@@ -324,6 +387,9 @@ classify_self_test() {
                                 || echo "  ok   local_network blames nobody"
   [[ "$(cooldown_for local_network)" == "0" ]] && echo "  ok   local_network has no cooldown" \
                                                || { echo "  FAIL"; fails=1; }
+  is_bucket_fault opt_in_required && echo "  ok   opt_in_required blames the wallet" || { echo "  FAIL"; fails=1; }
+  [[ "$(cooldown_for opt_in_required 5)" == "0" ]] \
+    && echo "  ok   opt_in_required has no cooldown: held until a probe answers" || { echo "  FAIL"; fails=1; }
   [[ $fails -eq 0 ]] && echo "PASS" || { echo "FAIL"; return 1; }
 }
 

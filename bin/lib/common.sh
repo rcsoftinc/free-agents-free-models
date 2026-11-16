@@ -121,7 +121,10 @@ live_progress() { # $1=pid of that shell
 
 # jq: is the current bucket `.` allowed to count and be scheduled, given its last
 # liveness probe? One definition, because `fa lanes` and dispatch must agree.
-wallet_answered_pred() { printf '(.health.state != "unresponsive")'; }
+# Both states are held until a probe answers, not by a timer: no model answered
+# (unresponsive), or a setting at the provider refuses every free model until a
+# person turns it on (opt_in_required, classify.sh).
+wallet_answered_pred() { printf '(.health.state != "unresponsive" and .health.state != "opt_in_required")'; }
 
 # Workers never dispatch. Every agent fa launches is a WORKER: adapter_invoke
 # hands it FA_DEPTH=1, which its shell commands inherit whichever of the seven

@@ -35,6 +35,10 @@ LOG_TAG=buckets
 . "${HERE}/lib/common.sh"
 # shellcheck source=lib/classify.sh
 . "${HERE}/lib/classify.sh"
+# shellcheck source=lib/findings.sh
+# For redact: what a model answered is kept beside its probe result, and a
+# provider can echo a key back.
+. "${HERE}/lib/findings.sh"
 # shellcheck source=lib/quota.sh
 . "${HERE}/lib/quota.sh"
 
@@ -143,12 +147,17 @@ models_from_verbose() { # $1=cli  -> provider<TAB>model_arg<TAB>upstream<TAB>fre
 # loop input (a read-loop over probes would run exactly once).
 # NOTE: exit codes are unreliable (hermes returns 0 on HTTP 404 and on billing
 # refusal), so callers MUST classify on content, not on rc alone.
-probe_one() { # $1=agent $2=model_arg $3=provider -> "state<TAB>ms"
-  local agent="$1" model="$2" provider="${3:-}" out rc=0 t0 t1
+probe_one() { # $1=agent $2=model_arg $3=provider -> "state<TAB>ms<TAB>what it said"
+  local agent="$1" model="$2" provider="${3:-}" out rc=0 t0 t1 state reason=""
   t0=$(now_ms)
   out="$(adapter_invoke "$agent" "$model" "$provider" "$PROBE_PROMPT")" || rc=$?
   t1=$(now_ms)
-  printf '%s\t%s\n' "$(classify "$rc" "$out")" "$((t1 - t0))"
+  state="$(classify "$rc" "$out")"
+  # The provider's own line, for the person who has to act on it: kept beside
+  # the state, printed by probe, repeated by `fa lanes -v` and doctor for a
+  # wallet that is out. Nothing for an answer that was fine.
+  [[ "$state" == "ok" ]] || reason="$(error_excerpt "$out" | redact)"
+  printf '%s\t%s\t%s\n' "$state" "$((t1 - t0))" "$reason"
 }
 
 # ------------------------------------------------------------------ commands --
@@ -422,8 +431,8 @@ cmd_discover() {
 #   --bucket ID    restrict to one bucket
 LIVENESS_TRIES="${LIVENESS_TRIES:-3}"
 
-record_probe() { # $1=bucket $2=model_arg $3=state $4=ms
-  local bid="$1" model="$2" state="$3" ms="$4"
+record_probe() { # $1=bucket $2=model_arg $3=state $4=ms $5=what it said (optional)
+  local bid="$1" model="$2" state="$3" ms="$4" reason="${5:-}"
   # A local_network result is our fault, not the model's - never record it.
   [[ "$state" == "local_network" ]] && { log "  network fault - not recorded"; return; }
   # Read-modify-write under the registry lock (registry_txn), like run.sh's
@@ -431,28 +440,37 @@ record_probe() { # $1=bucket $2=model_arg $3=state $4=ms
   registry_txn '
     .buckets[$b].models |= map(
       if ([.routes[].model_arg] | index($u)) != null
-      then .probe = {state:$s, at:(now|todate), ms:$ms} else . end)
+      then .probe = ({state:$s, at:(now|todate), ms:$ms}
+                     + (if $r != "" then {reason:$r} else {} end)) else . end)
     | .buckets[$b].health |=
         (if $s == "ok" then {state:"ok", consecutive_failures:0, cooldown_until:null}
          # Only bucket-attributable signals may condemn the whole wallet.
          # Keep this list in sync with is_bucket_fault() in lib/classify.sh -
          # jq cannot call it, so it is restated here. Anything not listed
-         # (timeout, dead, provider_error) demotes the MODEL only.
-         elif ($s == "rate_limited" or $s == "no_credits" or $s == "auth_error")
-         then {state:$s, consecutive_failures:((.consecutive_failures//0)+1),
-               cooldown_until:null}
+         # (timeout, dead, provider_error) demotes the MODEL only. The wallet
+         # keeps what the model said, for lanes -v and doctor to repeat; an
+         # answer (above) drops it.
+         elif ($s == "rate_limited" or $s == "no_credits" or $s == "auth_error"
+               or $s == "opt_in_required")
+         then ({state:$s, consecutive_failures:((.consecutive_failures//0)+1),
+                cooldown_until:null}
+               + (if $r != "" then {reason:$r} else {} end))
          # timeout/dead demote the MODEL; the bucket keeps its prior state.
          else . end)
-  ' --arg b "$bid" --arg u "$model" --arg s "$state" --argjson ms "${ms:-0}"
+  ' --arg b "$bid" --arg u "$model" --arg s "$state" --argjson ms "${ms:-0}" --arg r "$reason"
 }
 
 # Every model tried timed out or was dead, so nothing shows this wallet works.
 # One such model blames only itself (record_probe); all of them is a fact about
 # the wallet, which must not keep counting as a lane or get tasks. The next probe
 # that answers restores it: `fa probe --bucket ID`, `fa refresh`, or the daily run.
-mark_unresponsive() { # $1=bucket
+# What the last of them said goes with it, for lanes -v and doctor to repeat; an
+# older line is dropped when there is none, so nothing stale is repeated.
+mark_unresponsive() { # $1=bucket $2=what the last model said (optional)
   log "$1: no model answered - not a lane until a probe does"
-  registry_txn '.buckets[$b].health.state = "unresponsive"' --arg b "$1"
+  registry_txn '.buckets[$b].health.state = "unresponsive"
+                | if $r != "" then .buckets[$b].health.reason = $r
+                  else del(.buckets[$b].health.reason) end' --arg b "$1" --arg r "${2:-}"
 }
 
 # Free models of a bucket, reachable through its preferred agent, best-known first.
@@ -479,33 +497,38 @@ cmd_probe() {
   done
   [[ -f "$REGISTRY" ]] || die "no registry; run: $0 discover"
 
-  local bids bid agent state ms live=0 tried silent model
+  local bids bid agent state ms reason last_said live=0 tried silent model
   bids="$(jq -r --arg o "$only" '.buckets | keys[] | select($o == "" or . == $o)' "$REGISTRY")"
   [[ -n "$bids" ]] || die "no such bucket: $only"
 
   for bid in $bids; do
     agent="$(jq -r --arg b "$bid" '.buckets[$b].preferred_agent' "$REGISTRY")"
-    tried=0; silent=0
+    tried=0; silent=0; last_said=""
     while IFS=$'\t' read -r model provider; do
       [[ -z "$model" ]] && continue
       if [[ $all -eq 0 && $tried -ge $LIVENESS_TRIES ]]; then break; fi
       tried=$((tried+1))
-      IFS=$'\t' read -r state ms < <(probe_one "$agent" "$model" "$provider")
+      IFS=$'\t' read -r state ms reason < <(probe_one "$agent" "$model" "$provider")
       log "$(printf '%-26s %-8s %-46s %-14s %sms' "$bid" "$agent" "$model" "$state" "$ms")"
-      record_probe "$bid" "$model" "$state" "$ms"
+      # What it answered, in its own words: the line a person acts on.
+      [[ -z "$reason" ]] || { log "    says: ${reason}"; last_said="$reason"; }
+      record_probe "$bid" "$model" "$state" "$ms" "$reason"
       [[ "$state" == "timeout" || "$state" == "dead" ]] && silent=$((silent+1))
       if [[ "$state" == "ok" ]]; then
         live=1
         [[ $all -eq 0 ]] && break   # wallet proven; stop spending quota on it
       fi
       # A limited/refused wallet fails identically on every model - stop early.
+      # Not opt_in_required: that refusal spends nothing, and a free model the
+      # setting does not cover, if the wallet has one, proves the wallet (its
+      # answer puts health back to ok, record_probe).
       if [[ $all -eq 0 && ( "$state" == "no_credits" || "$state" == "auth_error" \
                          || "$state" == "rate_limited" ) ]]; then
         log "  bucket-level failure - skipping remaining models"
         break
       fi
     done < <(candidates "$bid")
-    if [[ $tried -gt 0 && $silent -eq $tried ]]; then mark_unresponsive "$bid"; fi
+    if [[ $tried -gt 0 && $silent -eq $tried ]]; then mark_unresponsive "$bid" "$last_said"; fi
   done
 
   [[ $live -eq 1 ]] || { log "no bucket answered"; return 2; }
@@ -559,7 +582,7 @@ cmd_lanes() {
       | ([$b.models[] | select(.free and .suitable == false)] | group_by(.unsuitable_reason)
          | map("\(length) \(.[0].unsuitable_reason)") | join(" · ")) as $cut
       | ([$b.models[] | select(.free and .suitable != false)] | length) as $ok
-      | "  \(if $live then "LANE    " elif ($b.metered // false) then "metered " else "unusable" end) \($b.id)  \($b.preferred_agent)  \($ok) usable\(if $cut != "" then " (\($cut) filtered)" else "" end)  health=\($b.health.state)\(if $b.health.state == "unresponsive" then "  (no model answered - recheck: fa probe --bucket \($b.id))" else "" end)\(if ($b.tos == "caution" or $b.tos == "avoid") then "  [TOS:\($b.tos)]" else "" end)\(if ($b.id | IN($res[])) then "  [held for the coordinator]" else "" end)"' \
+      | "  \(if $live then "LANE    " elif ($b.metered // false) then "metered " else "unusable" end) \($b.id)  \($b.preferred_agent)  \($ok) usable\(if $cut != "" then " (\($cut) filtered)" else "" end)  health=\($b.health.state)\(if $b.health.state == "unresponsive" then "  (no model answered - recheck: fa probe --bucket \($b.id))" elif $b.health.state == "opt_in_required" then "  (a setting at the provider refuses its free models - turn it on, then: fa probe --bucket \($b.id))" else "" end)\(if ($b.tos == "caution" or $b.tos == "avoid") then "  [TOS:\($b.tos)]" else "" end)\(if ($b.id | IN($res[])) then "  [held for the coordinator]" else "" end)\(if ($b.health.reason // "") != "" then "\n      says: \($b.health.reason)" else "" end)"' \
       --arg now "$now" --argjson res "$res"
   else
     printf '%s\n' "$n"
@@ -704,7 +727,8 @@ usage: $(basename "$0") <command>
 
   identify            show credential identities (no network)
   discover [--probe]  build the registry from real credentials + model lists
-  probe [--all]       prove reachability (default: one free model per bucket)
+  probe [--all]       prove reachability (default: one free model per bucket);
+                      prints what a model that did not answer said
   show                human-readable summary
   profile             learned record per harness and per model, with lane minutes per pass (fa profile)
   quota                live check against OpenRouter's own published ledger

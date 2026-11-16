@@ -375,6 +375,7 @@ explain_exclusions() {
           elif ($b.health.state == "no_credits") then "bucket out of credits"
           elif ($b.health.state == "auth_error") then "bucket auth failing"
           elif ($b.health.state == "unresponsive") then "bucket did not answer its probe"
+          elif ($b.health.state == "opt_in_required") then "bucket refused by a setting at its provider (fa lanes -v says which)"
           elif (($b.health.cooldown_until // 0) > ($now|tonumber)) then "bucket cooling down"
           elif (('"$metered_include"') | not) then "metered wallet excluded"
           elif ([$b.models[] | select(.free)] | length == 0) then "bucket has no free models"
@@ -475,8 +476,11 @@ record() { # $1=bucket $2=model $3=agent $4=state $5=ms $6=lane_ms $7=output(opt
   fi
   [[ "$cd_secs" -gt 0 ]] && until_ts=$(( $(now_epoch) + cd_secs ))
 
-  local bucket_fault=false
+  local bucket_fault=false reason=""
   is_bucket_fault "$state" && bucket_fault=true
+  # What the wallet answered, in its own words, kept with its state so `fa
+  # lanes -v` and doctor can say why it is out, not only that it is.
+  [[ "$bucket_fault" == true ]] && reason="$(error_excerpt "$out" | redact)"
 
   registry_txn '
     # What was there fades first (halved per half-life since its date, lane
@@ -522,6 +526,9 @@ record() { # $1=bucket $2=model $3=agent $4=state $5=ms $6=lane_ms $7=output(opt
            cooldown_until: (if $n >= ($trip|tonumber) then ($until|tonumber)
                             else (.cooldown_until // 0) end),
            last_used:($now|tonumber)}
+          # What it said, for lanes -v and doctor to repeat: the line a
+          # person acts on. A success replaces the object and drops it.
+          + (if $reason != "" then {reason:$reason} else {} end)
       else . + {last_used:($now|tonumber)} end)
   # Learned per-agent/harness reliability, same shape and same fault-gating
   # as .stats/.cat_stats above (a bucket-level fault says nothing about
@@ -539,7 +546,7 @@ record() { # $1=bucket $2=model $3=agent $4=state $5=ms $6=lane_ms $7=output(opt
     --arg hl "$HALF_LIFE_DAYS" \
     --arg at "$(iso_now)" --arg now "$(now_epoch)" --arg until "$until_ts" \
     --arg trip "${BREAKER_TRIP:-2}" --argjson fault "$bucket_fault" \
-    --arg cat "$CATEGORY"
+    --arg cat "$CATEGORY" --arg reason "$reason"
 }
 
 # ------------------------------------------------------------------ validate --

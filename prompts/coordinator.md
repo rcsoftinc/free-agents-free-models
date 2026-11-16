@@ -27,6 +27,12 @@ It checks the machine and reports the registry's state. Act on what it says:
   probe answers. Tell me which one, once, in one line, and offer to recheck it.
   Run the `fa probe --bucket` command that line gives only when I say so: it can
   take a few minutes. Workers cannot run it, so never hand it to one.
+- **`note ... is out: a setting at the provider refuses its free models. It says: ...`**
+  — same, but the fix is mine: the line quotes the provider and names the setting
+  (opencode's "Allow free endpoints that train on request data", OpenRouter's
+  data policy). Pass it on once, in one line, and do not advise either way:
+  turning it on means my prompts may be used for training. Run the
+  `fa probe --bucket` command only when I say the setting is on.
 - **`ok`** — carry on. Never re-bootstrap a healthy registry to "be safe": it
   costs the user two minutes and a request against every provider.
 

@@ -2044,3 +2044,19 @@ excerpt cases, run by `test_classify.sh`. Each of eleven mutations - the probe s
 early, the strip, the shared predicate, the attribution, the cooldown, doctor's branch,
 the redaction, a stale line kept, the run or the probe not keeping the line for the
 wallet, lanes -v not repeating it - fails only its own assertions.
+
+## Findings: the 45 from the NovoBanca runs, marked seen (2026-11-16)
+
+The entry of 2026-11-11 above left the 45 findings unacked for the user to review. On
+2026-11-16 the user asked how to manage everything waiting on them, and reading the 45
+again showed none needs a person: 25 `unclassified` have had a rule and a self-test case
+each since 2026-11-11; two more are an agent's file-read trace with no error text after
+it (nothing to name: the default `dead` is right); 14 `protected_edit` were put back by
+the tool as designed; the 7 `all_lanes_failed` tasks and the `unverified_repeat` /
+`repeated_retries` pair (legal-override-tests) were all finished since, every file they
+name existing in the project; and the three notes are closed (rc=141: `findings_brief`;
+hermes escaping `no_new_privs` through its gateway: `docs/SETUP.md`; a job's pane not
+live: the 2026-11-05 entry). Marked seen with `fa findings --ack` - nothing is deleted,
+`fa findings` still lists them - so doctor stops counting them. From here findings are the
+maintainer's to triage into rules, backlog items or notes, and to ack; the user hears of
+one only when it changes something they decide.

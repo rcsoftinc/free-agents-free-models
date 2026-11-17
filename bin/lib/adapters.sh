@@ -25,6 +25,13 @@
 #       changed call shape once; a wrong shape is indistinguishable from a dead
 #       model, so the version is checked, not assumed).
 #   FA_<NAME>_VERSION_BIN="bin"      the binary asked for its --version
+#   FA_<NAME>_INSTALL_URL="https://..."
+#       the vendor's own install script. setup.sh runs it as
+#       `curl -fsSL URL | bash` when the harness is not installed
+#       (bin/lib/install.sh) - the same line the vendor's page gives.
+#   FA_<NAME>_INSTALL_SHELL="sh"     only when that script is not bash (pi)
+#   FA_<NAME>_BIN_DIR="rel/dir"      where that script puts the binary, under
+#       $HOME; setup.sh puts it on PATH for the rest of its run
 # and defines three functions:
 #   <name>_identify                   identity rows  -> stdout (see buckets.sh)
 #   <name>_models                     model rows     -> stdout (see buckets.sh)
@@ -202,12 +209,6 @@ adapters_present_without_adapter() { # -> installed unsupported binaries
 # The dispatcher. One route is (agent, model, provider); the adapter owns the
 # invocation shape, so run.sh and buckets.sh share a single implementation and a
 # harness added after the fact needs no edit anywhere but its adapter.
-adapter_install() { # $1=agent -> runs the agent's install function
-  local fn="${1}_install"
-  if declare -f "$fn" >/dev/null 2>&1; then
-    "$fn"
-  fi
-}
 
 # Tier B credential check ("needs its own interactive login, not a key file").
 # Reuses identify() rather than a second detection path: copilot/cursor/agy

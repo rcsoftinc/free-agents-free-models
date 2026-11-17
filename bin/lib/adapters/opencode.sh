@@ -15,6 +15,8 @@ FA_opencode_BINARY="opencode"
 FA_opencode_METERED=0
 FA_opencode_VERIFIED_VERSION="1.18.33"
 FA_opencode_VERSION_BIN="opencode"
+FA_opencode_INSTALL_URL="https://opencode.ai/install"
+FA_opencode_BIN_DIR=".opencode/bin"
 
 opencode_identify() { # -> identity rows (see buckets.sh for the schema)
   command -v opencode >/dev/null 2>&1 || return 0
@@ -39,19 +41,8 @@ opencode_models() { # -> model rows, agent-prefixed (see buckets.sh)
 
 opencode_caps() { printf 'code,reasoning,shell,git,file'; }
 
-opencode_install() { # -> 0 if install was run (or already installed)
-  command -v opencode >/dev/null 2>&1 && return 1  # already installed
-  if [[ "${FA_AUTO_INSTALL:-0}" == "1" ]] || prompt_yn "opencode not installed. Install now?"; then
-    if command -v npm >/dev/null 2>&1; then
-      npm install -g opencode-ai
-    elif command -v brew >/dev/null 2>&1; then
-      brew install opencode-ai
-    else
-      say "Install opencode manually: https://opencode.ai"
-      return 1
-    fi
-  fi
-}
+# Verified (docs/SETUP.md): its own interactive login, per provider.
+opencode_login_hint() { printf 'opencode auth login   (its own account or an OpenRouter key; or OPENCODE_OPENROUTER_KEY in keys.env)'; }
 
 opencode_provision_key() { # $1=provider (default openrouter) $2=key -> 0 on success
   local provider="${1:-openrouter}" key="${2:-}"

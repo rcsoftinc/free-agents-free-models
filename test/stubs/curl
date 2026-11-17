@@ -1,9 +1,17 @@
 #!/usr/bin/env bash
 # Stub curl: returns canned OpenRouter models metadata for the models endpoint,
-# nothing otherwise. Lets discover.sh run fully offline & deterministically.
+# plays a vendor's install script for the URLs a suite tables, nothing otherwise.
+# Lets discover.sh and setup.sh run fully offline & deterministically.
 # Honour -o FILE like the real curl. Without this, callers that redirect to a
 # file (buckets.sh and find-free-providers.sh both do) see an empty download and
 # take their error path, which looks exactly like a network failure.
+#
+# CURL_STUB_LOG: when set, every call appends one line (the arguments), so a
+# suite can assert the exact command a caller ran - bin/lib/install.sh must run
+# `-fsSL <url>` and nothing else. Separate from STUB_LOG, which counts agent
+# invocations and must not grow by curl calls.
+[[ -n "${CURL_STUB_LOG:-}" ]] && printf 'curl %s\n' "$*" >> "$CURL_STUB_LOG"
+
 OUT=""
 prev=""
 for a in "$@"; do
@@ -11,6 +19,43 @@ for a in "$@"; do
   prev="$a"
 done
 emit() { if [[ -n "$OUT" ]]; then cat > "$OUT"; else cat; fi; }
+
+# A vendor's install script (bin/lib/install.sh runs `curl -fsSL URL | bash`).
+# STUB_INSTALL_TABLE is a file the suite writes, one `url<TAB>binary<TAB>bindir`
+# per line read FROM the adapters, so this stub never holds a second copy of the
+# URLs. The script played copies this directory's stub for that binary into
+# $HOME/<bindir> - where the real script puts the real binary - and leaves a
+# receipt naming the shell it ran under (bash, or empty for sh).
+# STUB_INSTALL_FAIL names binaries whose script fails; STUB_INSTALL_NOOP, those
+# whose script exits 0 having installed nothing.
+if [[ -n "${STUB_INSTALL_TABLE:-}" && -f "$STUB_INSTALL_TABLE" ]]; then
+  url=""
+  for a in "$@"; do [[ "$a" == http* ]] && url="$a"; done
+  row="$(awk -F'\t' -v u="$url" '$1 == u { print; exit }' "$STUB_INSTALL_TABLE")"
+  if [[ -n "$row" ]]; then
+    bin="$(cut -f2 <<<"$row")"; bindir="$(cut -f3 <<<"$row")"
+    stubs="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+    if [[ " ${STUB_INSTALL_FAIL:-} " == *" $bin "* ]]; then
+      emit <<'SH'
+echo "stub installer: download failed" >&2
+exit 1
+SH
+    elif [[ " ${STUB_INSTALL_NOOP:-} " == *" $bin "* ]]; then
+      emit <<'SH'
+echo "stub installer: nothing to do"
+exit 0
+SH
+    else
+      emit <<SH
+mkdir -p "\$HOME/$bindir"
+cp "$stubs/$bin" "\$HOME/$bindir/$bin"
+chmod +x "\$HOME/$bindir/$bin"
+printf '%s\n' "\${BASH_VERSION:+bash}" > "\$HOME/.stub-installer-shell.$bin"
+SH
+    fi
+    exit 0
+  fi
+fi
 
 for a in "$@"; do
   # models.dev catalogue, for find-free-providers.sh. Two providers with free

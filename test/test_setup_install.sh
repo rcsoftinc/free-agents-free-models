@@ -46,6 +46,11 @@ assert_eq "kilo's script lands in ~/.kilo/bin" "$(field kilo BIN_DIR)" ".kilo/bi
 for a in hermes copilot cursor agy pi; do
   assert_eq "$a's script lands in ~/.local/bin" "$(field "$a" BIN_DIR)" ".local/bin"
 done
+# herdr is offered too - optional, not an agent: fa runs the same without it.
+assert_eq "herdr installs with its vendor's script" "$(field herdr INSTALL_URL)" "https://herdr.dev/install.sh"
+assert_eq "written for sh" "$(field herdr INSTALL_SHELL)" "sh"
+assert_eq "into ~/.local/bin" "$(field herdr BIN_DIR)" ".local/bin"
+assert_eq "and it is not an agent" "$(printf '%s\n' "$AGENTS" | grep -c '^herdr$')" "0"
 assert_eq "no adapter guesses a package for a package manager any more" \
   "$(grep -lE 'npm install -g|pip3 install |cargo install |brew install ' "$REPO"/bin/lib/adapters/*.sh "$REPO"/bin/lib/install.sh 2>/dev/null | wc -l)" "0"
 
@@ -54,6 +59,7 @@ TABLE="$T/installers.tsv"; : > "$TABLE"
 while IFS= read -r a; do
   printf '%s\t%s\t%s\n' "$(field "$a" INSTALL_URL)" "$(field "$a" VERSION_BIN)" "$(field "$a" BIN_DIR)" >> "$TABLE"
 done <<<"$AGENTS"
+printf '%s\t%s\t%s\n' "$(field herdr INSTALL_URL)" herdr "$(field herdr BIN_DIR)" >> "$TABLE"
 install_calls() { grep -c -F -f <(cut -f1 "$TABLE") "$1" 2>/dev/null || echo 0; }
 
 run_setup() { # $1=home $2=state $3=out file; rest: VAR=value for this run -> rc
@@ -66,6 +72,11 @@ run_setup() { # $1=home $2=state $3=out file; rest: VAR=value for this run -> rc
 lanes_in() { # $1=home $2=state -> lane count, with the installed CLIs on PATH
   FREE_AGENTS_STATE="$2" PATH="$BARE_PATH:$1/.opencode/bin:$1/.kilo/bin:$1/.local/bin" \
     "$TOOL/bin/buckets.sh" lanes 2>/dev/null || echo 0
+}
+doctor_in() { # $1=home $2=state -> doctor's report, with the installed CLIs on PATH
+  env -i HOME="$1" PATH="$BARE_PATH:$1/.opencode/bin:$1/.kilo/bin:$1/.local/bin" FREE_AGENTS_STATE="$2" \
+      FA_CRONTAB_CMD="$FA_CRONTAB_CMD" FAKE_CRONTAB="$FAKE_CRONTAB" FA_COORDINATOR=none \
+      bash "$TOOL/bin/fa" doctor 2>&1 || true
 }
 
 # --- 2. the first run on a bare machine: everything installed, no lane yet -----
@@ -106,6 +117,14 @@ assert_contains "the PATH line for this shell names the three install directorie
   "export PATH=\"$HOME_A/.opencode/bin:$HOME_A/.kilo/bin:$HOME_A/.local/bin:\$PATH\""
 assert_contains "the daily refresh was scheduled" "$(cat "$FAKE_CRONTAB")" "fa' refresh --scheduled"
 assert_contains "with a PATH that finds what was installed" "$(cat "$STATE_A/schedule.path")" "$HOME_A/.opencode/bin"
+assert_contains "herdr is offered as optional" "$out" "herdr: not installed - optional: inside it, every job gets a tab"
+assert_contains "and under FA_AUTO_INSTALL=1 alone it is left out, naming the flag that includes it" "$out" \
+  "skipped: not something fa needs - FA_INSTALL_HERDR=1 with FA_AUTO_INSTALL=1 installs it"
+assert_true "so nothing of it landed" '[[ ! -e "$HOME_A/.local/bin/herdr" ]]'
+doc="$(doctor_in "$HOME_A" "$STATE_A")"
+assert_contains "doctor notes it as absent and optional" "$doc" "absent  herdr *optional"
+assert_contains "with what it is for and the line that installs it" "$doc" \
+  "every job gets a tab; setup offers it, or: curl -fsSL https://herdr.dev/install.sh | sh"
 
 # --- 3. the second run: a credential is there, the stale registry is refreshed -
 # `opencode auth login` writes auth.json; here it is written by hand.
@@ -116,7 +135,9 @@ run_setup "$HOME_A" "$STATE_A" "$T/out-a2" FA_AUTO_INSTALL=1 CURL_STUB_LOG="$T/c
 out="$(cat "$T/out-a2")"
 assert_eq "the second run ends 0" "$rc" "0"
 assert_not_contains "nothing is installed again" "$out" "installing - curl"
-assert_not_contains "nothing is reported missing: the installed CLIs were found off PATH" "$out" "not installed"
+assert_not_contains "no agent is reported missing: the installed CLIs were found off PATH" \
+  "$(grep -v '^\[fa\] herdr:' "$T/out-a2")" "not installed"
+assert_contains "herdr, never installed, is offered again" "$out" "herdr: not installed - optional"
 assert_eq "no installer ran" "$(install_calls "$T/curl-a2.log")" "0"
 assert_contains "the registry had gone stale" "$out" "registry is STALE - your credentials changed"
 assert_contains "and setup refreshed it itself" "$out" "refreshing now"
@@ -133,7 +154,7 @@ assert_not_contains "no PATH line: nothing was installed this run" "$out" "In th
 
 # --- 4. a first run can already be Ready: the anonymous gateways answer --------
 HOME_B="$T/home-b"; STATE_B="$T/state-b"; mkdir -p "$HOME_B"
-run_setup "$HOME_B" "$STATE_B" "$T/out-b" FA_AUTO_INSTALL=1; rc=$?
+run_setup "$HOME_B" "$STATE_B" "$T/out-b" FA_AUTO_INSTALL=1 FA_INSTALL_HERDR=1 CURL_STUB_LOG="$T/curl-b.log"; rc=$?
 out="$(cat "$T/out-b")"
 assert_eq "with lanes, the first run ends 0" "$rc" "0"
 assert_contains "Ready" "$out" "Ready."
@@ -141,6 +162,14 @@ assert_true "on the anonymous lanes" '[[ "$(lanes_in "$HOME_B" "$STATE_B")" -ge 
 assert_contains "but it still names who has no account, as more lanes" "$out" "More lanes, once these have an account"
 assert_contains "and how to pick them up" "$out" "fa refresh"
 assert_contains "the PATH line is there, for the shell setup ran from" "$out" "In this one, first:"
+assert_true "with FA_INSTALL_HERDR=1, herdr is installed too" '[[ -x "$HOME_B/.local/bin/herdr" ]]'
+assert_contains "by its vendor's line" "$(cat "$T/curl-b.log")" "curl -fsSL https://herdr.dev/install.sh"
+assert_eq "under sh" "$(cat "$HOME_B/.stub-installer-shell.herdr")" ""
+assert_contains "and setup says where it went" "$out" "herdr: installed in $HOME_B/.local/bin"
+doc="$(doctor_in "$HOME_B" "$STATE_B")"
+assert_contains "doctor sees it" "$doc" "ok      herdr"
+assert_contains "and says what it is for" "$doc" "every job gets a tab"
+assert_not_contains "and no longer offers it" "$doc" "setup offers it"
 
 # --- 5. with no answer to its questions, nothing is installed -----------------
 HOME_C="$T/home-c"; STATE_C="$T/state-c"; mkdir -p "$HOME_C"
@@ -151,6 +180,8 @@ assert_contains "each agent was offered its installer, by its line" "$out" \
   "installs with: curl -fsSL https://opencode.ai/install | bash"
 assert_contains "pi's, under sh" "$out" "installs with: curl -fsSL https://pi.dev/install.sh | sh"
 assert_contains "and skipped" "$out" "skipped opencode"
+assert_contains "herdr is offered as optional, by its line" "$out" "installs with: curl -fsSL https://herdr.dev/install.sh | sh"
+assert_contains "and skipped too" "$out" "skipped herdr"
 assert_eq "no installer ran" "$(install_calls "$T/curl-c.log")" "0"
 assert_true "nothing landed" '[[ ! -e "$HOME_C/.local/bin" && ! -e "$HOME_C/.opencode" && ! -e "$HOME_C/.kilo" ]]'
 assert_contains "the verdict names them all as not installed" "$out" \

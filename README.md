@@ -413,6 +413,11 @@ A CLI installed this way is on PATH for the rest of that run and in every new
 shell; the shell you ran setup from needs the `export PATH=...` line setup
 prints at the end.
 
+herdr is offered the same way, as optional: inside it every job gets a tab,
+and fa runs the same without it. `FA_AUTO_INSTALL=1` leaves it out unless
+`FA_INSTALL_HERDR=1` is set as well, since a terminal workspace is a
+preference, not something fa needs; `fa doctor` notes whether it is there.
+
 **On a new machine, setup takes two runs.** The first run installs everything
 and ends `Not ready yet`, with the list of agents that have no account behind
 them and the step that gives each one an account - a login is consent, so

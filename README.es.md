@@ -415,6 +415,12 @@ Un CLI instalado así queda en el PATH durante el resto de esa ejecución y en
 cada shell nuevo; el shell desde el que ejecutaste setup necesita la línea
 `export PATH=...` que setup imprime al final.
 
+herdr se ofrece de la misma forma, como opcional: dentro de él cada trabajo
+tiene su pestaña, y fa funciona igual sin él. `FA_AUTO_INSTALL=1` lo deja
+fuera salvo que también esté `FA_INSTALL_HERDR=1`, porque un espacio de
+trabajo de terminal es una preferencia, no algo que fa necesite; `fa doctor`
+anota si está.
+
 **En una máquina nueva, setup toma dos ejecuciones.** La primera instala todo
 y termina en `Not ready yet`, con la lista de agentes que no tienen una cuenta
 detrás y el paso que le da una a cada uno: iniciar sesión es consentir, así

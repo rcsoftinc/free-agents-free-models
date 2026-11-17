@@ -14,6 +14,19 @@
 #
 # A view is a folder holding what fa opened for one thing: the job's own folder, or
 # tasks/<id> under it for a task. FA_HERDR_VIEW says which one the current work is in.
+# Where herdr comes from, for setup.sh's offer (bin/lib/install.sh) and doctor's
+# note. Not an agent and not a dependency - fa runs the same without it, with no
+# tabs - so setup offers it, and FA_AUTO_INSTALL=1 leaves it out unless
+# FA_INSTALL_HERDR=1 says so. The vendor's own script, which puts the binary in
+# ~/.local/bin: what put herdr 0.9.5 on the machine this was written on, read on
+# 2026-11-17.
+FA_OPTIONAL_TOOLS=(herdr)
+FA_herdr_BINARY="herdr"
+FA_herdr_INSTALL_URL="https://herdr.dev/install.sh"
+FA_herdr_INSTALL_SHELL="sh"
+FA_herdr_BIN_DIR=".local/bin"
+FA_herdr_WHY="inside it, every job gets a tab"
+
 herdr_on() { [[ "${HERDR_ENV:-}" == 1 && "${FA_HERDR:-1}" != 0 ]] && have herdr; }
 
 # Its JSON on stdout, or nothing - within FA_HERDR_TIMEOUT seconds per call, so

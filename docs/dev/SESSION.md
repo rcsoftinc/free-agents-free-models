@@ -8,7 +8,7 @@
 
 **Complete, working, and proven on a real project.** Published (public) at
 `github.com/rcsoftinc/free-agents-free-models`. Full suite green:
-**1282 assertions, 49 suites, offline** - and CI runs it on every push to master and
+**1301 assertions, 49 suites, offline** - and CI runs it on every push to master and
 every pull request (GitHub Actions, Ubuntu 24.04 + 26.04).
 
 **It has built real software unattended.** All independently verified against what
@@ -2132,3 +2132,25 @@ install, no refresh on stale, Ready regardless of lanes, git dropped, a failed
 or empty install counted as installed, curl without -f, a Tier B anonymous row
 read as a wallet, pi's shell, the not-installed and the credential lists left
 out of the verdict - fails only its own assertions.
+
+## Feature: setup offers herdr, as optional (2026-11-17)
+
+The user asked whether herdr is part of the installation. It was not, and fa does
+not need it: the integration in `bin/lib/herdr.sh` switches on only inside a herdr
+session with the CLI on PATH, and jobs run the same without it, with no tabs. They
+asked for it to be offered. Now `bin/lib/herdr.sh` says where herdr comes from
+(`FA_OPTIONAL_TOOLS=(herdr)`, with the vendor's script
+`curl -fsSL https://herdr.dev/install.sh | sh`, a `/bin/sh` script read on
+2026-11-17 that puts the binary in `~/.local/bin` - what put herdr 0.9.5 on this
+machine), `install_optional_tools` (install.sh) offers it after the agents through
+the same path, and `fa doctor` has an "optional" section that notes it as present
+with its version, or absent with the line that installs it - a note, never a
+failure. `FA_AUTO_INSTALL=1` installs what fa needs and leaves herdr out unless
+`FA_INSTALL_HERDR=1` is set as well, since a terminal workspace is a preference and
+nothing here installs one unasked; it is never counted as a lane, so never in the
+verdict's "not installed" list. Tests in `test_setup_install.sh`: the fields; the
+offer and the flag's name under auto-install, nothing landing, doctor's absent
+line; installed with both flags, under sh, doctor's ok line; offered and skipped
+with no answer, and still offered on a second run. Three mutations - auto-install
+installing it without the flag, doctor's loop emptied, setup never offering it -
+each fail only their own assertions.

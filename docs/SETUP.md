@@ -56,6 +56,13 @@ profile lines the installers add (and Ubuntu's own `~/.profile`, for
 without asking; with no terminal to ask on, a question reads as no, and the
 verdict lists what was not installed.
 
+**herdr** is offered the same way, as optional, with its vendor's line
+(`curl -fsSL https://herdr.dev/install.sh | sh`, into `~/.local/bin`): inside it
+every job gets a tab (see [Maintenance](#6-maintenance--when-and-how-to-update)),
+and fa runs the same without it, so `FA_AUTO_INSTALL=1` leaves it out unless
+`FA_INSTALL_HERDR=1` is set as well. It is never counted as a lane; `fa doctor`
+notes whether it is there.
+
 Known-good versions - each last verified by a real probe through that adapter's
 own invoke (the exact call real dispatch makes), on 2026-10-03. The pins live in
 each `bin/lib/adapters/<agent>.sh` as `FA_<agent>_VERIFIED_VERSION`:

@@ -72,10 +72,11 @@ assert_contains "and states the consequence" "$broom" "no adapter"
 
 # --- 6. missing_deps is real, and setup consults it ----------------------------
 FAKEBIN="$(mktemp -d)"; trap 'rm -rf "$FAKEBIN"; rm -rf "$FIXTURE_DIR"' EXIT
-# Every REQUIRED dep (so missing_deps has nothing to report) PLUS the coreutils
+# Every REQUIRED dep (so missing_deps has nothing to report - git included, since
+# orch builds in worktrees) PLUS the coreutils
 # setup.sh itself needs to print its message (tr). The absence we are proving is
 # jq - which is intentionally left out.
-for c in bash dirname curl flock sqlite3 timeout tr; do
+for c in bash dirname curl flock sqlite3 timeout git tr; do
   ln -s "$(command -v "$c")" "$FAKEBIN/$c"
 done
 got="$(PATH="$FAKEBIN" bash -c '. '"$COMMON"'; missing_deps')"

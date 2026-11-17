@@ -1,6 +1,6 @@
 # SESSION STATE — read this first on resume
 
-**Last updated:** 2026-11-16
+**Last updated:** 2026-11-17
 
 ---
 
@@ -8,7 +8,7 @@
 
 **Complete, working, and proven on a real project.** Published (public) at
 `github.com/rcsoftinc/free-agents-free-models`. Full suite green:
-**1157 assertions, 48 suites, offline** - and CI runs it on every push to master and
+**1282 assertions, 49 suites, offline** - and CI runs it on every push to master and
 every pull request (GitHub Actions, Ubuntu 24.04 + 26.04).
 
 **It has built real software unattended.** All independently verified against what
@@ -2060,3 +2060,75 @@ live: the 2026-11-05 entry). Marked seen with `fa findings --ack` - nothing is d
 `fa findings` still lists them - so doctor stops counting them. From here findings are the
 maintainer's to triage into rules, backlog items or notes, and to ack; the user hears of
 one only when it changes something they decide.
+
+## Feature: setup.sh installs the agent CLIs, and the second run builds the lanes (2026-11-17)
+
+The user asked what `setup.sh` would do on a new VPS with nothing on it but `gh`.
+Reading it: the system tools get installed (apt), `.orch/` gets created, and then
+every agent install ends in "install manually", because each adapter's install
+function guessed a package name for npm, pip3 or cargo - none of which a bare
+machine has, and none of which put any of the seven agents on this machine (all
+seven came from their vendors' install scripts, into `~/.opencode/bin`,
+`~/.kilo/bin` and `~/.local/bin`); bootstrap dies in discovery with "no agent CLI
+found on PATH"; and the script prints "Ready." regardless. `docs/SETUP.md` also
+still called the repo private and had it cloned under `~/.local/share`, where
+setup would take `~/.local/share` for the project. The user asked for setup to
+install everything it needs, with a second run - after the logins and keys that
+only a person can do - building the lanes from what it finds.
+
+Now each adapter names its vendor's install script and where that script puts
+the binary (`FA_<agent>_INSTALL_URL`, `_INSTALL_SHELL` for pi's `sh` script,
+`_BIN_DIR`), and `bin/lib/install.sh` (sourced by setup.sh, like keys.sh) runs
+the one line the vendor's page gives, `curl -fsSL <url> | bash`, for each agent
+not found - after a question per agent, or without one under `FA_AUTO_INSTALL=1`;
+with no terminal a question reads as no, and the line a person would be asked
+about is printed before it, since bash shows a `read -p` prompt only on a
+terminal. All seven URLs were fetched and read on 2026-11-17: each serves a
+script and each script's install directory is the one the binary is in here
+(opencode `~/.opencode/bin`, kilo `~/.kilo/bin`, the rest `~/.local/bin`; pi's is
+a `/bin/sh` script with a managed install under `~/.pi/agent`). What is
+installed goes on PATH for the rest of the run - the installers edit profiles
+for later shells, the running one has read its profile already - so the
+credential checks, the bootstrap and the cron's saved PATH see it; and before
+anything is installed, every adapter's directory that exists is put on PATH the
+same way, or a second run in the same shell would report the CLIs the first run
+installed as missing and offer them again. An installer that fails, or exits 0
+having installed nothing, is said so, and the agent counted as not installed.
+`git` joined the system dependencies: orch builds in worktrees and commits.
+
+The verdict is the lane count, not the end of the script. "Ready." with the
+agents to start only when `fa lanes` is at least one (exit 0); otherwise "Not
+ready yet: no lane can take work" (exit 1), with what is not installed, whether
+there is a registry, and - in both cases - every installed agent that has no
+account behind it with the step that gives it one (`credential_summary`,
+keys.sh: each adapter's login hint; opencode, kilo and pi gained one, pointing at
+`keys.env`), the agents whose only wallet is an anonymous gateway (opencode's
+zen models, kilo's own gateway) listed as such, since an account there is
+another wallet. The anonymous gateways mean a first run can already be Ready;
+the second run is then for more lanes. A registry that has gone stale - a key
+pasted, a login done, a CLI installed since - is refreshed by setup itself,
+where it used to print "run: fa refresh" and end Ready without the new lane:
+that is exactly the second run on a new machine, the one meant to build the
+lanes. The export line for the shell setup ran from is printed when something
+was installed. `docs/SETUP.md` section 0 now says the repo is public and has it
+cloned into the project (or given the project's path), and section 1 carries
+the seven install lines and where each lands.
+
+Tests: `test_setup_install.sh`, on a bare PATH with the stub curl playing the
+installers from a table read off the adapters (every URL, landing directory and
+shell; pi's script under sh; an installer that fails or leaves nothing; nothing
+installed when no question is answered), the first run ending Not ready with
+every agent's step when the anonymous gateways refuse, and Ready when they
+answer, with the PATH line and the cron's saved PATH; the second run installing
+nothing, finding the CLIs off PATH, refreshing the stale registry and ending
+Ready with the account's wallet and no key in the registry; `git` as a
+dependency; the docs carrying the seven lines. `test_bootstrap.sh` asserts the
+verdict with no registry (1, Not ready) and with a lane (0, Ready);
+`test_adapters.sh`'s dependency list includes git. The big-haystack form
+`assert_contains "$(cat file)"` ends in a broken pipe under pipefail when the
+match is early and the rest of the file exceeds the pipe, so the docs checks
+grep the files. Each of twelve mutations - no PATH extension before or after an
+install, no refresh on stale, Ready regardless of lanes, git dropped, a failed
+or empty install counted as installed, curl without -f, a Tier B anonymous row
+read as a wallet, pi's shell, the not-installed and the credential lists left
+out of the verdict - fails only its own assertions.

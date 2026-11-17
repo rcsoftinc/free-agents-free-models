@@ -10,21 +10,51 @@ it clearly.
 
 ## 0. Tool
 
-The repo is **private**, so clone with `gh` (which carries your GitHub auth).
-Plain `git clone` over SSH only works if that machine has an SSH key on your
-GitHub account — it does not by default.
+The repo is public. Clone it INTO the project it will work on, as
+`.free-agents/`, and run its setup from there: setup treats the directory above
+the clone as the project (it creates `.orch/` there and links the skills
+there), so a clone kept elsewhere needs the project's path as an argument.
 
 ```sh
-gh auth login                                    # once per machine
-gh repo clone rcsoftinc/free-agents-free-models \
-   ~/.local/share/free-agents-free-models
-~/.local/share/free-agents-free-models/setup.sh
+cd myproject
+git clone https://github.com/rcsoftinc/free-agents-free-models .free-agents
+.free-agents/setup.sh            # or: /path/to/clone/setup.sh /path/to/myproject
 ```
+
+On a new machine, setup takes two runs. The first installs the system tools and
+the agent CLIs (section 1) and ends `Not ready yet`, with the list of agents
+that have no account behind them and the step that gives each one an account.
+You log in or paste keys (section 2). The second run finds them and builds the
+lanes, and ends `Ready.` It exits 0 only when a lane can take work (1 when none
+can, 3 when a system tool is missing).
 
 ## 1. Agent CLIs
 
 Install whichever you want. **Each additional agent is only worth installing if you
 give it a DIFFERENT credential** — the same key in two agents is one lane, not two.
+
+`setup.sh` installs each one you do not have, with the vendor's own install
+script: the same line the vendor's page gives, run as `curl -fsSL <url> | bash`
+(`bin/lib/install.sh`; each adapter names its URL and where the script puts the
+binary). Verified on a real machine on 2026-11-17: every URL served a script,
+and every script's install directory was where that binary actually was.
+
+| Agent | Installed with | Lands in |
+|---|---|---|
+| opencode | `curl -fsSL https://opencode.ai/install \| bash` | `~/.opencode/bin` |
+| kilo | `curl -fsSL https://kilo.ai/cli/install \| bash` | `~/.kilo/bin` |
+| hermes | `curl -fsSL https://hermes-agent.nousresearch.com/install.sh \| bash` | `~/.local/bin` (a wrapper; the install itself under `~/.hermes`) |
+| copilot | `curl -fsSL https://gh.io/copilot-install \| bash` | `~/.local/bin` |
+| cursor | `curl -fsSL https://cursor.com/install \| bash` | `~/.local/bin` (`cursor-agent`; the versions under `~/.local/share/cursor-agent`) |
+| agy | `curl -fsSL https://antigravity.google/cli/install.sh \| bash` | `~/.local/bin` |
+| pi | `curl -fsSL https://pi.dev/install.sh \| sh` | `~/.local/bin` (a symlink; the managed install under `~/.pi/agent`, with its own Node) |
+
+What is installed goes on PATH for the rest of that setup run and, through the
+profile lines the installers add (and Ubuntu's own `~/.profile`, for
+`~/.local/bin`), in every new shell; the shell setup ran from needs the
+`export PATH=...` line setup prints at the end. `FA_AUTO_INSTALL=1` installs
+without asking; with no terminal to ask on, a question reads as no, and the
+verdict lists what was not installed.
 
 Known-good versions - each last verified by a real probe through that adapter's
 own invoke (the exact call real dispatch makes), on 2026-10-03. The pins live in
@@ -176,8 +206,9 @@ next step bootstraps unconditionally regardless) or under `--no-bootstrap`.
 ## 3. Build the registry and verify
 
 `.free-agents/setup.sh` does this for you on a machine with no registry — it runs
-bootstrap rather than printing the command. Run the pieces by hand only if you
-want to see them individually:
+bootstrap rather than printing the command — and refreshes a registry that has
+gone stale (a key added, a CLI installed) rather than telling you to. Run the
+pieces by hand only if you want to see them individually:
 
 ```sh
 fa discover      # enumerate models per credential actually held

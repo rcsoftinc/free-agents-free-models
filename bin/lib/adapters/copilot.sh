@@ -12,6 +12,8 @@ FA_copilot_BINARY="copilot"
 FA_copilot_METERED=1
 FA_copilot_VERIFIED_VERSION="1.0.86"
 FA_copilot_VERSION_BIN="copilot"
+FA_copilot_INSTALL_URL="https://gh.io/copilot-install"
+FA_copilot_BIN_DIR=".local/bin"
 
 copilot_identify() {
   command -v copilot >/dev/null 2>&1 || return 0
@@ -45,20 +47,6 @@ copilot_caps() { printf 'code,reasoning,shell,git,file'; }
 # Verified command (docs/SETUP.md): copilot rides on gh's own session, it has
 # no login step of its own.
 copilot_login_hint() { printf 'gh auth login   (GitHub CLI - copilot rides on your gh session, no login of its own)'; }
-
-copilot_install() { # -> 0 if install was run (or already installed)
-  command -v copilot >/dev/null 2>&1 && return 1  # already installed
-  if [[ "${FA_AUTO_INSTALL:-0}" == "1" ]] || prompt_yn "copilot not installed. Install now?"; then
-    if command -v npm >/dev/null 2>&1; then
-      npm install -g @github/copilot-cli
-    elif command -v brew >/dev/null 2>&1; then
-      brew install github/copilot-cli
-    else
-      say "Install copilot manually: https://github.com/github/copilot-cli"
-      return 1
-    fi
-  fi
-}
 
 copilot_invoke() { # $1=model $2=provider $3=prompt ; echoes output, returns rc
   local prompt="$3" rc=0 out=""

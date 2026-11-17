@@ -1,16 +1,31 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# setup.sh - make the CURRENT directory a free-agents project.
+# setup.sh - make the CURRENT directory a free-agents project, and this machine
+# able to run it.
 #
 # Intended use: you are in your project (empty or existing), you cloned this repo
 # into it as `.free-agents/`, and you run:
 #
 #     .free-agents/setup.sh
 #
+# On a new machine, run it twice. The first run installs what is missing: the
+# system tools (apt), and every agent CLI it does not find, each with its
+# vendor's own install script (bin/lib/install.sh). Logging in and pasting keys
+# is yours to do between the runs - a login is consent, and nothing here gives
+# it for you - and the second run finds the credentials, builds the registry of
+# lanes from them (or refreshes one that has gone stale) and schedules the daily
+# refresh. Every run ends by saying what it found and what is still missing,
+# and exits 0 only when at least one lane can take work: 1 when none can, 3
+# when a system tool is missing.
+#
 # Everything this tool owns stays inside two hidden directories - `.free-agents/`
 # (the tool) and `.orch/` (this project's run state). Nothing else is added to
-# your project, and neither directory needs to be committed.
+# your project, and neither directory needs to be committed. The agent CLIs
+# install where their vendors put them, under your home directory.
+#
+#   FA_AUTO_INSTALL=1   install without asking: the system tools and the agent CLIs
+#   --no-bootstrap      no network: install and configure, but build no registry
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # --no-bootstrap is for scripting setup offline; everyone else wants the network
@@ -34,6 +49,8 @@ PROJECT="${PROJECT:-$(cd "${HERE}/.." && pwd)}"
 STATE="$STATE_DIR"
 # shellcheck source=bin/lib/keys.sh
 . "${HERE}/bin/lib/keys.sh"
+# shellcheck source=bin/lib/install.sh
+. "${HERE}/bin/lib/install.sh"
 
 say() { printf '[fa] %s\n' "$*"; }
 
@@ -51,6 +68,9 @@ if [[ -n "$_miss" ]]; then
   say "missing system dependencies: $(tr '\n' ' ' <<<"$_miss")"
   if [[ "${FA_AUTO_INSTALL:-0}" == "1" ]] || prompt_yn "install them now?"; then
     if command -v apt-get >/dev/null 2>&1; then
+      # A new machine's package lists may be empty; refreshing them first costs
+      # a moment and saves an "Unable to locate package" on the install.
+      sudo apt-get update -qq || true
       sudo apt-get install -y $_miss || { say "apt install failed"; exit 3; }
     elif command -v brew >/dev/null 2>&1; then
       brew install $_miss || { say "brew install failed"; exit 3; }
@@ -68,13 +88,9 @@ cd "$PROJECT"
 say "project: $PROJECT"
 say "tool:    $HERE"
 
-# Check for missing agents and offer to install
-for agent in "${FA_AGENTS[@]}"; do
-  if ! adapter_installed "$agent"; then
-    say "$agent: not installed"
-    adapter_install "$agent" || say "  skipped $agent"
-  fi
-done
+# Agent CLIs: each one missing is offered its vendor's installer, and what is
+# installed goes on PATH for the rest of this run (bin/lib/install.sh).
+install_missing_agents
 
 chmod +x "${HERE}"/bin/*.sh "${HERE}"/bin/lib/*.sh "${HERE}/bin/fa" \
          "${HERE}/setup.sh" 2>/dev/null || true
@@ -137,12 +153,22 @@ case "$_status" in
       "${HERE}/bin/fa" bootstrap || say "bootstrap failed - run it again with: fa bootstrap"
     fi
     ;;
-  stale:credentials)
-    say "registry is STALE - your credentials changed since it was built."
-    say "  a key you added is invisible until you run: .free-agents/bin/fa refresh" ;;
-  stale:new-agent)
-    say "registry is STALE - an agent is installed that has no lane yet."
-    say "  run: .free-agents/bin/fa refresh" ;;
+  stale:credentials|stale:new-agent)
+    # A key pasted or a login done since the last run, or a CLI installed just
+    # now: the second run on a new machine lands exactly here, and it is the run
+    # that is supposed to build the lanes. A stale registry is the one health
+    # state that IS re-checked: the docs tell a person to refresh here, so do it.
+    if [[ "$_status" == "stale:credentials" ]]; then
+      say "registry is STALE - your credentials changed since it was built; refreshing now."
+    else
+      say "registry is STALE - an agent is installed that has no lane yet; refreshing now."
+    fi
+    if [[ "$DO_BOOTSTRAP" -eq 1 ]]; then
+      "${HERE}/bin/fa" refresh || say "refresh failed - run it yourself: .free-agents/bin/fa refresh"
+    else
+      say "  (--no-bootstrap: not now) a key you added is invisible until you run: .free-agents/bin/fa refresh"
+    fi
+    ;;
   aged:*)
     say "registry: $("${HERE}/bin/buckets.sh" lanes) lane(s), $(registry_age_days) days old"
     say "  free-model lists drift; refresh when convenient: fa refresh" ;;
@@ -150,6 +176,12 @@ case "$_status" in
     say "registry: $("${HERE}/bin/buckets.sh" lanes) healthy lane(s), $(registry_age_days) days old"
     say "          ${STATE}" ;;
 esac
+
+# ---- the verdict: a lane, or exactly what is still missing -------------------
+lanes=0
+if [[ -f "$REGISTRY" ]]; then
+  lanes="$("${HERE}/bin/buckets.sh" lanes 2>/dev/null || echo 0)"
+fi
 
 # Built from FA_AGENTS, not typed out - a hand-copied roster in a banner is
 # exactly the "second definition of the harness list" this project's own
@@ -165,18 +197,38 @@ esac
 # found. Use 'cursor agent' or 'agent' to run the agent." VERSION_BIN is
 # already the one binary each adapter is pinned/verified against, which is
 # exactly "the one that actually works" for every agent, cursor included.
-agent_list=""
+agent_list=""; not_installed=""
 for agent in "${FA_AGENTS[@]}"; do
   agent_list="${agent_list:+${agent_list} | }$(adapter_field "$agent" VERSION_BIN)"
+  adapter_installed "$agent" || not_installed="${not_installed:+${not_installed} }${agent}"
 done
+needs="$(credential_summary)"
+pathline="$(installed_now_path_line)"
 
-cat <<EOF
+if [[ "$lanes" -ge 1 ]]; then
+  cat <<EOT
 
 Ready.
 
   1. Start any agent from here:  ${agent_list}
   2. Paste this into it:         .free-agents/prompts/coordinator.md
   3. Then just talk normally - it picks the mode itself.
+EOT
+  if [[ -n "$needs" ]]; then
+    echo
+    echo "More lanes, once these have an account (then: .free-agents/bin/fa refresh):"
+    printf '%s\n' "$needs"
+  fi
+  if [[ -n "$not_installed" ]]; then
+    echo
+    echo "Not installed, so not a lane: ${not_installed}  (run setup again to install them)"
+  fi
+  if [[ -n "$pathline" ]]; then
+    echo
+    echo "The CLIs installed just now are on PATH in a new shell. In this one, first:"
+    echo "    ${pathline}"
+  fi
+  cat <<EOT
 
 Refresh the registry when you add a credential or install another agent
 (setup and doctor both tell you when):
@@ -185,4 +237,37 @@ Refresh the registry when you add a credential or install another agent
 Or drive it yourself:
     .free-agents/bin/fa lanes -v
     .free-agents/bin/fa plan "goal"  &&  .free-agents/bin/fa orch run
-EOF
+EOT
+  exit 0
+fi
+
+cat <<EOT
+
+Not ready yet: no lane can take work.
+EOT
+[[ -n "$not_installed" ]] && echo "  not installed:  ${not_installed}"
+if [[ ! -f "$REGISTRY" ]]; then
+  if [[ "$DO_BOOTSTRAP" -eq 0 ]]; then
+    echo "  no registry yet (--no-bootstrap) - this builds it: .free-agents/bin/fa bootstrap"
+  else
+    echo "  no registry yet - nothing to build one from"
+  fi
+else
+  echo "  the registry has $(jq -r '.buckets | length' "$REGISTRY" 2>/dev/null || echo 0) wallet(s), none a lane right now - this says why: .free-agents/bin/fa lanes -v"
+fi
+if [[ -n "$needs" ]]; then
+  echo
+  echo "Give at least one of these an account:"
+  printf '%s\n' "$needs"
+fi
+if [[ -n "$pathline" ]]; then
+  echo
+  echo "The CLIs installed just now are on PATH in a new shell. In this one, first:"
+  echo "    ${pathline}"
+fi
+cat <<EOT
+
+Then run this again - it finds the credentials and builds the lanes from them:
+    .free-agents/setup.sh
+EOT
+exit 1

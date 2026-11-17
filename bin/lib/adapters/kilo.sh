@@ -14,6 +14,8 @@ FA_kilo_BINARY="kilo"
 FA_kilo_METERED=0
 FA_kilo_VERIFIED_VERSION="7.6.2"
 FA_kilo_VERSION_BIN="kilo"
+FA_kilo_INSTALL_URL="https://kilo.ai/cli/install"
+FA_kilo_BIN_DIR=".kilo/bin"
 
 kilo_identify() {
   command -v kilo >/dev/null 2>&1 || return 0
@@ -54,19 +56,7 @@ kilo_models() { # -> model rows, agent-prefixed (see buckets.sh)
 
 kilo_caps() { printf 'code,reasoning,shell,git,file'; }
 
-kilo_install() { # -> 0 if install was run (or already installed)
-  command -v kilo >/dev/null 2>&1 && return 1  # already installed
-  if [[ "${FA_AUTO_INSTALL:-0}" == "1" ]] || prompt_yn "kilo not installed. Install now?"; then
-    if command -v npm >/dev/null 2>&1; then
-      npm install -g @kilocode/kilo
-    elif command -v brew >/dev/null 2>&1; then
-      brew install kilocode/tap/kilo
-    else
-      say "Install kilo manually: https://github.com/glenng/kilo"
-      return 1
-    fi
-  fi
-}
+kilo_login_hint() { printf 'KILO_OPENROUTER_KEY in keys.env (an OpenRouter key), or sign in to its own gateway from the kilo TUI (unverified: run kilo once and follow its prompt)'; }
 
 kilo_provision_key() { # $1=provider (default openrouter) $2=key -> 0 on success
   # Signature matches opencode/pi's *_provision_key (provider, key) so the

@@ -392,18 +392,39 @@ gh repo clone rcsoftinc/free-agents-free-models .free-agents
 Ese único script es toda la configuración: instala las dependencias del
 sistema y los CLIs de agente que falten, aprovisiona credenciales donde
 puede hacerlo con seguridad, te guía en el resto, y arranca el registro —
-todo antes de imprimir "Ready." Las tres subsecciones de abajo son lo que
-hace, en detalle, no pasos separados que también debas ejecutar.
+e imprime "Ready." solo cuando hay un carril que pueda tomar trabajo. En una
+máquina nueva eso toma dos ejecuciones (abajo). Las tres subsecciones son lo
+que hace, en detalle, no pasos separados que también debas ejecutar.
 
 ### Dependencias y CLIs de agente faltantes
 
-`setup.sh` verifica las dependencias del sistema (jq, curl, flock, sqlite3, timeout)
-y los CLIs de agente faltantes (opencode, kilo, hermes, copilot, cursor, agy, pi),
-luego pregunta si desea instalarlos. Use `FA_AUTO_INSTALL=1` para omitir las preguntas:
+`setup.sh` verifica las herramientas del sistema (jq, curl, flock, sqlite3,
+timeout, git) e instala con apt las que falten. Para cada CLI de agente que no
+encuentra (opencode, kilo, hermes, copilot, cursor, agy, pi) ofrece el script
+de instalación del propio proveedor: la misma línea `curl -fsSL <url> | bash`
+que da la página del proveedor, nombrada en `bin/lib/adapters/<agente>.sh`;
+las siete líneas, y dónde deja cada una su binario, están en
+[docs/SETUP.md](docs/SETUP.md#1-agent-clis). Use `FA_AUTO_INSTALL=1` para
+omitir las preguntas (sin terminal donde preguntar, una pregunta vale por no):
 
 ```sh
 FA_AUTO_INSTALL=1 .free-agents/setup.sh
 ```
+
+Un CLI instalado así queda en el PATH durante el resto de esa ejecución y en
+cada shell nuevo; el shell desde el que ejecutaste setup necesita la línea
+`export PATH=...` que setup imprime al final.
+
+**En una máquina nueva, setup toma dos ejecuciones.** La primera instala todo
+y termina en `Not ready yet`, con la lista de agentes que no tienen una cuenta
+detrás y el paso que le da una a cada uno: iniciar sesión es consentir, así
+que nada lo hace por ti. Inicia sesión o pega las claves, y ejecútalo de
+nuevo: la segunda ejecución encuentra las credenciales, construye con ellas el
+registro de carriles (o refresca uno que quedó desactualizado) y termina en
+`Ready.` Cada ejecución termina con el mismo veredicto, y su código de salida
+lo dice también: 0 cuando un carril puede tomar trabajo, 1 cuando ninguno
+puede, 3 cuando falta una herramienta del sistema; `setup.sh && ...` es seguro
+en un script.
 
 ### Credenciales en una máquina nueva
 
@@ -763,7 +784,7 @@ Cada adaptador identifica credenciales, lista modelos (TSV prefijado por agente)
 │   ├── run.sh                 motor de envío: fallback, lease, breaker
 │   ├── plan.sh                meta -> grafo de tareas
 │   ├── orch.sh                grafo de tareas + resumen basado en journal
-│   └── lib/                   common.sh, deps.sh, adapters.sh, classify.sh, keys.sh, quota.sh,
+│   └── lib/                   common.sh, deps.sh, adapters.sh, classify.sh, keys.sh, install.sh, quota.sh,
 │                              schedule.sh, jobs.sh, findings.sh, graph.sh, analyze.sh
 │       └── adapters/          un archivo por agente (opencode, kilo, hermes, copilot, cursor, agy, pi)
 ├── data/model-seed.json       opinión OPCIONAL de arranque en frío - edítala a mano o

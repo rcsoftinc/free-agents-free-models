@@ -87,6 +87,7 @@ bin/run.sh        dispatch engine          one task -> one result, with fallback
 bin/plan.sh       goal -> task graph       rejects malformed graphs locally
 bin/orch.sh       per-project task graph   init | run | status | resume
 bin/lib/adapters.sh   the agent roster (FA_AGENTS); one file per agent in adapters/
+bin/lib/install.sh    what setup.sh runs to install a missing agent CLI: its vendor's script
 bin/lib/classify.sh   the error taxonomy - has its own self-test
 bin/lib/schedule.sh   the daily refresh cron, and doctor's report on it
 bin/lib/jobs.sh       background jobs: fa run/dispatch --detach, fa jobs

@@ -11,6 +11,9 @@ FA_pi_BINARY="pi"
 FA_pi_METERED=0
 FA_pi_VERIFIED_VERSION="1.4.0"
 FA_pi_VERSION_BIN="pi"
+FA_pi_INSTALL_URL="https://pi.dev/install.sh"
+FA_pi_INSTALL_SHELL="sh"
+FA_pi_BIN_DIR=".local/bin"
 
 # Convert human-readable sizes (1M, 128K) to numeric values
 parse_size() {
@@ -60,19 +63,7 @@ pi_models() { # -> model rows, agent-prefixed (see buckets.sh)
 
 pi_caps() { printf 'code,reasoning,file'; }
 
-pi_install() { # -> 0 if install was run (or already installed)
-  command -v pi >/dev/null 2>&1 && return 1  # already installed
-  if [[ "${FA_AUTO_INSTALL:-0}" == "1" ]] || prompt_yn "pi not installed. Install now?"; then
-    if command -v npm >/dev/null 2>&1; then
-      npm install -g @anthropic-ai/pi
-    elif command -v brew >/dev/null 2>&1; then
-      brew install pi
-    else
-      say "Install pi manually: https://github.com/anthropics/pi"
-      return 1
-    fi
-  fi
-}
+pi_login_hint() { printf 'PI_OPENROUTER_KEY in keys.env (an OpenRouter key) - pi keeps it in ~/.pi/agent/auth.json'; }
 
 pi_provision_key() { # $1=provider (default openrouter) $2=key -> 0 on success
   local provider="${1:-openrouter}" key="${2:-}"

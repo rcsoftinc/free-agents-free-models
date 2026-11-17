@@ -118,3 +118,37 @@ guided_logins() {
   fi
   return 0
 }
+# What setup.sh ends with: every installed agent that has no account behind it,
+# and the step that gives it one. A wallet an agent reaches with no credential at
+# all (opencode's zen models, kilo's own gateway) is listed too, as anonymous:
+# an account there is another wallet, which is another lane.
+agent_credential_state() { # $1=agent -> account | anon | none
+  local fn="${1}_identify" rows anonfp
+  declare -F "$fn" >/dev/null 2>&1 || { printf 'none'; return 0; }
+  rows="$("$fn" 2>/dev/null || true)"
+  anonfp="$(fp "" 2>/dev/null || true)"
+  if [[ -z "$rows" ]]; then printf 'none'
+  elif printf '%s\n' "$rows" | awk -F '\x1f' '{print $4}' \
+         | grep -qvE "^(anon|zen|${anonfp:-anon})$"; then printf 'account'
+  elif printf '%s\n' "${FA_TIERB_AGENTS[*]}" | grep -qw "$1"; then
+    # An account login that is not there: copilot without a gh session still
+    # names itself, as anonymous, and that is no wallet (test_metered.sh).
+    printf 'none'
+  else printf 'anon'
+  fi
+  return 0
+}
+
+credential_summary() { # -> one line per installed agent without an account, or nothing
+  local a st
+  for a in "${FA_AGENTS[@]}"; do
+    adapter_installed "$a" || continue
+    st="$(agent_credential_state "$a")"
+    case "$st" in
+      account) ;;
+      anon) printf '  %-9s anonymous gateway only - an account is another wallet: %s\n' "$a" "$(adapter_login_hint "$a")" ;;
+      *)    printf '  %-9s no credential - %s\n' "$a" "$(adapter_login_hint "$a")" ;;
+    esac
+  done
+  return 0
+}

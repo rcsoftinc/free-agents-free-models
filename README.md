@@ -387,21 +387,41 @@ gh repo clone rcsoftinc/free-agents-free-models .free-agents
 
 That one script is the whole setup: it installs missing system dependencies
 and agent CLIs, provisions credentials where it safely can, guides you
-through the rest, and bootstraps the registry — all before printing "Ready."
-The three subsections below are what it does, in detail, not separate steps
-you also need to run.
+through the rest, and bootstraps the registry — and prints "Ready." only when
+a lane can take work. On a new machine that takes two runs (below). The three
+subsections are what it does, in detail, not separate steps you also need to
+run.
 
 > **Windows note:** all agents must be installed inside WSL2, and `.free-agents` runs from there. See [Environment](README.md#environment).
 
 ### Missing dependencies and agent CLIs
 
-`setup.sh` checks for missing system dependencies (jq, curl, flock, sqlite3, timeout)
-and missing agent CLIs (opencode, kilo, hermes, copilot, cursor, agy, pi), then
-prompts to install them. Use `FA_AUTO_INSTALL=1` to skip prompts:
+`setup.sh` checks for the system tools (jq, curl, flock, sqlite3, timeout, git)
+and installs the missing ones with apt. For each agent CLI it does not find
+(opencode, kilo, hermes, copilot, cursor, agy, pi) it offers the vendor's own
+install script - the same `curl -fsSL <url> | bash` line the vendor's page
+gives, named in `bin/lib/adapters/<agent>.sh`; the seven lines, and where each
+one puts its binary, are in [docs/SETUP.md](docs/SETUP.md#1-agent-clis). Use
+`FA_AUTO_INSTALL=1` to skip the questions (with no terminal to ask on, a
+question reads as no):
 
 ```sh
 FA_AUTO_INSTALL=1 .free-agents/setup.sh
 ```
+
+A CLI installed this way is on PATH for the rest of that run and in every new
+shell; the shell you ran setup from needs the `export PATH=...` line setup
+prints at the end.
+
+**On a new machine, setup takes two runs.** The first run installs everything
+and ends `Not ready yet`, with the list of agents that have no account behind
+them and the step that gives each one an account - a login is consent, so
+nothing here does it for you. Log in or paste keys, then run it again: the
+second run finds the credentials, builds the registry of lanes from them (or
+refreshes one that has gone stale) and ends `Ready.` Every run ends with the
+same verdict, and its exit code says it too: 0 when a lane can take work, 1
+when none can, 3 when a system tool is missing - so `setup.sh && ...` is safe
+to script.
 
 ### Credentials on a fresh machine
 
@@ -750,7 +770,7 @@ Each adapter identifies credentials, lists models (agent-prefixed TSV), and invo
 │   ├── run.sh                dispatch engine: fallback, lease, breaker
 │   ├── plan.sh               goal -> task graph
 │   ├── orch.sh               task graph + journal-based resume
-│   └── lib/                  common.sh, deps.sh, adapters.sh, classify.sh, keys.sh, quota.sh,
+│   └── lib/                  common.sh, deps.sh, adapters.sh, classify.sh, keys.sh, install.sh, quota.sh,
 │                             schedule.sh, jobs.sh, findings.sh, graph.sh, analyze.sh
 │       └── adapters/         one file per harness (opencode, kilo, hermes, copilot, cursor, agy, pi)
 ├── data/model-seed.json      OPTIONAL cold-start opinion - hand-edit or generate from

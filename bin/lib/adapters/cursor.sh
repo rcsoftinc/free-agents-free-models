@@ -10,6 +10,8 @@ FA_cursor_BINARY="cursor-agent,cursor"
 FA_cursor_METERED=1
 FA_cursor_VERIFIED_VERSION="2026.09.18"
 FA_cursor_VERSION_BIN="cursor-agent"
+FA_cursor_INSTALL_URL="https://cursor.com/install"
+FA_cursor_BIN_DIR=".local/bin"
 
 cursor_identify() {
   command -v cursor-agent >/dev/null 2>&1 || return 0
@@ -32,20 +34,6 @@ cursor_caps() { printf 'web,code,reasoning,shell,git,file'; }
 # subcommand (only `status`, `-p`, `--output-format`, `-f` are exercised
 # elsewhere). Says so rather than stating a guess as fact.
 cursor_login_hint() { printf 'cursor-agent login   (unverified guess at the subcommand - if it errors, just run `cursor-agent` once and follow its own prompt instead)'; }
-
-cursor_install() { # -> 0 if install was run (or already installed)
-  command -v cursor-agent >/dev/null 2>&1 && return 1  # already installed
-  if [[ "${FA_AUTO_INSTALL:-0}" == "1" ]] || prompt_yn "cursor-agent not installed. Install now?"; then
-    if command -v npm >/dev/null 2>&1; then
-      npm install -g @cursor-ai/agent
-    elif command -v brew >/dev/null 2>&1; then
-      brew install cursor-agent
-    else
-      say "Install cursor-agent manually: https://cursor.com"
-      return 1
-    fi
-  fi
-}
 
 cursor_invoke() { # $1=model $2=provider $3=prompt ; echoes output, returns rc
   local prompt="$3" rc=0 out=""

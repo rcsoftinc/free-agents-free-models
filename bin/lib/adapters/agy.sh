@@ -16,6 +16,8 @@ FA_agy_BINARY="agy"
 FA_agy_METERED=1
 FA_agy_VERIFIED_VERSION="1.5.0"
 FA_agy_VERSION_BIN="agy"
+FA_agy_INSTALL_URL="https://antigravity.google/cli/install.sh"
+FA_agy_BIN_DIR=".local/bin"
 
 AGY_TOKEN_FILE="${AGY_TOKEN_FILE:-$HOME/.gemini/antigravity-cli/antigravity-oauth-token}"
 
@@ -57,20 +59,6 @@ agy_caps() { printf 'web,code,research,reasoning,file'; }
 # Unverified guess: this project never confirmed agy's own login subcommand.
 # Says so rather than stating a guess as fact.
 agy_login_hint() { printf 'agy login   (unverified guess at the subcommand - if it errors, just run `agy` once and follow its Google OAuth prompt instead)'; }
-
-agy_install() { # -> 0 if install was run (or already installed)
-  command -v agy >/dev/null 2>&1 && return 1  # already installed
-  if [[ "${FA_AUTO_INSTALL:-0}" == "1" ]] || prompt_yn "agy not installed. Install now?"; then
-    if command -v pip3 >/dev/null 2>&1; then
-      pip3 install antigravity-cli
-    elif command -v brew >/dev/null 2>&1; then
-      brew install antigravity-cli
-    else
-      say "Install agy manually: pip3 install antigravity-cli"
-      return 1
-    fi
-  fi
-}
 
 agy_invoke() { # $1=model $2=provider $3=prompt ; echoes output, returns rc
   local model="$1" prompt="$3" rc=0 out=""

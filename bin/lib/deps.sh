@@ -4,7 +4,9 @@
 # "Ready." and then die on the first real command - the one failure mode that a
 # clean-install smoke test never trips.
 
-REQUIRED_DEPS=(jq curl flock sqlite3 timeout)
+# git: orch.sh builds every task in a worktree and commits what lands; run.sh
+# reads the project with it too. A machine without it fails at the first task.
+REQUIRED_DEPS=(jq curl flock sqlite3 timeout git)
 
 # echoes each missing dependency, one per line; empty output means all present.
 missing_deps() {

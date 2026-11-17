@@ -180,7 +180,7 @@ assert_true "age alone never reports STALE" '[[ "$out" != *"STALE"* ]]'
 # file exists - so every project silently committed its handoffs. One writer now.
 SP="$PROJ/setup-orch"; mkdir -p "$SP"
 cp "$REPO/setup.sh" "$TOOL/setup.sh"
-out="$(FREE_AGENTS_STATE="$PROJ/nostate" bash "$TOOL/setup.sh" --no-bootstrap "$SP" 2>&1)"
+out="$(FREE_AGENTS_STATE="$PROJ/nostate" bash "$TOOL/setup.sh" --no-bootstrap "$SP" 2>&1)"; rc=$?
 assert_true "setup seeds .orch/tasks.json" '[[ -f "$SP/.orch/tasks.json" ]]'
 for pat in journal.ndjson results/ handoffs/ '*.lock' jobs/; do
   assert_contains "setup's .orch/.gitignore excludes $pat" \
@@ -188,6 +188,18 @@ for pat in journal.ndjson results/ handoffs/ '*.lock' jobs/; do
 done
 assert_true "the ignore body is defined in orch.sh alone, not copied into setup.sh" \
   '[[ "$(grep -c "journal.ndjson" "$TOOL/setup.sh")" -eq 0 ]]'
+
+# With no registry and no bootstrap there is no lane, and setup says so instead
+# of "Ready." - the one word a person reads.
+assert_eq "no registry, no bootstrap: setup ends 1" "$rc" "1"
+assert_contains "and says it is not ready" "$out" "Not ready yet"
+assert_contains "with the command that builds the registry" "$out" "fa bootstrap"
+assert_not_contains "never Ready" "$out" "Ready."
+
+# The banner, from the registry bootstrapped above (one lane).
+out="$(FREE_AGENTS_STATE="$TOOL/state" bash "$TOOL/setup.sh" --no-bootstrap "$SP" 2>&1)"; rc=$?
+assert_eq "with a lane, setup ends 0" "$rc" "0"
+assert_contains "and is Ready" "$out" "Ready."
 
 # The "Ready." banner's agent list is BUILT from FA_AGENTS, not hand-typed - it
 # drifted once already (silently missing agy and pi ever since they were

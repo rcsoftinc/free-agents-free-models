@@ -512,6 +512,19 @@ case "$cmd" in
         "$(tr '\n' ' ' <<<"$unad")"
     fi
     echo
+    # Not a lane and not a dependency, so a note, never a failure: inside it fa
+    # shows a job per tab (bin/lib/herdr.sh), and setup offers it.
+    echo "optional"
+    for t in "${FA_OPTIONAL_TOOLS[@]}"; do
+      if adapter_installed "$t"; then
+        got="$("$t" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+        printf '  ok      %-9s %s%s\n' "$t" "${got:+$got - }" "$(adapter_field "$t" WHY)"
+      else
+        printf '  absent  %-9s optional - %s; setup offers it, or: curl -fsSL %s | %s\n' \
+          "$t" "$(adapter_field "$t" WHY)" "$(adapter_field "$t" INSTALL_URL)" "$(adapter_field "$t" INSTALL_SHELL)"
+      fi
+    done
+    echo
     echo "taxonomy self-test"
     if bash "${HERE}/lib/classify.sh" --self-test >/dev/null 2>&1; then echo "  ok      passes"
     else echo "  FAILED  bash bin/lib/classify.sh --self-test"; rc=1; fi

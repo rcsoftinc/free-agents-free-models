@@ -23,7 +23,9 @@
 # otherwise reported missing and offered again.
 #
 #   FA_AUTO_INSTALL=1   install every missing agent without asking (setup.sh
-#                       reads it for the system tools too)
+#                       reads it for the system tools too); the optional tools
+#                       (FA_OPTIONAL_TOOLS, bin/lib/herdr.sh) stay out unless
+#   FA_INSTALL_HERDR=1  (FA_INSTALL_<TOOL>=1) is set as well
 
 INSTALLED_NOW=()      # agents this run installed
 INSTALL_SKIPPED=()    # declined, or no installer known for the adapter
@@ -85,6 +87,26 @@ install_missing_agents() { # every agent not on PATH is offered its installer
     adapter_installed "$a" && continue
     say "$a: not installed"
     install_agent "$a" || true
+  done
+  return 0
+}
+
+# Optional tools, offered the same way and never needed: inside herdr every job
+# gets a tab, and fa runs the same without it. FA_AUTO_INSTALL=1 installs what fa
+# needs and leaves these out unless FA_INSTALL_<TOOL>=1 says so - a terminal
+# workspace is a preference, not a dependency, and nothing here installs one
+# unasked. Never a lane, so never in the verdict's "not installed" list.
+install_optional_tools() {
+  local t flag
+  for t in "${FA_OPTIONAL_TOOLS[@]}"; do
+    adapter_installed "$t" && continue
+    say "$t: not installed - optional: $(adapter_field "$t" WHY)"
+    flag="FA_INSTALL_${t^^}"
+    if [[ "${FA_AUTO_INSTALL:-0}" == "1" && "${!flag:-0}" != "1" ]]; then
+      say "  skipped: not something fa needs - ${flag}=1 with FA_AUTO_INSTALL=1 installs it"
+      INSTALL_SKIPPED+=("$t"); continue
+    fi
+    install_agent "$t" || true
   done
   return 0
 }

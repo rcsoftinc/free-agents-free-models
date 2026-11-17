@@ -89,8 +89,10 @@ say "project: $PROJECT"
 say "tool:    $HERE"
 
 # Agent CLIs: each one missing is offered its vendor's installer, and what is
-# installed goes on PATH for the rest of this run (bin/lib/install.sh).
+# installed goes on PATH for the rest of this run (bin/lib/install.sh). herdr is
+# offered after them, as optional.
 install_missing_agents
+install_optional_tools
 
 chmod +x "${HERE}"/bin/*.sh "${HERE}"/bin/lib/*.sh "${HERE}/bin/fa" \
          "${HERE}/setup.sh" 2>/dev/null || true
